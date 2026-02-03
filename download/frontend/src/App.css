@@ -1,0 +1,250 @@
+/* NeonPub Karaoke App Styles */
+
+/* Hero gradient background */
+.hero-gradient {
+  background: radial-gradient(ellipse at top, rgba(217, 70, 239, 0.15) 0%, transparent 50%),
+              radial-gradient(ellipse at bottom right, rgba(6, 182, 212, 0.1) 0%, transparent 50%),
+              #050505;
+}
+
+/* Card hover effects */
+.song-card {
+  transition: transform 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.song-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(217, 70, 239, 0.5);
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Button interactions */
+.btn-primary {
+  transition: box-shadow 0.2s ease, transform 0.1s ease;
+}
+
+.btn-primary:hover {
+  box-shadow: 0 0 25px rgba(217, 70, 239, 0.6);
+}
+
+.btn-primary:active {
+  transform: scale(0.98);
+}
+
+/* Emoji reaction button */
+.emoji-btn {
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.emoji-btn:hover {
+  transform: scale(1.2);
+  background-color: rgba(255, 255, 255, 0.15);
+}
+
+.emoji-btn:active {
+  transform: scale(0.9);
+}
+
+/* Star rating */
+.star-rating {
+  transition: transform 0.1s ease, color 0.1s ease;
+}
+
+.star-rating:hover {
+  transform: scale(1.1);
+}
+
+.star-rating.active {
+  color: #FACC15;
+}
+
+/* Mobile bottom navigation */
+.mobile-nav {
+  background: rgba(0, 0, 0, 0.9);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.mobile-nav-item {
+  transition: color 0.2s ease, transform 0.1s ease;
+}
+
+.mobile-nav-item:active {
+  transform: scale(0.95);
+}
+
+.mobile-nav-item.active {
+  color: #D946EF;
+}
+
+/* Admin sidebar */
+.admin-sidebar {
+  background: linear-gradient(180deg, #0A0A0A 0%, #050505 100%);
+}
+
+/* Queue item in admin */
+.queue-item {
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.queue-item:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.queue-item.dragging {
+  border-color: #D946EF;
+  background-color: rgba(217, 70, 239, 0.1);
+}
+
+/* Display screen ticker */
+.ticker-container {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.ticker-content {
+  display: inline-flex;
+  gap: 4rem;
+}
+
+/* Video container aspect ratio */
+.video-container {
+  position: relative;
+  width: 100%;
+  padding-bottom: 56.25%; /* 16:9 */
+  background: #000;
+}
+
+.video-container iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* Reactions overlay */
+.reactions-overlay {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  z-index: 100;
+}
+
+.floating-reaction {
+  position: absolute;
+  bottom: 100px;
+  font-size: 2rem;
+  pointer-events: none;
+}
+
+/* Quiz modal */
+.quiz-modal {
+  background: linear-gradient(135deg, rgba(18, 18, 18, 0.95) 0%, rgba(5, 5, 5, 0.98) 100%);
+  backdrop-filter: blur(20px);
+}
+
+.quiz-option {
+  transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.1s ease;
+}
+
+.quiz-option:hover {
+  background-color: rgba(217, 70, 239, 0.15);
+  border-color: rgba(217, 70, 239, 0.5);
+}
+
+.quiz-option:active {
+  transform: scale(0.98);
+}
+
+.quiz-option.correct {
+  background-color: rgba(34, 197, 94, 0.2);
+  border-color: #22C55E;
+}
+
+.quiz-option.wrong {
+  background-color: rgba(239, 68, 68, 0.2);
+  border-color: #EF4444;
+}
+
+/* Leaderboard item */
+.leaderboard-item {
+  transition: background-color 0.2s ease;
+}
+
+.leaderboard-item:nth-child(1) {
+  background: linear-gradient(90deg, rgba(250, 204, 21, 0.1) 0%, transparent 100%);
+}
+
+.leaderboard-item:nth-child(2) {
+  background: linear-gradient(90deg, rgba(192, 192, 192, 0.1) 0%, transparent 100%);
+}
+
+.leaderboard-item:nth-child(3) {
+  background: linear-gradient(90deg, rgba(205, 127, 50, 0.1) 0%, transparent 100%);
+}
+
+/* QR Code container */
+.qr-container {
+  background: white;
+  padding: 12px;
+  border-radius: 12px;
+}
+
+/* Effect overlays */
+.effect-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 200;
+}
+
+.effect-emoji-burst {
+  font-size: 4rem;
+  position: absolute;
+  animation: burst 1.5s ease-out forwards;
+}
+
+@keyframes burst {
+  0% {
+    opacity: 1;
+    transform: scale(0.5);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.5);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2);
+  }
+}
+
+/* Loading spinner */
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(217, 70, 239, 0.2);
+  border-top-color: #D946EF;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Input focus states */
+input:focus, textarea:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(217, 70, 239, 0.3);
+}
+
+/* Tab indicator animation */
+.tab-indicator {
+  transition: left 0.3s ease, width 0.3s ease;
+}
