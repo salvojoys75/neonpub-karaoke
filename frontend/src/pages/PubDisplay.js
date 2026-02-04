@@ -418,7 +418,7 @@ export default function PubDisplay() {
   }, [loadData]);
 
   // QR URL includes the pub code for direct join
-  const joinUrl = `https://neonpub-karaoke.vercel.app/p/${pubCode}`;
+  const joinUrl = `https://neonpub-karaoke.pages.dev/p/${pubCode}`;
   const currentPerf = displayData?.current_performance;
   const hasVideo = currentPerf?.youtube_url && extractVideoId(currentPerf.youtube_url);
 
