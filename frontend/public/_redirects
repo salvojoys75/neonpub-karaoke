@@ -1,1 +1,5 @@
-/*    /index.html   200
+# Short URL redirects for QR codes
+/p/:code  /?code=:code  200
+
+# SPA fallback - must be last
+/*  /index.html  200

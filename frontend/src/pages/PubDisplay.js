@@ -418,7 +418,7 @@ export default function PubDisplay() {
   }, [loadData]);
 
   // QR URL includes the pub code for direct join
-  const joinUrl = `https://spiffy-taiyaki-31d5db.netlify.app/?code=${pubCode}`;
+  const joinUrl = `https://spiffy-taiyaki-31d5db.netlify.app/p/${pubCode}`;
   const currentPerf = displayData?.current_performance;
   const hasVideo = currentPerf?.youtube_url && extractVideoId(currentPerf.youtube_url);
 
