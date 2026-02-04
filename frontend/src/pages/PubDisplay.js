@@ -21,7 +21,8 @@ export default function PubDisplay() {
   const lastQuizIdRef = useRef(null);
 
 
-  const API_URL = process.env.REACT_APP_BACKEND_URL;
+  const API_URL = "https://neonpub-karaoke.onrender.com";
+
 
   // Extract video ID from YouTube URL
   const extractVideoId = (url) => {
