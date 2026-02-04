@@ -30,88 +30,11 @@ JWT_ALGORITHM = "HS256"
 
 # YouTube API
 YOUTUBE_API_KEY = os.environ.get('YOUTUBE_API_KEY', '')
-OFFLINE_MODE = os.environ.get('OFFLINE_MODE', 'false').lower() == 'true'
 
 # Create the main app
 app = FastAPI(title="NeonPub Karaoke API")
 api_router = APIRouter(prefix="/api")
 security = HTTPBearer(auto_error=False)
-
-# ============== MOCK YOUTUBE DATA FOR OFFLINE MODE ==============
-
-MOCK_YOUTUBE_VIDEOS = {
-    "bohemian rhapsody": [
-        {
-            "title": "Queen - Bohemian Rhapsody (Official Video Remastered)",
-            "channel": "Queen Official",
-            "thumbnail": "https://i.ytimg.com/vi/fJ9rUzIMcZQ/default.jpg",
-            "url": "https://www.youtube.com/watch?v=fJ9rUzIMcZQ",
-            "duration": "5:55"
-        },
-        {
-            "title": "Queen - Bohemian Rhapsody (Karaoke Version)",
-            "channel": "Karaoke World",
-            "thumbnail": "https://i.ytimg.com/vi/mock1/default.jpg",
-            "url": "https://www.youtube.com/watch?v=mock1",
-            "duration": "5:55"
-        }
-    ],
-    "hotel california": [
-        {
-            "title": "Eagles - Hotel California (Official Video)",
-            "channel": "Eagles",
-            "thumbnail": "https://i.ytimg.com/vi/BciS5krYL80/default.jpg",
-            "url": "https://www.youtube.com/watch?v=BciS5krYL80",
-            "duration": "6:30"
-        }
-    ],
-    "imagine": [
-        {
-            "title": "John Lennon - Imagine (Official Video)",
-            "channel": "John Lennon",
-            "thumbnail": "https://i.ytimg.com/vi/YkgkThdzX-8/default.jpg",
-            "url": "https://www.youtube.com/watch?v=YkgkThdzX-8",
-            "duration": "3:03"
-        }
-    ],
-    "azzurro": [
-        {
-            "title": "Adriano Celentano - Azzurro",
-            "channel": "Adriano Celentano Official",
-            "thumbnail": "https://i.ytimg.com/vi/mock_azzurro/default.jpg",
-            "url": "https://www.youtube.com/watch?v=mock_azzurro",
-            "duration": "3:45"
-        }
-    ],
-    "default": [
-        {
-            "title": "Karaoke - {search_term}",
-            "channel": "Karaoke Channel",
-            "thumbnail": "https://i.ytimg.com/vi/default/default.jpg",
-            "url": "https://www.youtube.com/watch?v=default_video",
-            "duration": "3:30"
-        }
-    ]
-}
-
-def search_mock_youtube(query: str, max_results: int = 5):
-    """Mock YouTube search for offline development"""
-    query_lower = query.lower()
-    
-    # Try to find matching mock data
-    for key, videos in MOCK_YOUTUBE_VIDEOS.items():
-        if key in query_lower:
-            return videos[:max_results]
-    
-    # Return default mock results
-    default_videos = []
-    for i in range(min(max_results, 3)):
-        video = MOCK_YOUTUBE_VIDEOS["default"][0].copy()
-        video["title"] = video["title"].replace("{search_term}", query)
-        video["url"] = f"https://www.youtube.com/watch?v=mock_{i}"
-        default_videos.append(video)
-    
-    return default_videos
 
 # WebSocket Connection Manager
 class ConnectionManager:
@@ -142,7 +65,7 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-# ============== MODELS (same as original) ==============
+# ============== MODELS ==============
 
 class PubCreate(BaseModel):
     name: str
@@ -233,156 +156,272 @@ class PresetQuizCategory(BaseModel):
     icon: str
     questions_count: int
 
-# Note: PRESET_QUIZZES data would go here (same as original file, lines 161-218)
-# Shortened for brevity - copy from original
+# ============== PRESET QUIZ DATA ==============
+
+PRESET_QUIZZES = {
+    "anni80": {
+        "name": "Successi Anni '80",
+        "description": "I grandi classici degli anni '80",
+        "icon": "📻",
+        "questions": [
+            {"question": "Chi ha cantato 'Thriller'?", "options": ["Michael Jackson", "Prince", "Madonna", "Whitney Houston"], "correct_index": 0},
+            {"question": "Quale band ha cantato 'Take On Me'?", "options": ["Depeche Mode", "A-ha", "Duran Duran", "Pet Shop Boys"], "correct_index": 1},
+            {"question": "'Don't Stop Believin' è una canzone di...?", "options": ["Bon Jovi", "Journey", "Foreigner", "REO Speedwagon"], "correct_index": 1},
+            {"question": "Chi ha cantato 'Like a Virgin'?", "options": ["Cyndi Lauper", "Whitney Houston", "Madonna", "Janet Jackson"], "correct_index": 2},
+            {"question": "'Every Breath You Take' è dei...?", "options": ["U2", "The Police", "The Cure", "Depeche Mode"], "correct_index": 1},
+        ]
+    },
+    "anni90": {
+        "name": "Successi Anni '90",
+        "description": "Le hit che hanno segnato i '90",
+        "icon": "💿",
+        "questions": [
+            {"question": "Chi ha cantato 'Smells Like Teen Spirit'?", "options": ["Pearl Jam", "Nirvana", "Soundgarden", "Alice in Chains"], "correct_index": 1},
+            {"question": "'...Baby One More Time' è di...?", "options": ["Christina Aguilera", "Britney Spears", "Jessica Simpson", "Mandy Moore"], "correct_index": 1},
+            {"question": "Quale band ha cantato 'Wonderwall'?", "options": ["Blur", "Radiohead", "Oasis", "Pulp"], "correct_index": 2},
+            {"question": "'I Will Always Love You' versione famosa è di...?", "options": ["Mariah Carey", "Celine Dion", "Whitney Houston", "Toni Braxton"], "correct_index": 2},
+            {"question": "Chi ha cantato 'Macarena'?", "options": ["Los Del Rio", "Ricky Martin", "Enrique Iglesias", "Chayanne"], "correct_index": 0},
+        ]
+    },
+    "anni2000": {
+        "name": "Successi Anni 2000",
+        "description": "Le hit del nuovo millennio",
+        "icon": "📱",
+        "questions": [
+            {"question": "Chi ha cantato 'Crazy in Love'?", "options": ["Rihanna", "Beyoncé", "Alicia Keys", "Mary J. Blige"], "correct_index": 1},
+            {"question": "'In the End' è dei...?", "options": ["Linkin Park", "Evanescence", "Three Days Grace", "Breaking Benjamin"], "correct_index": 0},
+            {"question": "Chi ha cantato 'Toxic'?", "options": ["Christina Aguilera", "Pink", "Britney Spears", "Shakira"], "correct_index": 2},
+            {"question": "'Hey Ya!' è di...?", "options": ["Black Eyed Peas", "OutKast", "Kanye West", "Pharrell"], "correct_index": 1},
+            {"question": "Chi ha cantato 'Umbrella'?", "options": ["Beyoncé", "Lady Gaga", "Rihanna", "Katy Perry"], "correct_index": 2},
+        ]
+    },
+    "italiane": {
+        "name": "Canzoni Italiane",
+        "description": "I classici della musica italiana",
+        "icon": "🇮🇹",
+        "questions": [
+            {"question": "Chi ha cantato 'Nel blu dipinto di blu'?", "options": ["Adriano Celentano", "Domenico Modugno", "Gianni Morandi", "Lucio Battisti"], "correct_index": 1},
+            {"question": "'La canzone del sole' è di...?", "options": ["Lucio Dalla", "Lucio Battisti", "Francesco De Gregori", "Fabrizio De André"], "correct_index": 1},
+            {"question": "Chi ha cantato 'Pensieri e Parole'?", "options": ["Mina", "Patty Pravo", "Ornella Vanoni", "Lucio Battisti"], "correct_index": 3},
+            {"question": "'Bocca di Rosa' è di...?", "options": ["Francesco De Gregori", "Fabrizio De André", "Francesco Guccini", "Giorgio Gaber"], "correct_index": 1},
+            {"question": "Chi ha cantato 'Azzurro'?", "options": ["Gianni Morandi", "Adriano Celentano", "Lucio Dalla", "Mina"], "correct_index": 1},
+        ]
+    },
+    "rock": {
+        "name": "Rock Legends",
+        "description": "I mostri sacri del rock",
+        "icon": "🎸",
+        "questions": [
+            {"question": "'Stairway to Heaven' è dei...?", "options": ["Pink Floyd", "Led Zeppelin", "Deep Purple", "Black Sabbath"], "correct_index": 1},
+            {"question": "Chi ha cantato 'Bohemian Rhapsody'?", "options": ["Queen", "The Beatles", "Rolling Stones", "The Who"], "correct_index": 0},
+            {"question": "'Hotel California' è degli...?", "options": ["Eagles", "Fleetwood Mac", "The Doors", "Creedence"], "correct_index": 0},
+            {"question": "Chi ha cantato 'Sweet Child O' Mine'?", "options": ["Aerosmith", "Van Halen", "Guns N' Roses", "Bon Jovi"], "correct_index": 2},
+            {"question": "'Smoke on the Water' è dei...?", "options": ["Black Sabbath", "Deep Purple", "Led Zeppelin", "Iron Maiden"], "correct_index": 1},
+        ]
+    },
+    "pop_moderno": {
+        "name": "Pop Moderno",
+        "description": "Le hit più recenti",
+        "icon": "🎧",
+        "questions": [
+            {"question": "Chi ha cantato 'Bad Guy'?", "options": ["Dua Lipa", "Billie Eilish", "Ariana Grande", "Olivia Rodrigo"], "correct_index": 1},
+            {"question": "'Shape of You' è di...?", "options": ["Justin Bieber", "Ed Sheeran", "Shawn Mendes", "Bruno Mars"], "correct_index": 1},
+            {"question": "Chi ha cantato 'Blinding Lights'?", "options": ["Daft Punk", "The Weeknd", "Post Malone", "Drake"], "correct_index": 1},
+            {"question": "'drivers license' è di...?", "options": ["Billie Eilish", "Taylor Swift", "Olivia Rodrigo", "Dua Lipa"], "correct_index": 2},
+            {"question": "Chi ha cantato 'Uptown Funk'?", "options": ["Justin Timberlake", "Bruno Mars", "Pharrell", "Chris Brown"], "correct_index": 1},
+        ]
+    }
+}
 
 # ============== AUTH HELPERS ==============
 
 def create_token(data: dict) -> str:
     return jwt.encode(data, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
-def verify_token(token: str) -> dict:
+def decode_token(token: str) -> dict:
     try:
         return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
     except:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        return None
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     if not credentials:
-        raise HTTPException(status_code=401, detail="Missing token")
-    return verify_token(credentials.credentials)
+        raise HTTPException(status_code=401, detail="Token required")
+    payload = decode_token(credentials.credentials)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return payload
 
 async def get_admin_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    user = verify_token(credentials.credentials)
+    user = await get_current_user(credentials)
     if not user.get("is_admin"):
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
-
-def generate_pub_code() -> str:
-    import random, string
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
 # ============== PUB ENDPOINTS ==============
 
 @api_router.post("/pub/create", response_model=PubResponse)
 async def create_pub(pub_data: PubCreate):
-    code = generate_pub_code()
-    while await db.pubs.find_one({"code": code}):
-        code = generate_pub_code()
-    
-    hashed_pw = bcrypt.hashpw(pub_data.admin_password.encode(), bcrypt.gensalt())
+    pub_code = str(uuid.uuid4())[:8].upper()
+    hashed_password = bcrypt.hashpw(pub_data.admin_password.encode(), bcrypt.gensalt()).decode()
     
     pub_doc = {
         "id": str(uuid.uuid4()),
         "name": pub_data.name,
-        "code": code,
-        "admin_password": hashed_pw.decode(),
+        "code": pub_code,
+        "admin_password": hashed_password,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "settings": {
-            "max_queue_per_user": 2,
-            "voting_enabled": True,
-            "chat_enabled": True
-        }
+        "current_performance_id": None,
+        "is_active": True
     }
     
     await db.pubs.insert_one(pub_doc)
-    return {k: v for k, v in pub_doc.items() if k not in ["_id", "admin_password"]}
+    return PubResponse(
+        id=pub_doc["id"],
+        name=pub_doc["name"],
+        code=pub_doc["code"],
+        created_at=pub_doc["created_at"]
+    )
 
-@api_router.post("/pub/join", response_model=TokenResponse)
-async def join_pub(join_data: UserJoin):
-    pub = await db.pubs.find_one({"code": join_data.pub_code.upper()}, {"_id": 0})
+@api_router.get("/pub/{pub_code}", response_model=PubResponse)
+async def get_pub(pub_code: str):
+    pub = await db.pubs.find_one({"code": pub_code.upper()}, {"_id": 0, "admin_password": 0})
+    if not pub:
+        raise HTTPException(status_code=404, detail="Pub not found")
+    return PubResponse(**pub)
+
+# ============== AUTH ENDPOINTS ==============
+
+@api_router.post("/auth/join", response_model=TokenResponse)
+async def join_pub(data: UserJoin):
+    pub = await db.pubs.find_one({"code": data.pub_code.upper()}, {"_id": 0})
     if not pub:
         raise HTTPException(status_code=404, detail="Pub not found")
     
+    user_id = str(uuid.uuid4())
     user_doc = {
-        "id": str(uuid.uuid4()),
+        "id": user_id,
         "pub_id": pub["id"],
-        "nickname": join_data.nickname,
+        "nickname": data.nickname,
         "is_admin": False,
-        "score": 0,
-        "joined_at": datetime.now(timezone.utc).isoformat()
+        "joined_at": datetime.now(timezone.utc).isoformat(),
+        "score": 0
     }
     
     await db.users.insert_one(user_doc)
     
-    token_data = {
-        "user_id": user_doc["id"],
-        "pub_id": pub["id"],
-        "nickname": user_doc["nickname"],
-        "is_admin": False
-    }
+    # Create index to ensure score field exists
+    await db.users.create_index("pub_id")
     
-    token = create_token(token_data)
-    return {"token": token, "user": {k: v for k, v in user_doc.items() if k != "_id"}}
+    token = create_token({
+        "user_id": user_id,
+        "pub_id": pub["id"],
+        "nickname": data.nickname,
+        "is_admin": False
+    })
+    
+    return TokenResponse(token=token, user={
+        "id": user_id,
+        "nickname": data.nickname,
+        "pub_id": pub["id"],
+        "pub_name": pub["name"],
+        "is_admin": False
+    })
 
-@api_router.post("/admin/login", response_model=TokenResponse)
-async def admin_login(login_data: AdminLogin):
-    pub = await db.pubs.find_one({"code": login_data.pub_code.upper()}, {"_id": 0})
+@api_router.post("/auth/admin", response_model=TokenResponse)
+async def admin_login(data: AdminLogin):
+    pub = await db.pubs.find_one({"code": data.pub_code.upper()}, {"_id": 0})
     if not pub:
         raise HTTPException(status_code=404, detail="Pub not found")
     
-    if not bcrypt.checkpw(login_data.password.encode(), pub["admin_password"].encode()):
+    if not bcrypt.checkpw(data.password.encode(), pub["admin_password"].encode()):
         raise HTTPException(status_code=401, detail="Invalid password")
     
-    token_data = {
-        "user_id": "admin",
+    token = create_token({
+        "user_id": "admin-" + pub["id"],
         "pub_id": pub["id"],
         "nickname": "Admin",
         "is_admin": True
+    })
+    
+    return TokenResponse(token=token, user={
+        "id": "admin-" + pub["id"],
+        "nickname": "Admin",
+        "pub_id": pub["id"],
+        "pub_name": pub["name"],
+        "is_admin": True
+    })
+
+@api_router.get("/auth/me")
+async def get_me(user: dict = Depends(get_current_user)):
+    return user
+
+# ============== SONG REQUEST ENDPOINTS ==============
+
+@api_router.post("/songs/request", response_model=SongRequestResponse)
+async def request_song(song_data: SongRequestCreate, user: dict = Depends(get_current_user)):
+    queue_count = await db.song_requests.count_documents({
+        "pub_id": user["pub_id"],
+        "status": {"$in": ["pending", "queued"]}
+    })
+    
+    request_doc = {
+        "id": str(uuid.uuid4()),
+        "pub_id": user["pub_id"],
+        "user_id": user["user_id"],
+        "user_nickname": user["nickname"],
+        "title": song_data.title,
+        "artist": song_data.artist,
+        "youtube_url": song_data.youtube_url,
+        "status": "pending",  # Starts as pending - admin must approve
+        "position": queue_count + 1,
+        "created_at": datetime.now(timezone.utc).isoformat()
     }
     
-    token = create_token(token_data)
-    return {"token": token, "user": {"id": "admin", "pub_id": pub["id"], "nickname": "Admin", "is_admin": True}}
+    await db.song_requests.insert_one(request_doc)
+    
+    # Broadcast new request to admin
+    await manager.broadcast(user["pub_id"], {
+        "type": "new_request",
+        "data": {k: v for k, v in request_doc.items() if k != "_id"}
+    })
+    
+    return SongRequestResponse(**request_doc)
 
-@api_router.get("/pub/info")
-async def get_pub_info(user: dict = Depends(get_current_user)):
-    pub = await db.pubs.find_one({"id": user["pub_id"]}, {"_id": 0, "admin_password": 0})
-    if not pub:
-        raise HTTPException(status_code=404, detail="Pub not found")
-    return pub
+@api_router.get("/songs/queue", response_model=List[SongRequestResponse])
+async def get_song_queue(user: dict = Depends(get_current_user)):
+    requests = await db.song_requests.find(
+        {"pub_id": user["pub_id"], "status": {"$in": ["pending", "queued"]}},
+        {"_id": 0}
+    ).sort("position", 1).to_list(100)
+    return requests
 
-# ============== YOUTUBE SEARCH - OFFLINE VERSION ==============
+@api_router.get("/songs/my-requests", response_model=List[SongRequestResponse])
+async def get_my_requests(user: dict = Depends(get_current_user)):
+    requests = await db.song_requests.find(
+        {"pub_id": user["pub_id"], "user_id": user["user_id"]},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(50)
+    return requests
+
+# ============== YOUTUBE SEARCH ==============
 
 @api_router.get("/youtube/search")
-async def search_youtube(
-    title: str = Query(...),
-    artist: str = Query(None),
-    admin: dict = Depends(get_admin_user)
-):
-    """
-    Search YouTube for karaoke videos.
-    In OFFLINE_MODE, returns mock data instead of real API calls.
-    """
-    
-    if OFFLINE_MODE:
-        # OFFLINE MODE: Use mock data
-        logging.info(f"🔌 OFFLINE MODE: Searching mock data for '{title}' by '{artist}'")
-        
-        search_query = f"{title} {artist}" if artist else title
-        mock_results = search_mock_youtube(search_query)
-        
-        return {
-            "results": mock_results,
-            "mode": "offline",
-            "message": "Using mock data - OFFLINE_MODE enabled"
-        }
-    
-    # ONLINE MODE: Real YouTube API
+async def search_youtube_karaoke(title: str, artist: str = "", admin: dict = Depends(get_admin_user)):
+    """Search YouTube for karaoke version of a song"""
     if not YOUTUBE_API_KEY:
-        raise HTTPException(
-            status_code=503, 
-            detail="YouTube API key not configured. Set OFFLINE_MODE=true in .env for offline development"
-        )
+        raise HTTPException(status_code=500, detail="YouTube API key not configured")
     
-    search_query = f"{title} {artist} karaoke" if artist else f"{title} karaoke"
+    # Build search query
+    query = f"{title} {artist} karaoke".strip()
     
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
+        async with httpx.AsyncClient() as http:
+            response = await http.get(
                 "https://www.googleapis.com/youtube/v3/search",
                 params={
                     "part": "snippet",
-                    "q": search_query,
+                    "q": query,
                     "type": "video",
                     "maxResults": 5,
                     "key": YOUTUBE_API_KEY
@@ -391,128 +430,94 @@ async def search_youtube(
             )
             
             if response.status_code != 200:
-                raise HTTPException(status_code=response.status_code, detail="YouTube API error")
+                raise HTTPException(status_code=500, detail=f"YouTube API error: {response.text}")
             
             data = response.json()
             results = []
             
             for item in data.get("items", []):
+                video_id = item["id"]["videoId"]
                 snippet = item["snippet"]
                 results.append({
+                    "video_id": video_id,
                     "title": snippet["title"],
+                    "thumbnail": snippet["thumbnails"]["medium"]["url"],
                     "channel": snippet["channelTitle"],
-                    "thumbnail": snippet["thumbnails"]["default"]["url"],
-                    "url": f"https://www.youtube.com/watch?v={item['id']['videoId']}",
-                    "duration": "N/A"
+                    "url": f"https://www.youtube.com/watch?v={video_id}"
                 })
             
-            return {"results": results, "mode": "online"}
+            return {"results": results, "query": query}
             
     except httpx.RequestError as e:
-        raise HTTPException(status_code=503, detail=f"Network error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Network error: {str(e)}")
 
-# ============== SONG REQUESTS ==============
+# ============== ADMIN QUEUE MANAGEMENT ==============
 
-@api_router.post("/songs/request", response_model=SongRequestResponse)
-async def request_song(song_data: SongRequestCreate, user: dict = Depends(get_current_user)):
-    pub = await db.pubs.find_one({"id": user["pub_id"]}, {"_id": 0})
-    if not pub:
-        raise HTTPException(status_code=404, detail="Pub not found")
+@api_router.post("/admin/queue/approve/{request_id}")
+async def approve_request(request_id: str, admin: dict = Depends(get_admin_user)):
+    result = await db.song_requests.update_one(
+        {"id": request_id, "pub_id": admin["pub_id"]},
+        {"$set": {"status": "queued"}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Request not found")
     
-    user_queue_count = await db.song_requests.count_documents({
-        "pub_id": user["pub_id"],
-        "user_id": user["user_id"],
-        "status": "queued"
-    })
+    await manager.broadcast(admin["pub_id"], {"type": "queue_updated"})
+    return {"status": "approved"}
+
+@api_router.post("/admin/queue/reject/{request_id}")
+async def reject_request(request_id: str, admin: dict = Depends(get_admin_user)):
+    result = await db.song_requests.update_one(
+        {"id": request_id, "pub_id": admin["pub_id"]},
+        {"$set": {"status": "rejected"}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Request not found")
     
-    max_per_user = pub.get("settings", {}).get("max_queue_per_user", 2)
-    if user_queue_count >= max_per_user:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Maximum {max_per_user} songs in queue per user"
+    await manager.broadcast(admin["pub_id"], {"type": "queue_updated"})
+    return {"status": "rejected"}
+
+@api_router.post("/admin/queue/reorder")
+async def reorder_queue(order: List[str], admin: dict = Depends(get_admin_user)):
+    for i, request_id in enumerate(order):
+        await db.song_requests.update_one(
+            {"id": request_id, "pub_id": admin["pub_id"]},
+            {"$set": {"position": i + 1}}
         )
     
-    last_song = await db.song_requests.find_one(
-        {"pub_id": user["pub_id"], "status": "queued"},
-        {"_id": 0},
-        sort=[("position", -1)]
-    )
-    next_position = (last_song["position"] + 1) if last_song else 1
-    
-    song_doc = {
-        "id": str(uuid.uuid4()),
-        "pub_id": user["pub_id"],
-        "user_id": user["user_id"],
-        "user_nickname": user["nickname"],
-        "title": song_data.title,
-        "artist": song_data.artist,
-        "youtube_url": song_data.youtube_url,
-        "status": "queued",
-        "position": next_position,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    
-    await db.song_requests.insert_one(song_doc)
-    
-    await manager.broadcast(user["pub_id"], {
-        "type": "queue_updated",
-        "data": {k: v for k, v in song_doc.items() if k != "_id"}
-    })
-    
-    return {k: v for k, v in song_doc.items() if k != "_id"}
+    await manager.broadcast(admin["pub_id"], {"type": "queue_updated"})
+    return {"status": "reordered"}
 
-@api_router.get("/songs/queue", response_model=List[SongRequestResponse])
-async def get_queue(user: dict = Depends(get_current_user)):
-    songs = await db.song_requests.find(
-        {"pub_id": user["pub_id"], "status": "queued"},
-        {"_id": 0}
-    ).sort("position", 1).to_list(100)
-    return songs
+# ============== PERFORMANCE ENDPOINTS ==============
 
-@api_router.delete("/songs/{song_id}")
-async def delete_song_request(song_id: str, user: dict = Depends(get_current_user)):
-    song = await db.song_requests.find_one({"id": song_id}, {"_id": 0})
-    if not song:
-        raise HTTPException(status_code=404, detail="Song request not found")
+@api_router.post("/admin/performance/start/{request_id}")
+async def start_performance(request_id: str, youtube_url: str = Query(None), admin: dict = Depends(get_admin_user)):
+    request = await db.song_requests.find_one({"id": request_id, "pub_id": admin["pub_id"]}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
     
-    if song["user_id"] != user["user_id"] and not user.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Not authorized")
-    
-    await db.song_requests.delete_one({"id": song_id})
-    
-    await manager.broadcast(song["pub_id"], {
-        "type": "song_deleted",
-        "data": {"song_id": song_id}
-    })
-    
-    return {"status": "deleted"}
-
-# ============== PERFORMANCES ==============
-
-@api_router.post("/admin/performance/start/{song_id}", response_model=PerformanceResponse)
-async def start_performance(song_id: str, admin: dict = Depends(get_admin_user)):
-    song = await db.song_requests.find_one({"id": song_id, "pub_id": admin["pub_id"]}, {"_id": 0})
-    if not song:
-        raise HTTPException(status_code=404, detail="Song request not found")
-    
-    await db.song_requests.update_one({"id": song_id}, {"$set": {"status": "performing"}})
+    # Use provided URL or the one from the request
+    final_youtube_url = youtube_url or request.get("youtube_url")
     
     performance_doc = {
         "id": str(uuid.uuid4()),
         "pub_id": admin["pub_id"],
-        "user_id": song["user_id"],
-        "user_nickname": song["user_nickname"],
-        "song_title": song["title"],
-        "song_artist": song["artist"],
-        "youtube_url": song.get("youtube_url"),
-        "status": "active",
+        "request_id": request_id,
+        "user_id": request["user_id"],
+        "user_nickname": request["user_nickname"],
+        "song_title": request["title"],
+        "song_artist": request["artist"],
+        "youtube_url": final_youtube_url,
+        "status": "live",
         "average_score": 0,
         "vote_count": 0,
+        "voting_open": False,
         "started_at": datetime.now(timezone.utc).isoformat(),
         "ended_at": None
     }
     
     await db.performances.insert_one(performance_doc)
+    await db.song_requests.update_one({"id": request_id}, {"$set": {"status": "performing"}})
     await db.pubs.update_one({"id": admin["pub_id"]}, {"$set": {"current_performance_id": performance_doc["id"]}})
     
     await manager.broadcast(admin["pub_id"], {
@@ -522,49 +527,187 @@ async def start_performance(song_id: str, admin: dict = Depends(get_admin_user))
     
     return {k: v for k, v in performance_doc.items() if k != "_id"}
 
+@api_router.post("/admin/performance/pause/{performance_id}")
+async def pause_performance(performance_id: str, admin: dict = Depends(get_admin_user)):
+    """Pause current performance"""
+    await db.performances.update_one(
+        {"id": performance_id, "pub_id": admin["pub_id"]},
+        {"$set": {"status": "paused"}}
+    )
+    
+    await manager.broadcast(admin["pub_id"], {
+        "type": "performance_paused",
+        "data": {"performance_id": performance_id}
+    })
+    
+    return {"status": "paused"}
+
+@api_router.post("/admin/performance/resume/{performance_id}")
+async def resume_performance(performance_id: str, admin: dict = Depends(get_admin_user)):
+    """Resume paused performance"""
+    await db.performances.update_one(
+        {"id": performance_id, "pub_id": admin["pub_id"]},
+        {"$set": {"status": "live"}}
+    )
+    
+    await manager.broadcast(admin["pub_id"], {
+        "type": "performance_resumed",
+        "data": {"performance_id": performance_id}
+    })
+    
+    return {"status": "resumed"}
+
+@api_router.post("/admin/performance/restart/{performance_id}")
+async def restart_performance(performance_id: str, admin: dict = Depends(get_admin_user)):
+    """Restart performance from beginning"""
+    await db.performances.update_one(
+        {"id": performance_id, "pub_id": admin["pub_id"]},
+        {"$set": {"status": "live", "started_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    performance = await db.performances.find_one({"id": performance_id}, {"_id": 0})
+    
+    await manager.broadcast(admin["pub_id"], {
+        "type": "performance_restarted",
+        "data": performance
+    })
+    
+    return {"status": "restarted"}
+
+@api_router.post("/admin/performance/open-voting/{performance_id}")
+async def open_voting(performance_id: str, admin: dict = Depends(get_admin_user)):
+    """Open voting without ending performance"""
+    await db.performances.update_one(
+        {"id": performance_id, "pub_id": admin["pub_id"]},
+        {"$set": {"voting_open": True}}
+    )
+    
+    performance = await db.performances.find_one({"id": performance_id}, {"_id": 0})
+    
+    await manager.broadcast(admin["pub_id"], {
+        "type": "voting_opened",
+        "data": {"performance_id": performance_id, "performance": performance}
+    })
+    
+    return {"status": "voting_opened"}
+
 @api_router.post("/admin/performance/end/{performance_id}")
 async def end_performance(performance_id: str, admin: dict = Depends(get_admin_user)):
+    """End performance and open voting"""
     performance = await db.performances.find_one({"id": performance_id, "pub_id": admin["pub_id"]}, {"_id": 0})
     if not performance:
         raise HTTPException(status_code=404, detail="Performance not found")
     
-    votes = await db.votes.find({"performance_id": performance_id}, {"_id": 0}).to_list(1000)
-    avg_score = sum(v["score"] for v in votes) / len(votes) if votes else 0
+    await db.performances.update_one(
+        {"id": performance_id},
+        {"$set": {"status": "voting", "voting_open": True, "ended_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    await db.song_requests.update_one({"id": performance["request_id"]}, {"$set": {"status": "completed"}})
+    
+    updated_perf = await db.performances.find_one({"id": performance_id}, {"_id": 0})
+    
+    await manager.broadcast(admin["pub_id"], {
+        "type": "voting_started",
+        "data": {"performance_id": performance_id, "performance": updated_perf}
+    })
+    
+    return {"status": "voting_started"}
+
+@api_router.post("/admin/performance/finish/{performance_id}")
+async def finish_performance_no_voting(performance_id: str, admin: dict = Depends(get_admin_user)):
+    """End performance WITHOUT opening voting - just finish it"""
+    performance = await db.performances.find_one({"id": performance_id, "pub_id": admin["pub_id"]}, {"_id": 0})
+    if not performance:
+        raise HTTPException(status_code=404, detail="Performance not found")
     
     await db.performances.update_one(
         {"id": performance_id},
-        {"$set": {
-            "status": "completed",
-            "ended_at": datetime.now(timezone.utc).isoformat(),
-            "average_score": avg_score,
-            "vote_count": len(votes)
-        }}
+        {"$set": {"status": "completed", "voting_open": False, "ended_at": datetime.now(timezone.utc).isoformat()}}
     )
-    
+    await db.song_requests.update_one({"id": performance["request_id"]}, {"$set": {"status": "completed"}})
     await db.pubs.update_one({"id": admin["pub_id"]}, {"$set": {"current_performance_id": None}})
     
-    song_id = None
-    song = await db.song_requests.find_one(
-        {"user_id": performance["user_id"], "title": performance["song_title"], "status": "performing"},
-        {"_id": 0}
+    await manager.broadcast(admin["pub_id"], {
+        "type": "performance_finished",
+        "data": {"performance_id": performance_id, "message": "Esibizione terminata"}
+    })
+    
+    return {"status": "finished"}
+
+@api_router.post("/admin/performance/close-voting/{performance_id}")
+async def close_voting(performance_id: str, admin: dict = Depends(get_admin_user)):
+    await db.performances.update_one(
+        {"id": performance_id, "pub_id": admin["pub_id"]},
+        {"$set": {"status": "completed", "voting_open": False}}
     )
-    if song:
-        song_id = song["id"]
-        await db.song_requests.update_one({"id": song_id}, {"$set": {"status": "completed"}})
+    await db.pubs.update_one({"id": admin["pub_id"]}, {"$set": {"current_performance_id": None}})
+    
+    performance = await db.performances.find_one({"id": performance_id}, {"_id": 0})
     
     await manager.broadcast(admin["pub_id"], {
-        "type": "performance_ended",
+        "type": "voting_closed",
         "data": {
             "performance_id": performance_id,
-            "average_score": avg_score,
-            "vote_count": len(votes)
+            "average_score": performance.get("average_score", 0),
+            "vote_count": performance.get("vote_count", 0)
         }
     })
     
-    return {"status": "ended", "average_score": avg_score, "vote_count": len(votes)}
+    return {"status": "completed"}
 
-@api_router.post("/vote")
-async def vote_performance(vote_data: VoteCreate, user: dict = Depends(get_current_user)):
+@api_router.post("/admin/performance/next")
+async def next_performance(admin: dict = Depends(get_admin_user)):
+    """Skip to next queued song"""
+    # Close current performance if exists
+    pub = await db.pubs.find_one({"id": admin["pub_id"]}, {"_id": 0})
+    if pub.get("current_performance_id"):
+        await db.performances.update_one(
+            {"id": pub["current_performance_id"]},
+            {"$set": {"status": "skipped", "ended_at": datetime.now(timezone.utc).isoformat()}}
+        )
+    
+    # Get next queued song
+    next_song = await db.song_requests.find_one(
+        {"pub_id": admin["pub_id"], "status": "queued"},
+        {"_id": 0},
+        sort=[("position", 1)]
+    )
+    
+    if not next_song:
+        await db.pubs.update_one({"id": admin["pub_id"]}, {"$set": {"current_performance_id": None}})
+        await manager.broadcast(admin["pub_id"], {"type": "no_more_songs"})
+        return {"status": "no_more_songs"}
+    
+    # Start next performance
+    return await start_performance(next_song["id"], next_song.get("youtube_url"), admin)
+
+@api_router.get("/performance/current")
+async def get_current_performance(user: dict = Depends(get_current_user)):
+    pub = await db.pubs.find_one({"id": user["pub_id"]}, {"_id": 0})
+    if not pub or not pub.get("current_performance_id"):
+        return None
+    
+    performance = await db.performances.find_one(
+        {"id": pub["current_performance_id"]},
+        {"_id": 0}
+    )
+    return performance
+
+@api_router.get("/performances/history", response_model=List[PerformanceResponse])
+async def get_performance_history(user: dict = Depends(get_current_user)):
+    performances = await db.performances.find(
+        {"pub_id": user["pub_id"]},
+        {"_id": 0}
+    ).sort("started_at", -1).to_list(50)
+    return performances
+
+# ============== VOTING ENDPOINTS ==============
+
+@api_router.post("/votes/submit")
+async def submit_vote(vote_data: VoteCreate, user: dict = Depends(get_current_user)):
+    if vote_data.score < 1 or vote_data.score > 5:
+        raise HTTPException(status_code=400, detail="Score must be 1-5")
+    
     performance = await db.performances.find_one(
         {"id": vote_data.performance_id, "pub_id": user["pub_id"]},
         {"_id": 0}
@@ -572,37 +715,517 @@ async def vote_performance(vote_data: VoteCreate, user: dict = Depends(get_curre
     if not performance:
         raise HTTPException(status_code=404, detail="Performance not found")
     
-    if performance["status"] != "active":
-        raise HTTPException(status_code=400, detail="Performance is not active")
+    if not performance.get("voting_open"):
+        raise HTTPException(status_code=400, detail="Voting not open")
     
-    if vote_data.score < 1 or vote_data.score > 5:
-        raise HTTPException(status_code=400, detail="Score must be between 1 and 5")
+    if performance["user_id"] == user["user_id"]:
+        raise HTTPException(status_code=400, detail="Cannot vote for yourself")
     
     existing_vote = await db.votes.find_one({
         "performance_id": vote_data.performance_id,
         "user_id": user["user_id"]
     })
-    
     if existing_vote:
-        await db.votes.update_one(
-            {"performance_id": vote_data.performance_id, "user_id": user["user_id"]},
-            {"$set": {"score": vote_data.score}}
-        )
-    else:
-        vote_doc = {
-            "id": str(uuid.uuid4()),
-            "performance_id": vote_data.performance_id,
+        raise HTTPException(status_code=400, detail="Already voted")
+    
+    vote_doc = {
+        "id": str(uuid.uuid4()),
+        "performance_id": vote_data.performance_id,
+        "pub_id": user["pub_id"],
+        "user_id": user["user_id"],
+        "score": vote_data.score,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.votes.insert_one(vote_doc)
+    
+    # Update performance average
+    votes = await db.votes.find({"performance_id": vote_data.performance_id}, {"_id": 0}).to_list(1000)
+    avg_score = sum(v["score"] for v in votes) / len(votes)
+    
+    await db.performances.update_one(
+        {"id": vote_data.performance_id},
+        {"$set": {"average_score": round(avg_score, 2), "vote_count": len(votes)}}
+    )
+    
+    await manager.broadcast(user["pub_id"], {
+        "type": "vote_received",
+        "data": {"performance_id": vote_data.performance_id, "new_average": round(avg_score, 2), "vote_count": len(votes)}
+    })
+    
+    return {"status": "voted", "new_average": round(avg_score, 2)}
+
+# ============== REACTION ENDPOINTS ==============
+
+REACTION_LIMIT_PER_USER = 3  # Max reactions per user per performance
+
+@api_router.post("/reactions/send")
+async def send_reaction(reaction_data: ReactionCreate, user: dict = Depends(get_current_user)):
+    # Get current performance to check if there's an active one
+    pub = await db.pubs.find_one({"id": user["pub_id"]}, {"_id": 0})
+    perf_id = pub.get("current_performance_id") if pub else None
+    
+    reaction_count = 0
+    # Check reaction limit for this performance
+    if perf_id:
+        reaction_count = await db.reactions.count_documents({
             "pub_id": user["pub_id"],
             "user_id": user["user_id"],
-            "score": vote_data.score,
-            "voted_at": datetime.now(timezone.utc).isoformat()
-        }
-        await db.votes.insert_one(vote_doc)
+            "performance_id": perf_id
+        })
+        if reaction_count >= REACTION_LIMIT_PER_USER:
+            raise HTTPException(status_code=400, detail=f"Limite raggiunto! Max {REACTION_LIMIT_PER_USER} reazioni per esibizione")
     
-    return {"status": "voted"}
+    reaction_doc = {
+        "id": str(uuid.uuid4()),
+        "pub_id": user["pub_id"],
+        "user_id": user["user_id"],
+        "user_nickname": user["nickname"],
+        "performance_id": perf_id,
+        "emoji": reaction_data.emoji,
+        "message": reaction_data.message,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.reactions.insert_one(reaction_doc)
+    
+    # Get remaining reactions for this user
+    remaining = REACTION_LIMIT_PER_USER - (reaction_count + 1) if perf_id else REACTION_LIMIT_PER_USER
+    
+    await manager.broadcast(user["pub_id"], {
+        "type": "reaction",
+        "data": {k: v for k, v in reaction_doc.items() if k != "_id"}
+    })
+    
+    return {"status": "sent", "remaining": remaining}
 
-# Continue with remaining endpoints (reactions, messages, quiz, etc.)
-# Same as original file...
+@api_router.get("/reactions/remaining")
+async def get_remaining_reactions(user: dict = Depends(get_current_user)):
+    """Get how many reactions the user can still send for current performance"""
+    pub = await db.pubs.find_one({"id": user["pub_id"]}, {"_id": 0})
+    perf_id = pub.get("current_performance_id") if pub else None
+    
+    if not perf_id:
+        return {"remaining": REACTION_LIMIT_PER_USER, "limit": REACTION_LIMIT_PER_USER}
+    
+    reaction_count = await db.reactions.count_documents({
+        "pub_id": user["pub_id"],
+        "user_id": user["user_id"],
+        "performance_id": perf_id
+    })
+    
+    return {"remaining": max(0, REACTION_LIMIT_PER_USER - reaction_count), "limit": REACTION_LIMIT_PER_USER}
+
+# ============== MESSAGE ENDPOINTS (for overlay) ==============
+
+@api_router.post("/messages/send")
+async def send_message(message_data: MessageCreate, user: dict = Depends(get_current_user)):
+    """Send a message that needs admin approval before showing on display"""
+    message_doc = {
+        "id": str(uuid.uuid4()),
+        "pub_id": user["pub_id"],
+        "user_id": user["user_id"],
+        "user_nickname": user["nickname"],
+        "text": message_data.text[:100],  # Limit to 100 chars
+        "status": "pending",  # pending, approved, rejected
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.messages.insert_one(message_doc)
+    
+    # Notify admin of new message
+    await manager.broadcast(user["pub_id"], {
+        "type": "new_message",
+        "data": {k: v for k, v in message_doc.items() if k != "_id"}
+    })
+    
+    return {"status": "sent", "id": message_doc["id"]}
+
+@api_router.get("/messages/pending")
+async def get_pending_messages(admin: dict = Depends(get_admin_user)):
+    """Get all pending messages for admin to approve"""
+    messages = await db.messages.find(
+        {"pub_id": admin["pub_id"], "status": "pending"},
+        {"_id": 0}
+    ).sort("created_at", 1).to_list(50)
+    return messages
+
+@api_router.post("/admin/messages/approve/{message_id}")
+async def approve_message(message_id: str, admin: dict = Depends(get_admin_user)):
+    """Approve a message to show on display"""
+    message = await db.messages.find_one({"id": message_id, "pub_id": admin["pub_id"]}, {"_id": 0})
+    if not message:
+        raise HTTPException(status_code=404, detail="Message not found")
+    
+    await db.messages.update_one({"id": message_id}, {"$set": {"status": "approved"}})
+    
+    # Broadcast approved message to display
+    await manager.broadcast(admin["pub_id"], {
+        "type": "message_approved",
+        "data": message
+    })
+    
+    return {"status": "approved"}
+
+@api_router.post("/admin/messages/reject/{message_id}")
+async def reject_message(message_id: str, admin: dict = Depends(get_admin_user)):
+    """Reject a message"""
+    await db.messages.update_one(
+        {"id": message_id, "pub_id": admin["pub_id"]},
+        {"$set": {"status": "rejected"}}
+    )
+    return {"status": "rejected"}
+
+# ============== QUIZ ENDPOINTS ==============
+
+@api_router.get("/quiz/categories")
+async def get_quiz_categories():
+    """Get available preset quiz categories"""
+    categories = []
+    for cat_id, cat_data in PRESET_QUIZZES.items():
+        categories.append({
+            "id": cat_id,
+            "name": cat_data["name"],
+            "description": cat_data["description"],
+            "icon": cat_data["icon"],
+            "questions_count": len(cat_data["questions"])
+        })
+    return categories
+
+@api_router.post("/admin/quiz/start-session/{category_id}")
+async def start_quiz_session(category_id: str, num_questions: int = 5, admin: dict = Depends(get_admin_user)):
+    """Start a multi-question quiz session from a category"""
+    if category_id not in PRESET_QUIZZES:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
+    category = PRESET_QUIZZES[category_id]
+    import random
+    
+    # Get random questions (up to available)
+    available_questions = category["questions"]
+    num_q = min(num_questions, len(available_questions))
+    selected_questions = random.sample(available_questions, num_q)
+    
+    session_doc = {
+        "id": str(uuid.uuid4()),
+        "pub_id": admin["pub_id"],
+        "category": category_id,
+        "category_name": category["name"],
+        "questions": selected_questions,
+        "current_question_index": 0,
+        "total_questions": num_q,
+        "status": "active",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "ended_at": None
+    }
+    
+    await db.quiz_sessions.insert_one(session_doc)
+    
+    # Start first question
+    first_q = selected_questions[0]
+    quiz_doc = {
+        "id": str(uuid.uuid4()),
+        "session_id": session_doc["id"],
+        "pub_id": admin["pub_id"],
+        "category": category_id,
+        "category_name": category["name"],
+        "question_number": 1,
+        "total_questions": num_q,
+        "question": first_q["question"],
+        "options": first_q["options"],
+        "correct_index": first_q["correct_index"],
+        "points": 10,
+        "status": "active",
+        "started_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.quizzes.insert_one(quiz_doc)
+    
+    await manager.broadcast(admin["pub_id"], {
+        "type": "quiz_started",
+        "data": {
+            "id": quiz_doc["id"],
+            "session_id": session_doc["id"],
+            "category": category_id,
+            "category_name": category["name"],
+            "question": quiz_doc["question"],
+            "options": quiz_doc["options"],
+            "points": quiz_doc["points"],
+            "question_number": 1,
+            "total_questions": num_q
+        }
+    })
+    
+    return {
+        "session_id": session_doc["id"],
+        "quiz_id": quiz_doc["id"],
+        "question_number": 1,
+        "total_questions": num_q,
+        "question": quiz_doc["question"],
+        "options": quiz_doc["options"]
+    }
+
+@api_router.post("/admin/quiz/start-preset/{category_id}")
+async def start_preset_quiz(category_id: str, admin: dict = Depends(get_admin_user)):
+    """Start a single preset quiz question from a category (backward compatible)"""
+    if category_id not in PRESET_QUIZZES:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
+    category = PRESET_QUIZZES[category_id]
+    import random
+    question = random.choice(category["questions"])
+    
+    quiz_doc = {
+        "id": str(uuid.uuid4()),
+        "pub_id": admin["pub_id"],
+        "category": category_id,
+        "category_name": category["name"],
+        "question": question["question"],
+        "options": question["options"],
+        "correct_index": question["correct_index"],
+        "points": 10,
+        "status": "active",
+        "question_number": 1,
+        "total_questions": 1,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "answers": []
+    }
+    
+    await db.quizzes.insert_one(quiz_doc)
+    
+    await manager.broadcast(admin["pub_id"], {
+        "type": "quiz_started",
+        "data": {
+            "id": quiz_doc["id"],
+            "category": category_id,
+            "category_name": category["name"],
+            "question": quiz_doc["question"],
+            "options": quiz_doc["options"],
+            "points": quiz_doc["points"],
+            "question_number": 1,
+            "total_questions": 1
+        }
+    })
+    
+    return {k: v for k, v in quiz_doc.items() if k not in ["_id", "correct_index"]}
+
+@api_router.post("/admin/quiz/next-question/{session_id}")
+async def next_quiz_question(session_id: str, admin: dict = Depends(get_admin_user)):
+    """Move to next question in a quiz session"""
+    session = await db.quiz_sessions.find_one({"id": session_id, "pub_id": admin["pub_id"]}, {"_id": 0})
+    if not session or session["status"] != "active":
+        raise HTTPException(status_code=404, detail="Quiz session not found or ended")
+    
+    # End current question
+    await db.quizzes.update_many(
+        {"session_id": session_id, "status": "active"},
+        {"$set": {"status": "ended"}}
+    )
+    
+    next_index = session["current_question_index"] + 1
+    
+    if next_index >= session["total_questions"]:
+        # Quiz finished
+        await db.quiz_sessions.update_one(
+            {"id": session_id},
+            {"$set": {"status": "ended", "ended_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        
+        # Get final leaderboard for this session
+        leaderboard = await db.users.find(
+            {"pub_id": admin["pub_id"]},
+            {"_id": 0, "nickname": 1, "score": 1}
+        ).sort("score", -1).to_list(10)
+        
+        await manager.broadcast(admin["pub_id"], {
+            "type": "quiz_session_ended",
+            "data": {
+                "session_id": session_id,
+                "message": "Quiz terminato!",
+                "leaderboard": leaderboard
+            }
+        })
+        
+        return {"status": "session_ended", "leaderboard": leaderboard}
+    
+    # Update session
+    await db.quiz_sessions.update_one(
+        {"id": session_id},
+        {"$set": {"current_question_index": next_index}}
+    )
+    
+    # Create next question
+    next_q = session["questions"][next_index]
+    quiz_doc = {
+        "id": str(uuid.uuid4()),
+        "session_id": session_id,
+        "pub_id": admin["pub_id"],
+        "category": session["category"],
+        "category_name": session["category_name"],
+        "question_number": next_index + 1,
+        "total_questions": session["total_questions"],
+        "question": next_q["question"],
+        "options": next_q["options"],
+        "correct_index": next_q["correct_index"],
+        "points": 10,
+        "status": "active",
+        "started_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.quizzes.insert_one(quiz_doc)
+    
+    await manager.broadcast(admin["pub_id"], {
+        "type": "quiz_started",
+        "data": {
+            "id": quiz_doc["id"],
+            "session_id": session_id,
+            "category": session["category"],
+            "category_name": session["category_name"],
+            "question": quiz_doc["question"],
+            "options": quiz_doc["options"],
+            "points": quiz_doc["points"],
+            "question_number": next_index + 1,
+            "total_questions": session["total_questions"]
+        }
+    })
+    
+    return {
+        "quiz_id": quiz_doc["id"],
+        "question_number": next_index + 1,
+        "total_questions": session["total_questions"],
+        "question": quiz_doc["question"],
+        "options": quiz_doc["options"]
+    }
+
+@api_router.post("/admin/quiz/start")
+async def start_quiz(quiz_data: QuizQuestionCreate, admin: dict = Depends(get_admin_user)):
+    quiz_doc = {
+        "id": str(uuid.uuid4()),
+        "pub_id": admin["pub_id"],
+        "category": quiz_data.category or "custom",
+        "question": quiz_data.question,
+        "options": quiz_data.options,
+        "correct_index": quiz_data.correct_index,
+        "points": quiz_data.points,
+        "status": "active",
+        "question_number": 1,
+        "total_questions": 1,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "answers": []
+    }
+    
+    await db.quizzes.insert_one(quiz_doc)
+    
+    await manager.broadcast(admin["pub_id"], {
+        "type": "quiz_started",
+        "data": {
+            "id": quiz_doc["id"],
+            "question": quiz_doc["question"],
+            "options": quiz_doc["options"],
+            "points": quiz_doc["points"],
+            "question_number": 1,
+            "total_questions": 1
+        }
+    })
+    
+    return {k: v for k, v in quiz_doc.items() if k not in ["_id", "correct_index"]}
+
+@api_router.post("/quiz/answer")
+async def answer_quiz(answer_data: QuizAnswerSubmit, user: dict = Depends(get_current_user)):
+    quiz = await db.quizzes.find_one(
+        {"id": answer_data.quiz_id, "pub_id": user["pub_id"], "status": "active"},
+        {"_id": 0}
+    )
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found or closed")
+    
+    # Check if already answered
+    existing = await db.quiz_answers.find_one({
+        "quiz_id": answer_data.quiz_id,
+        "user_id": user["user_id"]
+    })
+    if existing:
+        raise HTTPException(status_code=400, detail="Already answered")
+    
+    is_correct = answer_data.answer_index == quiz["correct_index"]
+    points_earned = quiz["points"] if is_correct else 0
+    
+    answer_doc = {
+        "id": str(uuid.uuid4()),
+        "quiz_id": answer_data.quiz_id,
+        "pub_id": user["pub_id"],
+        "user_id": user["user_id"],
+        "user_nickname": user["nickname"],
+        "answer_index": answer_data.answer_index,
+        "is_correct": is_correct,
+        "points_earned": points_earned,
+        "answered_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.quiz_answers.insert_one(answer_doc)
+    
+    if is_correct:
+        # Use upsert to create user if not exists, and increment score
+        await db.users.update_one(
+            {"id": user["user_id"]},
+            {
+                "$inc": {"score": points_earned},
+                "$setOnInsert": {
+                    "pub_id": user["pub_id"],
+                    "nickname": user["nickname"],
+                    "is_admin": False,
+                    "joined_at": datetime.now(timezone.utc).isoformat()
+                }
+            },
+            upsert=True
+        )
+    
+    return {"is_correct": is_correct, "points_earned": points_earned}
+
+@api_router.post("/admin/quiz/end/{quiz_id}")
+async def end_quiz(quiz_id: str, admin: dict = Depends(get_admin_user)):
+    quiz = await db.quizzes.find_one({"id": quiz_id, "pub_id": admin["pub_id"]}, {"_id": 0})
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    
+    await db.quizzes.update_one({"id": quiz_id}, {"$set": {"status": "ended"}})
+    
+    answers = await db.quiz_answers.find({"quiz_id": quiz_id}, {"_id": 0}).to_list(1000)
+    correct_answers = [a for a in answers if a["is_correct"]]
+    
+    await manager.broadcast(admin["pub_id"], {
+        "type": "quiz_ended",
+        "data": {
+            "quiz_id": quiz_id,
+            "correct_answer": quiz["correct_index"],
+            "correct_option": quiz["options"][quiz["correct_index"]],
+            "winners": [a["user_nickname"] for a in correct_answers],
+            "total_answers": len(answers)
+        }
+    })
+    
+    return {"status": "ended", "winners": len(correct_answers)}
+
+@api_router.get("/quiz/active")
+async def get_active_quiz(user: dict = Depends(get_current_user)):
+    quiz = await db.quizzes.find_one(
+        {"pub_id": user["pub_id"], "status": "active"},
+        {"_id": 0, "correct_index": 0}
+    )
+    return quiz
+
+# ============== ADMIN EFFECTS ==============
+
+@api_router.post("/admin/effects/send")
+async def send_effect(effect_data: AdminEffectCreate, admin: dict = Depends(get_admin_user)):
+    await manager.broadcast(admin["pub_id"], {
+        "type": "effect",
+        "data": {
+            "effect_type": effect_data.effect_type,
+            "data": effect_data.data
+        }
+    })
+    return {"status": "sent"}
 
 # ============== LEADERBOARD ==============
 
@@ -659,6 +1282,7 @@ async def websocket_endpoint(websocket: WebSocket, pub_code: str):
     try:
         while True:
             data = await websocket.receive_text()
+            # Handle ping/pong for connection keep-alive
             if data == "ping":
                 await websocket.send_text("pong")
     except WebSocketDisconnect:
@@ -668,12 +1292,7 @@ async def websocket_endpoint(websocket: WebSocket, pub_code: str):
 
 @api_router.get("/")
 async def root():
-    mode = "OFFLINE" if OFFLINE_MODE else "ONLINE"
-    return {
-        "message": "NeonPub Karaoke API", 
-        "version": "1.1.0-offline",
-        "mode": mode
-    }
+    return {"message": "NeonPub Karaoke API", "version": "1.1.0"}
 
 # Include router and middleware
 app.include_router(api_router)
