@@ -29,7 +29,9 @@ JWT_SECRET = os.environ.get('JWT_SECRET', 'neonpub-secret-key-2024')
 JWT_ALGORITHM = "HS256"
 
 # YouTube API
+# YouTube API
 YOUTUBE_API_KEY = os.environ.get('YOUTUBE_API_KEY', '')
+AUTO_YOUTUBE_SEARCH = os.environ.get('AUTO_YOUTUBE_SEARCH', 'false').lower() == 'true'
 
 # Create the main app
 app = FastAPI(title="NeonPub Karaoke API")
@@ -233,6 +235,38 @@ PRESET_QUIZZES = {
     }
 }
 
+async def auto_search_youtube_karaoke(title: str, artist: str = ""):
+    """Auto-search YouTube for karaoke version - returns first result or None"""
+    if not YOUTUBE_API_KEY or not AUTO_YOUTUBE_SEARCH:
+        return None
+    
+    query = f"{title} {artist} karaoke".strip()
+    
+    try:
+        async with httpx.AsyncClient() as http:
+            response = await http.get(
+                "https://www.googleapis.com/youtube/v3/search",
+                params={
+                    "part": "snippet",
+                    "q": query,
+                    "type": "video",
+                    "maxResults": 1,
+                    "key": YOUTUBE_API_KEY
+                },
+                timeout=10.0
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                items = data.get("items", [])
+                if items:
+                    video_id = items[0]["id"]["videoId"]
+                    return f"https://www.youtube.com/watch?v={video_id}"
+    except Exception as e:
+        logging.error(f"Auto YouTube search failed: {e}")
+    
+    return None
+
 # ============== AUTH HELPERS ==============
 
 def create_token(data: dict) -> str:
@@ -365,6 +399,15 @@ async def request_song(song_data: SongRequestCreate, user: dict = Depends(get_cu
         "status": {"$in": ["pending", "queued"]}
     })
     
+    # AUTO-SEARCH: Se abilitato e non c'è già un URL, cerca automaticamente
+    youtube_url = song_data.youtube_url
+    auto_searched = False
+    
+    if AUTO_YOUTUBE_SEARCH and not youtube_url:
+        youtube_url = await auto_search_youtube_karaoke(song_data.title, song_data.artist)
+        auto_searched = True
+        logging.info(f"Auto-searched YouTube for '{song_data.title}' by '{song_data.artist}': {youtube_url}")
+    
     request_doc = {
         "id": str(uuid.uuid4()),
         "pub_id": user["pub_id"],
@@ -372,8 +415,9 @@ async def request_song(song_data: SongRequestCreate, user: dict = Depends(get_cu
         "user_nickname": user["nickname"],
         "title": song_data.title,
         "artist": song_data.artist,
-        "youtube_url": song_data.youtube_url,
-        "status": "pending",  # Starts as pending - admin must approve
+        "youtube_url": youtube_url,
+        "auto_searched": auto_searched,  # Flag per sapere se è stato trovato automaticamente
+        "status": "pending",
         "position": queue_count + 1,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
