@@ -419,7 +419,7 @@ export default function PubDisplay() {
   }, [loadData]);
 
   // QR URL includes the pub code for direct join
-  const joinUrl = `${process.env.REACT_APP_BASE_URL}/p/${pubCode}`;
+  const joinUrl = `${process.env.REACT_APP_BASE_URL}/join/${pubCode}`;
   const currentPerf = displayData?.current_performance;
   const hasVideo = currentPerf?.youtube_url && extractVideoId(currentPerf.youtube_url);
 
