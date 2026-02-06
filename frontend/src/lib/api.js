@@ -329,22 +329,22 @@ export const submitVote = async (data) => {
 // REACTIONS
 // ============================================
 
-export const sendReaction = async (data) => {
+export const sendMessage = async (data) => {
   const participant = getParticipantFromToken()
 
-  const { data: reaction, error } = await supabase
-    .from('reactions')
+  const { data: message, error } = await supabase
+    .from('messages')
     .insert({
       event_id: participant.event_id,
       participant_id: participant.participant_id,
-      emoji: data.emoji,
-      message: data.message
+      text: data.message,
+      status: 'pending'
     })
     .select()
     .single()
 
   if (error) throw error
-  return { data: reaction }
+  return { data: message }
 }
 
 // ============================================
