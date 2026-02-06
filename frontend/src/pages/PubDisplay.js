@@ -1,362 +1,171 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { toast } from "sonner";
-import { Mic2, Sparkles, Music, Trophy, ArrowRight, User } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useParams } from "react-router-dom";
+import { Mic2, Music, Trophy, QrCode } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
+import api from "@/lib/api";
 import { supabase } from "@/lib/supabase";
-import { createPub, joinPub } from "@/lib/api"; // Assicurati che joinPub sia importato
-import { useAuth } from "@/context/AuthContext";
 
-export default function LandingPage() {
-  const navigate = useNavigate();
-  const { login } = useAuth(); // Importiamo login dal context per i clienti
-  
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [authTab, setAuthTab] = useState("client"); // Default su Client
-  const [loading, setLoading] = useState(false);
+export default function PubDisplay() {
+  const { pubCode } = useParams();
+  const [pubData, setPubData] = useState(null);
+  const [currentPerformance, setCurrentPerformance] = useState(null);
+  const [queue, setQueue] = useState([]);
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [floatingReactions, setFloatingReactions] = useState([]);
 
-  // Client Join
-  const [joinCode, setJoinCode] = useState("");
-  const [nickname, setNickname] = useState("");
-
-  // Admin Login
-  const [adminEmail, setAdminEmail] = useState("");
-  const [adminPassword, setAdminPassword] = useState("");
-
-  // Create Pub
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newPubName, setNewPubName] = useState("");
-
-  // CONTROLLO AUTOMATICO: Se l'admin è già loggato, cerchiamo il suo evento attivo
+  // Carica i dati iniziali
   useEffect(() => {
-    const checkActiveSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        // Cerca evento attivo
-        const { data: event } = await supabase
-          .from('events')
-          .select('*')
-          .eq('owner_id', session.user.id)
-          .eq('status', 'active')
-          .single();
-        
-        if (event) {
-          console.log("Evento attivo trovato:", event.code);
-          localStorage.setItem("neonpub_pub_code", event.code);
-          navigate("/admin");
-        }
+    const loadData = async () => {
+      try {
+        // Usa getDisplayData che è pubblico in api.js
+        const { data } = await api.getDisplayData(pubCode);
+        setPubData(data.pub);
+        setCurrentPerformance(data.current_performance);
+        setQueue(data.queue || []);
+        setLeaderboard(data.leaderboard || []);
+      } catch (error) {
+        console.error("Errore caricamento display:", error);
       }
     };
-    checkActiveSession();
-  }, [navigate]);
+    loadData();
+  }, [pubCode]);
 
-  const handleClientJoin = async (e) => {
-    e.preventDefault();
-    if (!joinCode || !nickname) {
-      toast.error("Inserisci codice e nickname");
-      return;
-    }
+  // Connessione Realtime
+  useEffect(() => {
+    if (!pubData?.id) return;
 
-    setLoading(true);
-    try {
-      const { data } = await joinPub({ pub_code: joinCode, nickname });
-      
-      localStorage.setItem("neonpub_token", data.token);
-      localStorage.setItem("neonpub_user", JSON.stringify(data.user));
-      
-      // Aggiorna AuthContext
-      if (login) login(data.token, data.user);
-      
-      toast.success(`Benvenuto al ${joinCode}!`);
-      navigate("/app");
-    } catch (error) {
-      console.error(error);
-      toast.error(error.message || "Codice non valido o nickname in uso");
-    } finally {
-      setLoading(false);
-    }
+    const channel = supabase
+      .channel(`display:${pubData.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${pubData.id}` }, 
+        (payload) => {
+           if (payload.new.status === 'live' || payload.new.status === 'voting') setCurrentPerformance(payload.new);
+           else if (payload.new.status === 'ended') setCurrentPerformance(null);
+           else setCurrentPerformance(payload.new);
+        })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'song_requests', filter: `event_id=eq.${pubData.id}` }, 
+        async () => {
+           const { data } = await api.getDisplayData(pubCode);
+           setQueue(data.queue);
+        })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `event_id=eq.${pubData.id}` }, 
+        (payload) => addFloatingReaction(payload.new.emoji))
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, [pubData?.id, pubCode]);
+
+  const addFloatingReaction = (emoji) => {
+    const id = Date.now() + Math.random();
+    const left = Math.random() * 80 + 10;
+    setFloatingReactions(prev => [...prev, { id, emoji, left }]);
+    setTimeout(() => setFloatingReactions(prev => prev.filter(r => r.id !== id)), 2000);
   };
 
-  const handleAdminLogin = async (e) => {
-    e.preventDefault();
-    if (!adminEmail.trim() || !adminPassword.trim()) {
-      toast.error("Inserisci email e password");
-      return;
-    }
+  if (!pubData) return <div className="min-h-screen bg-black text-white flex items-center justify-center">Caricamento Display...</div>;
 
-    setLoading(true);
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: adminEmail,
-        password: adminPassword
-      });
-
-      if (error) throw error;
-
-      toast.success("Login effettuato!");
-      
-      // DOPO IL LOGIN: Controllo se ha già un evento attivo
-      const { data: event } = await supabase
-        .from('events')
-        .select('*')
-        .eq('owner_id', data.session.user.id)
-        .eq('status', 'active')
-        .single();
-
-      if (event) {
-        // HA GIA' UN EVENTO -> VAI IN DASHBOARD
-        localStorage.setItem("neonpub_pub_code", event.code);
-        navigate("/admin");
-      } else {
-        // NON HA UN EVENTO -> APRI MODALE CREAZIONE
-        setShowAuthModal(false);
-        setShowCreateModal(true);
-      }
-
-    } catch (error) {
-      toast.error(error.message || "Credenziali non valide");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCreatePub = async (e) => {
-    e.preventDefault();
-    if (!newPubName.trim()) {
-      toast.error("Inserisci nome pub");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const { data } = await createPub({ name: newPubName });
-      toast.success(`Pub "${data.name}" creato! Codice: ${data.code}`);
-      localStorage.setItem("neonpub_pub_code", data.code);
-      setShowCreateModal(false);
-      navigate(`/admin`);
-    } catch (error) {
-      if (error.message === 'No credits available') {
-        toast.error("Nessun gettone disponibile");
-      } else if (error.message === 'Not authenticated') {
-        toast.error("Devi fare login prima");
-        setShowCreateModal(false);
-        setShowAuthModal(true);
-      } else {
-        toast.error("Errore nella creazione: " + error.message);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  const joinUrl = `${window.location.origin}/join/${pubCode}`;
 
   return (
-    <div className="min-h-screen hero-gradient relative overflow-hidden">
-      {/* Background Blobs */}
-      <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-fuchsia-600/20 rounded-full blur-[120px] pointer-events-none"></div>
-      <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-cyan-600/20 rounded-full blur-[120px] pointer-events-none"></div>
+    <div className="min-h-screen bg-black text-white p-8 overflow-hidden relative font-sans">
+      {/* Background */}
+      <div className="absolute inset-0 bg-gradient-to-br from-fuchsia-900/20 to-cyan-900/20 pointer-events-none" />
 
-      <div className="container mx-auto px-6 py-12 relative z-10">
-        <div className="flex justify-end mb-8">
-             <Button 
-              variant="ghost"
-              onClick={() => { setAuthTab("admin"); setShowAuthModal(true); }}
-              className="text-zinc-400 hover:text-white"
-            >
-              Area Regia
-            </Button>
-        </div>
-
-        <div className="text-center mb-16">
-          <div className="flex justify-center mb-6">
-            <div className="w-24 h-24 rounded-full bg-fuchsia-500/20 flex items-center justify-center neon-primary animate-pulse-slow">
-              <Mic2 className="w-12 h-12 text-fuchsia-400" />
-            </div>
+      {/* Floating Reactions */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden z-50">
+        {floatingReactions.map(r => (
+          <div key={r.id} className="absolute text-6xl animate-float-up" style={{ left: `${r.left}%`, bottom: '-50px' }}>
+            {r.emoji}
           </div>
-          
-          <h1 className="text-6xl font-bold mb-6 tracking-tight">
-            <span className="text-white">Karaoke</span>
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-cyan-400"> + Quiz</span>
-          </h1>
-          
-          <p className="text-xl text-zinc-400 mb-10 max-w-2xl mx-auto">
-            L'esperienza Karaoke interattiva definitiva.
-          </p>
-
-          {/* MAIN ACTION BUTTONS */}
-          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-            <Button 
-              size="lg"
-              onClick={() => { setAuthTab("client"); setShowAuthModal(true); }}
-              className="w-full sm:w-auto rounded-full bg-white text-black hover:bg-zinc-200 text-lg px-8 py-6 shadow-lg shadow-white/10 transition-transform hover:scale-105"
-            >
-              <User className="w-5 h-5 mr-2" />
-              Partecipa a un Evento
-            </Button>
-            
-            <Button 
-              size="lg"
-              onClick={() => { setAuthTab("admin"); setShowAuthModal(true); }}
-              className="w-full sm:w-auto rounded-full bg-gradient-to-r from-fuchsia-500 to-cyan-500 hover:from-fuchsia-600 hover:to-cyan-600 text-lg px-8 py-6 shadow-lg shadow-fuchsia-500/20 transition-transform hover:scale-105"
-            >
-              <Sparkles className="w-5 h-5 mr-2" />
-              Gestisci Locale
-            </Button>
-          </div>
-        </div>
-
-        {/* Features Grid */}
-        <div className="grid md:grid-cols-3 gap-8 mt-20">
-          <div className="glass p-8 rounded-2xl border border-white/5 hover:border-fuchsia-500/30 transition-colors">
-            <div className="w-14 h-14 rounded-xl bg-fuchsia-500/20 flex items-center justify-center mb-4">
-              <Music className="w-7 h-7 text-fuchsia-400" />
-            </div>
-            <h3 className="text-xl font-bold mb-2">Karaoke Live</h3>
-            <p className="text-zinc-400">
-              Coda automatica, testi su smartphone e gestione semplice.
-            </p>
-          </div>
-
-          <div className="glass p-8 rounded-2xl border border-white/5 hover:border-cyan-500/30 transition-colors">
-            <div className="w-14 h-14 rounded-xl bg-cyan-500/20 flex items-center justify-center mb-4">
-              <Sparkles className="w-7 h-7 text-cyan-400" />
-            </div>
-            <h3 className="text-xl font-bold mb-2">Reazioni Live</h3>
-            <p className="text-zinc-400">
-              Il pubblico vota e reagisce in tempo reale durante le esibizioni.
-            </p>
-          </div>
-
-          <div className="glass p-8 rounded-2xl border border-white/5 hover:border-pink-500/30 transition-colors">
-            <div className="w-14 h-14 rounded-xl bg-pink-500/20 flex items-center justify-center mb-4">
-              <Trophy className="w-7 h-7 text-pink-400" />
-            </div>
-            <h3 className="text-xl font-bold mb-2">Quiz Musicali</h3>
-            <p className="text-zinc-400">
-              Ingaggia i clienti con sfide musicali tra un cantante e l'altro.
-            </p>
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Unified Auth Modal */}
-      <Dialog open={showAuthModal} onOpenChange={setShowAuthModal}>
-        <DialogContent className="bg-zinc-900 border-zinc-800 max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-center text-xl">
-              {authTab === "client" ? "Entra nel Pub" : "Accesso Regia"}
-            </DialogTitle>
-          </DialogHeader>
+      <header className="flex justify-between items-start mb-10 relative z-10">
+        <div className="flex items-center gap-6">
+          <div className="bg-white p-3 rounded-xl">
+            <QRCodeSVG value={joinUrl} size={120} />
+          </div>
+          <div>
+            <h1 className="text-5xl font-bold mb-2">Inquadra per Cantare!</h1>
+            <p className="text-2xl text-cyan-400 font-mono tracking-widest">CODICE: {pubCode}</p>
+          </div>
+        </div>
+        <div className="text-right">
+          <h2 className="text-4xl font-bold text-fuchsia-500">{pubData.name}</h2>
+          <div className="flex items-center justify-end gap-2 mt-2 text-zinc-400">
+            <Mic2 className="w-6 h-6" />
+            <span className="text-xl">Karaoke Night</span>
+          </div>
+        </div>
+      </header>
 
-          <Tabs value={authTab} onValueChange={setAuthTab} className="mt-4">
-            <TabsList className="grid w-full grid-cols-2 bg-zinc-800 mb-6">
-              <TabsTrigger value="client">Cliente</TabsTrigger>
-              <TabsTrigger value="admin">Gestore</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="client" className="space-y-4 animate-in slide-in-from-left-2">
-              <form onSubmit={handleClientJoin} className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-zinc-500 uppercase">Codice Pub</label>
-                  <Input
-                    value={joinCode}
-                    onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                    placeholder="Es: AB12CD"
-                    className="bg-zinc-800 border-zinc-700 h-12 text-lg tracking-widest uppercase"
-                    autoFocus
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-zinc-500 uppercase">Il tuo Nickname</label>
-                  <Input
-                    value={nickname}
-                    onChange={(e) => setNickname(e.target.value)}
-                    placeholder="Nome d'arte"
-                    className="bg-zinc-800 border-zinc-700 h-12"
-                  />
-                </div>
-                <Button 
-                  type="submit" 
-                  disabled={loading}
-                  className="w-full h-12 bg-white text-black hover:bg-zinc-200"
-                >
-                  {loading ? "Ingresso..." : "Entra nel Pub"} <ArrowRight className="ml-2 w-4 h-4" />
-                </Button>
-              </form>
-            </TabsContent>
-
-            <TabsContent value="admin" className="space-y-4 animate-in slide-in-from-right-2">
-              <form onSubmit={handleAdminLogin} className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-zinc-500 uppercase">Email</label>
-                  <Input
-                    type="email"
-                    value={adminEmail}
-                    onChange={(e) => setAdminEmail(e.target.value)}
-                    placeholder="admin@neonpub.com"
-                    className="bg-zinc-800 border-zinc-700 h-12"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-zinc-500 uppercase">Password</label>
-                  <Input
-                    type="password"
-                    value={adminPassword}
-                    onChange={(e) => setAdminPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="bg-zinc-800 border-zinc-700 h-12"
-                  />
-                </div>
-                <Button 
-                  type="submit" 
-                  disabled={loading}
-                  className="w-full h-12 bg-fuchsia-500 hover:bg-fuchsia-600"
-                >
-                  {loading ? "Verifica..." : "Accedi alla Regia"}
-                </Button>
-              </form>
-            </TabsContent>
-          </Tabs>
-        </DialogContent>
-      </Dialog>
-
-      {/* Create Pub Modal (Only for Admin after login) */}
-      <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
-        <DialogContent className="bg-zinc-900 border-zinc-800">
-          <DialogHeader>
-            <DialogTitle>Crea Nuovo Evento</DialogTitle>
-          </DialogHeader>
-
-          <form onSubmit={handleCreatePub} className="space-y-4 pt-4">
-            <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3 mb-4">
-              <p className="text-sm text-yellow-200">
-                ⚠️ Non hai eventi attivi. Creane uno nuovo per iniziare.
-              </p>
+      <main className="grid grid-cols-12 gap-8 relative z-10 h-[calc(100vh-240px)]">
+        {/* Left Column: Current Performance or Queue */}
+        <div className="col-span-8 flex flex-col gap-6">
+          {currentPerformance ? (
+            <div className="flex-1 glass rounded-3xl p-10 flex flex-col justify-center items-center text-center neon-border animate-pulse-slow relative overflow-hidden">
+              <div className="absolute inset-0 bg-fuchsia-600/10 blur-3xl"></div>
+              <span className="bg-red-600 text-white px-6 py-2 rounded-full text-xl font-bold mb-8 animate-bounce">
+                {currentPerformance.status === 'voting' ? 'VOTAZIONE IN CORSO' : 'LIVE ON STAGE'}
+              </span>
+              <h2 className="text-7xl font-bold mb-6 leading-tight">{currentPerformance.song_title}</h2>
+              <p className="text-4xl text-zinc-300 mb-8">{currentPerformance.song_artist}</p>
+              <div className="flex items-center gap-4 bg-white/10 px-8 py-4 rounded-full">
+                <Mic2 className="w-8 h-8 text-cyan-400" />
+                <span className="text-3xl font-bold text-cyan-400">{currentPerformance.user_nickname}</span>
+              </div>
             </div>
-            
-            <div className="space-y-2">
-              <label className="text-sm text-zinc-400">Nome Evento</label>
-              <Input
-                value={newPubName}
-                onChange={(e) => setNewPubName(e.target.value)}
-                placeholder="Es: Karaoke Night"
-                className="bg-zinc-800 border-zinc-700 h-12"
-                autoFocus
-              />
+          ) : (
+            <div className="flex-1 glass rounded-3xl p-10 flex flex-col justify-center items-center text-center">
+              <Music className="w-32 h-32 text-zinc-600 mb-6" />
+              <h2 className="text-5xl font-bold text-zinc-500">Il palco è vuoto...</h2>
+              <p className="text-2xl text-zinc-600 mt-4">Richiedi una canzone scansionando il QR code!</p>
             </div>
+          )}
+        </div>
 
-            <Button 
-              type="submit" 
-              disabled={loading}
-              className="w-full h-12 bg-gradient-to-r from-fuchsia-500 to-pink-500 hover:from-fuchsia-600 hover:to-pink-600"
-            >
-              {loading ? "Creazione..." : "Crea Evento (1 Gettone)"}
-            </Button>
-          </form>
-        </DialogContent>
-      </Dialog>
+        {/* Right Column: Up Next & Leaderboard */}
+        <div className="col-span-4 flex flex-col gap-6">
+          {/* Queue */}
+          <div className="glass rounded-3xl p-6 flex-1 overflow-hidden flex flex-col">
+            <h3 className="text-2xl font-bold mb-6 flex items-center gap-3 border-b border-white/10 pb-4">
+              <Music className="text-fuchsia-400" /> Prossimi Cantanti
+            </h3>
+            <div className="space-y-4 overflow-y-auto pr-2">
+              {queue.length === 0 ? (
+                <p className="text-zinc-500 italic">Coda vuota</p>
+              ) : (
+                queue.map((song, i) => (
+                  <div key={i} className="flex items-center gap-4 p-3 bg-white/5 rounded-xl">
+                    <span className="font-mono text-2xl font-bold text-fuchsia-500 w-8">{i + 1}</span>
+                    <div className="min-w-0">
+                      <p className="font-bold truncate text-lg">{song.title}</p>
+                      <p className="text-sm text-zinc-400 truncate">🎤 {song.nickname || song.user_nickname}</p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Leaderboard */}
+          <div className="glass rounded-3xl p-6 h-1/3 flex flex-col">
+            <h3 className="text-2xl font-bold mb-4 flex items-center gap-3 border-b border-white/10 pb-4">
+              <Trophy className="text-yellow-500" /> Top Quiz
+            </h3>
+            <div className="space-y-3 overflow-y-auto pr-2">
+              {leaderboard.map((p, i) => (
+                <div key={i} className="flex justify-between items-center p-2 rounded-lg bg-white/5">
+                  <div className="flex items-center gap-3">
+                    <span className="text-yellow-500 font-bold">#{i + 1}</span>
+                    <span className="font-medium">{p.nickname}</span>
+                  </div>
+                  <span className="font-mono text-cyan-400 font-bold">{p.score}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
   );
 }
