@@ -43,26 +43,33 @@ export default function JoinRedirect() {
     }
   }, [pubCode]);
 
-  const handleJoin = async (e) => {
-    e.preventDefault();
-    if (!nickname.trim()) {
-      toast.error("Inserisci il tuo nickname");
-      return;
-    }
+const handleJoin = async (e) => {
+  e.preventDefault();
+  if (!nickname.trim()) {
+    toast.error("Inserisci il tuo nickname");
+    return;
+  }
+  
+  setSubmitting(true);
+  try {
+    const { data } = await joinPub({ pub_code: pubCode.toUpperCase(), nickname });
     
-    setSubmitting(true);
-    try {
-      const { data } = await joinPub({ pub_code: pubCode.toUpperCase(), nickname });
-      localStorage.setItem("neonpub_pub_code", pubCode.toUpperCase());
-      login(data.token, data.user);
-      toast.success(`Benvenuto ${nickname}!`);
-      navigate("/app");
-    } catch (error) {
-      toast.error(error.response?.data?.detail || "Errore di connessione");
-    } finally {
-      setSubmitting(false);
+    // Controllo sicurezza: se manca token o user, non crasha
+    if (!data?.token || !data?.user) {
+      throw new Error("Risposta dal server incompleta");
     }
-  };
+
+    localStorage.setItem("neonpub_pub_code", pubCode.toUpperCase());
+    login(data.token, data.user);
+    toast.success(`Benvenuto ${nickname}!`);
+    navigate("/app");
+  } catch (error) {
+    console.error("Errore join:", error);  // ← questo aiuta a vedere l'errore in console
+    toast.error(error.message || error.response?.data?.detail || "Errore di connessione");
+  } finally {
+    setSubmitting(false);
+  }
+};
 
   if (loading) {
     return (

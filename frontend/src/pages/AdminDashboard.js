@@ -304,15 +304,40 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleOpenDisplay = () => {
-    window.open(`/display/${pubCode}`, '_blank');
-  };
+const handleOpenDisplay = () => {
+  const LOCAL_IP = "192.168.100.41"; // il tuo IP locale
+  const url = `http://${LOCAL_IP}:3000/display/${pubCode}`;
 
-  const handleLogout = () => {
-    localStorage.removeItem("neonpub_pub_code");
-    logout();
-    navigate("/");
-  };
+  // Apri in nuova finestra con dimensioni grandi
+  const displayWindow = window.open(
+    url,
+    "_blank",
+    "width=1920,height=1080,resizable=yes,scrollbars=yes,toolbar=no,menubar=no"
+  );
+
+  if (!displayWindow || displayWindow.closed || typeof displayWindow.closed == "undefined") {
+    toast.error("Popup bloccato dal browser! Permetti popup per questo sito.");
+    return;
+  }
+
+  // Tenta fullscreen dopo caricamento
+  displayWindow.addEventListener("load", () => {
+    try {
+      const elem = displayWindow.document.documentElement;
+      if (elem.requestFullscreen) {
+        elem.requestFullscreen();
+      } else if (elem.mozRequestFullScreen) { // Firefox
+        elem.mozRequestFullScreen();
+      } else if (elem.webkitRequestFullscreen) { // Chrome/Safari
+        elem.webkitRequestFullscreen();
+      } else if (elem.msRequestFullscreen) { // IE/Edge
+        elem.msRequestFullscreen();
+      }
+    } catch (err) {
+      console.log("Fullscreen non supportato o bloccato:", err);
+    }
+  });
+};
 
   const pendingRequests = queue.filter(r => r.status === "pending");
   const queuedRequests = queue.filter(r => r.status === "queued");
