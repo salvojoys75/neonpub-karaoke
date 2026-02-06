@@ -62,7 +62,8 @@ export default function LandingPage() {
       const { data } = await createPub({ name: newPubName });
       toast.success(`Pub "${data.name}" creato! Codice: ${data.code}`);
       setShowCreateModal(false);
-      navigate(`/display/${data.code}`);
+      navigate(`/admin`);
+localStorage.setItem("neonpub_pub_code", data.code);
     } catch (error) {
       if (error.message === 'No credits available') {
         toast.error("Nessun gettone disponibile");
