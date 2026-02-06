@@ -36,6 +36,11 @@ export default function AdminDashboard() {
   const [leaderboard, setLeaderboard] = useState([]);
   const [activeSection, setActiveSection] = useState("queue");
   const [pendingMessages, setPendingMessages] = useState([]);
+const handleLogout = () => {
+  localStorage.removeItem("neonpub_pub_code");
+  logout();
+  navigate("/");
+};
  
   // Quiz
   const [showQuizModal, setShowQuizModal] = useState(false);
