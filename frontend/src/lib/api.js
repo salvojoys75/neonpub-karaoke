@@ -545,7 +545,7 @@ export default {
   getCurrentPerformance,
   getPerformanceHistory,
   submitVote,
-  sendReaction,
+  // sendReaction, ← RIMOSSA
   startQuiz,
   answerQuiz,
   endQuiz,
