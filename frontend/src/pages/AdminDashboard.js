@@ -58,6 +58,13 @@ export default function AdminDashboard() {
   const [showEffectModal, setShowEffectModal] = useState(false);
 
   const pubCode = localStorage.getItem("neonpub_pub_code");
+useEffect(() => {
+  const savedPubCode = localStorage.getItem("neonpub_pub_code");
+  if (!savedPubCode && isAuthenticated && isAdmin) {
+    // Admin loggato ma nessun evento - redirect a home per crearne uno
+    navigate("/");
+  }
+}, [isAuthenticated, isAdmin, navigate]);
   const pollIntervalRef = useRef(null);
 
   useEffect(() => {
