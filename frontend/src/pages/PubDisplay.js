@@ -62,21 +62,24 @@ export default function PubDisplay() {
   // Create/Update YouTube Player
   useEffect(() => {
     if (!playerReady) return;
-    
-    const videoId = displayData?.current_performance?.youtube_url 
+
+    const videoId = displayData?.current_performance?.youtube_url
       ? extractVideoId(displayData.current_performance.youtube_url)
       : null;
 
+    // Crea/ricrea solo se videoId cambia
     if (videoId && videoId !== currentVideoId) {
-      console.log("Creating YouTube player for video:", videoId);
+      console.log("Creating new YouTube player for:", videoId);
       setCurrentVideoId(videoId);
 
+      // Distruggi vecchio player se esiste
       if (playerRef.current) {
         try {
           playerRef.current.destroy();
         } catch (e) {
-          console.log("Error destroying player:", e);
+          console.log("Destroy error:", e);
         }
+        playerRef.current = null;
       }
 
       try {
@@ -86,51 +89,62 @@ export default function PubDisplay() {
           videoId: videoId,
           playerVars: {
             autoplay: 1,
-            controls: 1,
+            mute: 1,
+            controls: 0,
             modestbranding: 1,
             rel: 0,
+            showinfo: 0,
+            iv_load_policy: 3,
+            fs: 0,
           },
           events: {
             onReady: (event) => {
-              console.log("Player ready");
+              console.log("Player ready - forcing play if live");
               if (displayData?.current_performance?.status === 'live') {
                 event.target.playVideo();
               }
             },
             onStateChange: (event) => {
-              console.log("Player state:", event.data);
-            }
-          }
+              console.log("Player state changed:", event.data);
+            },
+            onError: (event) => {
+              console.error("YouTube Player Error:", event.data);
+            },
+          },
         });
       } catch (error) {
-        console.error("Error creating player:", error);
+        console.error("Error creating YT player:", error);
       }
     }
 
-    // Control playback based on performance status
-    if (playerRef.current && currentVideoId) {
+    // Controlla stato attuale (pause/play) ogni volta che displayData cambia
+    if (playerRef.current && currentVideoId && playerRef.current.getPlayerState) {
       const status = displayData?.current_performance?.status;
-      
-      if (status === 'paused' && playerRef.current.pauseVideo) {
-        playerRef.current.pauseVideo();
-      } else if (status === 'live' && playerRef.current.playVideo) {
-        playerRef.current.playVideo();
+
+      try {
+        if (status === 'paused') {
+          playerRef.current.pauseVideo();
+        } else if (status === 'live') {
+          playerRef.current.playVideo();
+          // Se vuoi audio → unmute qui (ma solo dopo interazione o se policy lo permette)
+          // playerRef.current.unMute();  // ← prova solo se hai già interazione utente sul display
+        }
+      } catch (e) {
+        console.log("Control error:", e);
       }
     }
 
-    // Clear video when performance ends
+    // Pulizia se non c'è più video
     if (!videoId && currentVideoId) {
       setCurrentVideoId(null);
       if (playerRef.current) {
         try {
           playerRef.current.destroy();
-          playerRef.current = null;
-        } catch (e) {
-          console.log("Error clearing player:", e);
-        }
+        } catch (e) {}
+        playerRef.current = null;
       }
     }
-  }, [playerReady, displayData?.current_performance, currentVideoId]);
+  }, [playerReady, displayData?.current_performance?.youtube_url, displayData?.current_performance?.status, currentVideoId]);
 
   // Load display data
   const loadDisplayData = useCallback(async () => {
