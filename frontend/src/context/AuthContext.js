@@ -1,59 +1,101 @@
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect } from 'react'
+import { supabase } from '@/lib/supabase'
 
-const AuthContext = createContext(null);
+const AuthContext = createContext()
 
-export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [token, setToken] = useState(null);
-  const [loading, setLoading] = useState(true);
+export function AuthProvider({ children }) {
+  const [user, setUser] = useState(null)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const storedToken = localStorage.getItem("neonpub_token");
-    const storedUser = localStorage.getItem("neonpub_user");
+    // Check for participant session (localStorage)
+    const participantToken = localStorage.getItem('neonpub_token')
+    const participantUser = localStorage.getItem('neonpub_user')
     
-    if (storedToken && storedUser) {
+    if (participantToken && participantUser) {
       try {
-        const userData = JSON.parse(storedUser);
-        setToken(storedToken);
-        setUser(userData);
+        setUser(JSON.parse(participantUser))
+        setIsAuthenticated(true)
+        setIsAdmin(false)
+        setLoading(false)
+        return
       } catch (e) {
-        console.error("Error parsing user data:", e);
-        localStorage.removeItem("neonpub_token");
-        localStorage.removeItem("neonpub_user");
+        localStorage.removeItem('neonpub_token')
+        localStorage.removeItem('neonpub_user')
       }
     }
-    setLoading(false);
-  }, []);
 
-  const login = (tokenData, userData) => {
-    localStorage.setItem("neonpub_token", tokenData);
-    localStorage.setItem("neonpub_user", JSON.stringify(userData));
-    setToken(tokenData);
-    setUser(userData);
-  };
+    // Check Supabase session (admin)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUser(session.user)
+        setIsAuthenticated(true)
+        checkAdmin(session.user.id)
+      }
+      setLoading(false)
+    })
 
-  const logout = () => {
-    localStorage.removeItem("neonpub_token");
-    localStorage.removeItem("neonpub_user");
-    localStorage.removeItem("neonpub_pub_code");
-    setToken(null);
-    setUser(null);
-  };
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser(session.user)
+        setIsAuthenticated(true)
+        checkAdmin(session.user.id)
+      } else {
+        // Only clear if not participant
+        if (!localStorage.getItem('neonpub_token')) {
+          setUser(null)
+          setIsAuthenticated(false)
+          setIsAdmin(false)
+        }
+      }
+    })
 
-  const isAuthenticated = !!token;
-  const isAdmin = user?.is_admin || false;
+    return () => subscription.unsubscribe()
+  }, [])
+
+  const checkAdmin = async (userId) => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', userId)
+      .single()
+    
+    setIsAdmin(data?.role === 'admin')
+  }
+
+  const login = async (token, userData) => {
+    // Participant login (join pub)
+    localStorage.setItem('neonpub_token', token)
+    localStorage.setItem('neonpub_user', JSON.stringify(userData))
+    setUser(userData)
+    setIsAuthenticated(true)
+    setIsAdmin(false)
+  }
+
+  const logout = async () => {
+    // Check if admin
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session) {
+      await supabase.auth.signOut()
+    }
+    
+    localStorage.removeItem('neonpub_token')
+    localStorage.removeItem('neonpub_user')
+    localStorage.removeItem('neonpub_pub_code')
+    
+    setUser(null)
+    setIsAuthenticated(false)
+    setIsAdmin(false)
+  }
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, logout, isAuthenticated, isAdmin }}>
+    <AuthContext.Provider value={{ user, isAuthenticated, isAdmin, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
-  );
-};
+  )
+}
 
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error("useAuth must be used within AuthProvider");
-  }
-  return context;
-};
+export const useAuth = () => useContext(AuthContext)
