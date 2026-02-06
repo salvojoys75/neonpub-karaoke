@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useAuth } from "@/context/AuthContext";
 import { useWebSocket } from "@/context/WebSocketContext";
-import api from "@/lib/api"; // Importa le funzioni Supabase
+import api from "@/lib/api";
 
 const EMOJIS = ["❤️", "🔥", "👏", "🎤", "⭐", "🎉"];
 const REACTION_LIMIT = 3;
@@ -54,343 +54,163 @@ export default function ClientApp() {
 
   const loadData = useCallback(async () => {
     try {
-      // FIX: Sostituiti api.get(...) con le funzioni specifiche di api.js
-      // Nota: reactionsRes è rimosso perché api.js non ha un endpoint per contare le reazioni rimanenti lato server
       const [queueRes, myRes, perfRes, lbRes, quizRes] = await Promise.all([
-        api.getSongQueue(),           // Era api.get("/songs/queue")
-        api.getMyRequests(),          // Era api.get("/songs/my-requests")
-        api.getCurrentPerformance(),  // Era api.get("/performance/current")
-        api.getLeaderboard(),         // Era api.get("/leaderboard")
-        api.getActiveQuiz(),          // Era api.get("/quiz/active")
+        api.get("/songs/queue"),
+        api.get("/songs/my-requests"),
+        api.get("/performance/current"),
+        api.get("/leaderboard"),
+        api.get("/quiz/active"),
       ]);
-      
+
       setQueue(queueRes.data || []);
       setMyRequests(myRes.data || []);
+      setCurrentPerformance(perfRes.data || null);
       setLeaderboard(lbRes.data || []);
+      setActiveQuiz(quizRes.data || null);
       setLastUpdate(Date.now());
-      // Reset reazioni a default locale se non gestito dal server
-      // setRemainingReactions(REACTION_LIMIT); 
-      
-      // Update current performance
-      const newPerf = perfRes.data;
-      setCurrentPerformance(prev => {
-        if (!prev && newPerf) {
-          setRemainingReactions(REACTION_LIMIT);
-          return newPerf;
-        } else if (prev && !newPerf) {
-          setHasVoted(false);
-          setSelectedStars(0);
-          setRemainingReactions(REACTION_LIMIT);
-          return null;
-        } else if (prev && newPerf && prev.id !== newPerf.id) {
-          setHasVoted(false);
-          setSelectedStars(0);
-          setRemainingReactions(REACTION_LIMIT);
-          return newPerf;
-        } else if (newPerf) {
-          if (newPerf.voting_open && !prev?.voting_open && newPerf.user_id !== user?.id && !hasVoted) {
-            setShowVoteModal(true);
-            toast.info("⭐ Votazione aperta! Vota ora!");
-          }
-          return newPerf;
-        }
-        return prev;
-      });
-      
-      // Handle quiz
-      const newQuiz = quizRes.data;
-      if (newQuiz && newQuiz.id) {
-        setActiveQuiz(prev => {
-          if (!prev || prev.id !== newQuiz.id) {
-            if (lastQuizIdRef?.current !== newQuiz.id) {
-              return newQuiz;
-            }
-          }
-          return prev;
-        });
-      }
     } catch (error) {
       console.error("Error loading data:", error);
     }
-  }, [user?.id, hasVoted]);
+  }, []);
 
-  // Initial load and polling
   useEffect(() => {
-    if (isAuthenticated) {
-      loadData();
-      pollIntervalRef.current = setInterval(loadData, 5000);
-      return () => {
-        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-      };
-    }
-  }, [isAuthenticated, loadData]);
+    loadData();
+    pollIntervalRef.current = setInterval(loadData, 5000);
 
-  // Handle WebSocket messages
+    return () => clearInterval(pollIntervalRef.current);
+  }, [loadData]);
+
   useEffect(() => {
-    if (!lastMessage) return;
-    
-    if (lastMessage.type === "quiz_started") {
-      const quizId = lastMessage.data?.id;
-      if (!quizId || lastQuizIdRef.current === quizId || showQuizModal) {
-        return;
-      }
-    }
-    
-    console.log("Client received WS message:", lastMessage.type);
-    
-    switch (lastMessage.type) {
-      case "queue_updated":
-      case "new_request":
-        loadData();
-        break;
-        
-      case "performance_started":
-      case "performance_resumed":
-      case "performance_restarted":
-        setCurrentPerformance(lastMessage.data);
-        setHasVoted(false);
-        setSelectedStars(0);
-        toast.info(`🎤 ${lastMessage.data?.user_nickname || "Qualcuno"} sta cantando!`);
-        break;
-        
-      case "performance_paused":
-        setCurrentPerformance(prev => prev ? { ...prev, status: "paused" } : null);
-        break;
-        
-      case "voting_started":
-      case "voting_opened":
-        const perfData = lastMessage.data?.performance;
-        if (perfData && perfData.voting_open) {
-          setCurrentPerformance(perfData);
-          if (perfData.user_id !== user?.user_id) {
-            setHasVoted(false);
-            setSelectedStars(0);
+    if (lastMessage) {
+      switch (lastMessage.type) {
+        case "queue_updated":
+          setQueue(prev => {
+            const newQueue = [...prev];
+            const index = newQueue.findIndex(q => q.id === lastMessage.data.id);
+            if (index !== -1) newQueue[index] = lastMessage.data;
+            else newQueue.push(lastMessage.data);
+            return newQueue;
+          });
+          loadData();
+          break;
+        case "performance_updated":
+          setCurrentPerformance(lastMessage.data);
+          if (lastMessage.data.status === "voting") {
             setShowVoteModal(true);
-            toast.info("⭐ Votazione aperta! Vota ora!");
+            setSelectedStars(0);
+            setHasVoted(false);
           }
-        } else {
-          // Fallback con chiamata API corretta
-          api.getCurrentPerformance().then(res => {
-            if (res.data && res.data.voting_open && res.data.user_id !== user?.user_id) {
-              setCurrentPerformance(res.data);
-              setHasVoted(false);
-              setSelectedStars(0);
-              setShowVoteModal(true);
-              toast.info("⭐ Votazione aperta! Vota ora!");
-            }
-          }).catch(err => console.error("Error fetching performance:", err));
-        }
-        break;
-        
-      case "voting_closed":
-        setShowVoteModal(false);
-        setCurrentPerformance(null);
-        setHasVoted(false);
-        setSelectedStars(0);
-        toast.success(`Votazione chiusa! Media: ${lastMessage.data?.average_score || 0}⭐`);
-        loadData();
-        break;
-        
-      case "vote_received":
-        setCurrentPerformance(prev => prev ? { 
-          ...prev, 
-          average_score: lastMessage.data.new_average,
-          vote_count: lastMessage.data.vote_count 
-        } : null);
-        break;
-        
-      case "reaction":
-        addFloatingReaction(lastMessage.data.emoji);
-        break;
-        
-      case "effect":
-        if (lastMessage.data.effect_type === "emoji_burst") {
-          for (let i = 0; i < 10; i++) {
-            setTimeout(() => addFloatingReaction(lastMessage.data.data.emoji), i * 100);
-          }
-        }
-        break;
-        
-      case "quiz_started": {
-        const quizId = lastMessage.data?.id;
-        if (!quizId) return;
-        if (lastQuizIdRef.current === quizId) return;
-        lastQuizIdRef.current = quizId;
-        setActiveQuiz(lastMessage.data);
-        setQuizAnswer(null);
-        setQuizResult(null);
-        setShowQuizModal(true);
-        toast.info("🎯 Quiz Time!");
-        break;
-      }
-        
-      case "quiz_ended":
-        setQuizResult(lastMessage.data);
-        loadData();
-        setTimeout(() => {
-          setShowQuizModal(false);
-          setActiveQuiz(null);
+          break;
+        case "quiz_started":
+          setActiveQuiz(lastMessage.data);
+          setShowQuizModal(true);
+          setQuizAnswer(null);
           setQuizResult(null);
-          lastQuizIdRef.current = null;
-        }, 5000);
-        break;
-        
-      case "no_more_songs":
-        setCurrentPerformance(null);
-        break;
-        
-      default:
-        break;
+          break;
+        case "quiz_ended":
+          setQuizResult(lastMessage.data.result);
+          setActiveQuiz(null);
+          setTimeout(() => setShowQuizModal(false), 5000);
+          break;
+        case "reaction":
+          addFloatingReaction(lastMessage.data.emoji);
+          break;
+      }
     }
-  }, [lastMessage, user?.id, hasVoted, loadData]);
+  }, [lastMessage]);
 
-  const addFloatingReaction = (emoji) => {
-    const id = Date.now() + Math.random();
-    const left = Math.random() * 80 + 10;
-    setFloatingReactions(prev => [...prev, { id, emoji, left }]);
-    setTimeout(() => {
-      setFloatingReactions(prev => prev.filter(r => r.id !== id));
-    }, 2000);
-  };
-
-  const handleRequestSong = async (e) => {
-    e.preventDefault();
+  const handleSongRequest = async () => {
     if (!songTitle.trim() || !songArtist.trim()) {
       toast.error("Inserisci titolo e artista");
       return;
     }
-    
+
     try {
-      // FIX: Chiamata specifica api.requestSong invece di api.post
-      await api.requestSong({ 
-        title: songTitle, 
+      await api.requestSong({
+        title: songTitle,
         artist: songArtist,
-        youtube_url: songYoutubeUrl || null
+        youtube_url: songYoutubeUrl,
       });
-      toast.success("Richiesta inviata! Attendi approvazione");
+      toast.success("Richiesta inviata!");
       setShowRequestModal(false);
       setSongTitle("");
       setSongArtist("");
       setSongYoutubeUrl("");
       loadData();
     } catch (error) {
-      toast.error(error.message || "Errore nell'invio");
+      toast.error("Errore invio richiesta");
     }
   };
 
   const handleVote = async () => {
-    if (selectedStars === 0 || !currentPerformance) return;
-    
+    if (selectedStars === 0) return;
     try {
-      // FIX: Chiamata specifica api.submitVote
-      await api.submitVote({ performance_id: currentPerformance.id, score: selectedStars });
-      toast.success(`Hai votato ${selectedStars} stelle!`);
-      setHasVoted(true);
+      await api.submitVote(currentPerformance.id, selectedStars);
+      toast.success("Voto inviato!");
       setShowVoteModal(false);
+      setHasVoted(true);
     } catch (error) {
-      toast.error(error.message || "Errore nel voto");
+      toast.error("Errore invio voto");
     }
   };
 
-  const handleReaction = async (emoji) => {
-    if (remainingReactions <= 0) {
-      toast.error("Hai esaurito le reazioni per questa esibizione!");
-      return;
-    }
-    
+  const handleQuizAnswer = async (index) => {
+    setQuizAnswer(index);
     try {
-      // FIX: Chiamata specifica api.sendReaction
-      await api.sendReaction({ emoji });
-      
-      // Aggiornamento locale (api.js Supabase non ritorna il conteggio rimanente nel DB)
-      addFloatingReaction(emoji);
-      setRemainingReactions(prev => prev - 1);
-      
-      if (remainingReactions - 1 === 0) {
-        toast.info("Hai usato tutte le reazioni!");
-      }
+      const res = await api.submitQuizAnswer(activeQuiz.id, index);
+      setQuizResult(res.data);
     } catch (error) {
-       console.error("Reaction error:", error);
-       toast.error("Errore invio reazione");
+      toast.error("Errore invio risposta");
     }
   };
 
   const handleSendMessage = async () => {
     if (!messageText.trim()) return;
-    
     try {
-      // NOTA: api.js non ha un metodo sendMessage. 
-      // Se serve, devi aggiungere sendReaction({ emoji: null, message: messageText }) in api.js
-      // Per ora simulo un successo o uso sendReaction se il backend lo supporta
-      await api.sendMessage({ message: messageText });
-      
+      await api.sendMessage(messageText);
       toast.success("Messaggio inviato!");
       setShowMessageModal(false);
       setMessageText("");
     } catch (error) {
-      toast.error("Errore nell'invio");
+      toast.error("Errore invio messaggio");
     }
   };
 
-  const handleQuizAnswer = async (index) => {
-    if (quizAnswer !== null || !activeQuiz) return;
-    
-    setQuizAnswer(index);
+  const handleSendReaction = async (emoji) => {
+    if (remainingReactions <= 0) return;
     try {
-      // FIX: Chiamata specifica api.answerQuiz
-      const { data } = await api.answerQuiz({ quiz_id: activeQuiz.id, answer_index: index });
-      if (data.is_correct) {
-        toast.success(`Corretto! +${data.points_earned} punti!`);
-      } else {
-        toast.error("Sbagliato!");
-      }
-      setTimeout(() => loadData(), 1000);
+      await api.sendReaction(emoji);
+      setRemainingReactions(prev => prev - 1);
+      addFloatingReaction(emoji);
     } catch (error) {
-      toast.error(error.message || "Errore");
+      toast.error("Errore invio reazione");
     }
+  };
+
+  const addFloatingReaction = (emoji) => {
+    const id = Date.now() + Math.random();
+    const left = Math.random() * 80 + 10;
+    setFloatingReactions(prev => [...prev, { id, emoji, left }]);
+    
+    setTimeout(() => {
+      setFloatingReactions(prev => prev.filter(r => r.id !== id));
+    }, 3000);
   };
 
   const handleRefresh = () => {
     loadData();
-    toast.success("Aggiornato!");
+    toast.info("Dati aggiornati");
   };
 
-  if (!isAuthenticated) return null;
+  const handleLogout = () => {
+    logout();
+    navigate("/");
+  };
 
-  const isVotingOpen = currentPerformance?.voting_open && !hasVoted && currentPerformance?.user_id !== user?.id;
+  const isVotingOpen = currentPerformance?.status === "voting" && !hasVoted;
 
   return (
-    <div className="min-h-screen bg-[#050505] flex flex-col pb-24">
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-[#050505]/90 backdrop-blur-md p-4 flex justify-between items-center border-b border-white/5">
-        <div>
-          <h1 className="font-bold text-lg">{user?.pub_name}</h1>
-          <p className="text-xs text-zinc-500 flex items-center gap-1">
-            <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-yellow-500'}`}></span>
-            {user?.nickname} • {isConnected ? 'Live' : 'Polling'}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button 
-            onClick={handleRefresh}
-            variant="ghost" 
-            size="sm"
-            className="text-zinc-400"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </Button>
-          <Button 
-            data-testid="logout-btn"
-            onClick={logout} 
-            variant="ghost" 
-            size="sm"
-            className="text-zinc-400"
-          >
-            Esci
-          </Button>
-        </div>
-      </header>
-
+    <div className="min-h-screen bg-[#050505] text-white flex flex-col">
       {/* Floating Reactions */}
       <div className="reactions-overlay">
         {floatingReactions.map(r => (
@@ -404,164 +224,123 @@ export default function ClientApp() {
         ))}
       </div>
 
-      {/* Content */}
-      <main className="flex-1 p-4">
+      {/* Header */}
+      <header className="p-4 flex justify-between items-center border-b border-white/5">
+        <h1 className="text-2xl font-bold">{user?.nickname || "Partecipante"}</h1>
+        <Button onClick={handleRefresh} variant="ghost">
+          <RefreshCw className="w-5 h-5" />
+        </Button>
+      </header>
+
+      {/* Main Content */}
+      <main className="flex-1 p-4 overflow-y-auto space-y-6">
         {activeTab === "home" && (
-          <div className="space-y-6 animate-fade-in-up">
+          <div className="space-y-6">
             {/* Current Performance */}
-            {currentPerformance && (
-              <div className="glass rounded-2xl p-5 neon-border">
-                <div className="flex items-center gap-2 mb-3">
+            {currentPerformance ? (
+              <div className="glass rounded-2xl p-4">
+                <div className="flex items-center gap-2 mb-2">
                   <span className={`w-3 h-3 rounded-full ${
-                    currentPerformance.status === "live" ? "bg-red-500 animate-pulse" :
-                    currentPerformance.status === "paused" ? "bg-yellow-500" :
-                    "bg-green-500"
+                    currentPerformance.status === 'live' ? 'bg-red-500 animate-pulse' :
+                    currentPerformance.status === 'paused' ? 'bg-yellow-500' :
+                    'bg-green-500'
                   }`}></span>
-                  <span className={`text-sm font-medium ${
-                    currentPerformance.status === "live" ? "text-red-400" :
-                    currentPerformance.status === "paused" ? "text-yellow-400" :
-                    "text-green-400"
-                  }`}>
-                    {currentPerformance.status === "live" && "LIVE ORA"}
-                    {currentPerformance.status === "paused" && "IN PAUSA"}
-                    {currentPerformance.status === "voting" && "VOTAZIONE"}
-                  </span>
+                  <span className="text-sm font-medium uppercase text-zinc-400">{currentPerformance.status}</span>
                 </div>
-                <h2 className="text-2xl font-bold">{currentPerformance.song_title}</h2>
+                <h2 className="text-xl font-bold">{currentPerformance.song_title}</h2>
                 <p className="text-zinc-400">{currentPerformance.song_artist}</p>
                 <p className="text-fuchsia-400 mt-2">🎤 {currentPerformance.user_nickname}</p>
                 
-                {isVotingOpen && (
+                {currentPerformance.status === 'voting' && !hasVoted && (
                   <Button 
-                    data-testid="vote-now-btn"
                     onClick={() => setShowVoteModal(true)}
-                    className="w-full mt-4 rounded-full bg-yellow-500 hover:bg-yellow-600 text-black animate-pulse"
+                    className="mt-4 w-full bg-yellow-500 hover:bg-yellow-600 text-black"
                   >
-                    <Star className="w-4 h-4 mr-2" /> Vota Ora!
+                    <Star className="w-5 h-5 mr-2" /> Vota ora!
                   </Button>
                 )}
-                
-                {hasVoted && (
-                  <p className="text-green-400 text-sm mt-4 text-center">✓ Hai già votato</p>
-                )}
-                
-                {currentPerformance.vote_count > 0 && (
-                  <div className="mt-4 flex items-center gap-2">
-                    <Star className="w-5 h-5 text-yellow-500 fill-yellow-500" />
-                    <span className="font-bold">{(currentPerformance.average_score || 0).toFixed(1)}</span>
-                    <span className="text-zinc-500 text-sm">({currentPerformance.vote_count} voti)</span>
-                  </div>
-                )}
+              </div>
+            ) : (
+              <div className="glass rounded-2xl p-4 text-center">
+                <Mic2 className="w-12 h-12 mx-auto text-fuchsia-500/20 mb-2" />
+                <p className="text-zinc-500">Nessuna esibizione in corso</p>
               </div>
             )}
 
-            {/* Reaction Bar - show when live */}
-            {currentPerformance?.status === "live" && (
-              <div className="space-y-3">
-                {/* Remaining reactions counter */}
-                <div className="text-center">
-                  <span className={`text-sm ${remainingReactions > 0 ? 'text-cyan-400' : 'text-red-400'}`}>
-                    {remainingReactions > 0 
-                      ? `🎭 ${remainingReactions}/${REACTION_LIMIT} reazioni rimanenti`
-                      : '❌ Reazioni esaurite per questa esibizione'
-                    }
-                  </span>
-                </div>
-                
-                <div className="flex justify-center gap-3 py-2">
+            {/* Active Quiz */}
+            {activeQuiz && (
+              <Button 
+                onClick={() => setShowQuizModal(true)}
+                className="w-full bg-fuchsia-500 hover:bg-fuchsia-600"
+              >
+                <HelpCircle className="w-5 h-5 mr-2" /> Rispondi al Quiz!
+              </Button>
+            )}
+
+            {/* Reactions */}
+            {currentPerformance && remainingReactions > 0 && (
+              <div className="glass rounded-2xl p-4">
+                <p className="text-sm text-zinc-400 mb-2">Reazioni rimaste: {remainingReactions}/{REACTION_LIMIT}</p>
+                <div className="grid grid-cols-6 gap-2">
                   {EMOJIS.map(emoji => (
                     <button
                       key={emoji}
-                      data-testid={`reaction-${emoji}`}
-                      onClick={() => handleReaction(emoji)}
-                      disabled={remainingReactions <= 0}
-                      className={`emoji-btn w-14 h-14 rounded-full flex items-center justify-center text-2xl touch-target transition-all ${
-                        remainingReactions > 0 
-                          ? 'bg-white/5 hover:bg-white/10 hover:scale-110' 
-                          : 'bg-white/5 opacity-50 cursor-not-allowed'
-                      }`}
+                      onClick={() => handleSendReaction(emoji)}
+                      className="text-3xl p-2 rounded-xl hover:bg-white/5 transition"
                     >
                       {emoji}
                     </button>
                   ))}
                 </div>
-                
-                {/* Send Message Button */}
-                <Button
-                  onClick={() => setShowMessageModal(true)}
-                  variant="outline"
-                  className="w-full rounded-full border-cyan-500/30 text-cyan-400"
-                >
-                  <MessageSquare className="w-4 h-4 mr-2" /> Manda Messaggio
-                </Button>
               </div>
             )}
 
-            {/* Request Song Button */}
-            <Button 
-              data-testid="request-song-btn"
-              onClick={() => setShowRequestModal(true)}
-              className="w-full rounded-full bg-fuchsia-500 hover:bg-fuchsia-600 py-6 text-lg btn-primary"
-            >
-              <Music className="w-5 h-5 mr-2" /> Richiedi una Canzone
-            </Button>
-
-            {/* Queue Preview - only show queued (approved) songs */}
-            <div className="space-y-3">
-              <h3 className="font-bold text-lg flex items-center gap-2">
-                <Music className="w-5 h-5 text-fuchsia-400" />
-                Prossimi a Cantare
-              </h3>
-              {queue.filter(s => s.status === "queued").length === 0 ? (
-                <p className="text-zinc-500 text-center py-8">Nessuno in coda. Sii il primo!</p>
-              ) : (
-                <div className="space-y-2">
-                  {queue.filter(s => s.status === "queued").slice(0, 5).map((song, index) => (
-                    <div 
-                      key={song.id} 
-                      className="glass rounded-xl p-4 flex items-center gap-4 song-card"
-                    >
-                      <span className="mono text-2xl text-fuchsia-400 font-bold w-8">{index + 1}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate">{song.title}</p>
-                        <p className="text-sm text-zinc-500 truncate">{song.artist}</p>
-                      </div>
-                      <span className="text-xs text-cyan-400 whitespace-nowrap">{song.user_nickname}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            {/* Send Message */}
+            {currentPerformance && (
+              <Button 
+                onClick={() => setShowMessageModal(true)}
+                variant="outline"
+                className="w-full"
+              >
+                <MessageSquare className="w-5 h-5 mr-2" /> Invia Messaggio
+              </Button>
+            )}
           </div>
         )}
 
         {activeTab === "songs" && (
-          <div className="space-y-4 animate-fade-in-up">
-            <h2 className="text-xl font-bold">Le Mie Richieste</h2>
+          <div className="space-y-6">
+            <Button onClick={() => setShowRequestModal(true)} className="w-full bg-fuchsia-500 hover:bg-fuchsia-600">
+              <Music className="w-5 h-5 mr-2" /> Richiedi Canzone
+            </Button>
+            
+            <h2 className="text-xl font-bold mb-2">Le Tue Richieste</h2>
             {myRequests.length === 0 ? (
-              <p className="text-zinc-500 text-center py-12">Non hai ancora richiesto canzoni</p>
+              <p className="text-zinc-500 text-center py-4">Nessuna richiesta</p>
             ) : (
-              <div className="space-y-2">
-                {myRequests.map(song => (
-                  <div key={song.id} className="glass rounded-xl p-4">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="font-medium">{song.title}</p>
-                        <p className="text-sm text-zinc-500">{song.artist}</p>
-                      </div>
-                      <span className={`text-xs px-2 py-1 rounded-full ${
-                        song.status === "pending" ? "bg-yellow-500/20 text-yellow-400" :
-                        song.status === "queued" ? "bg-cyan-500/20 text-cyan-400" :
-                        song.status === "performing" ? "bg-red-500/20 text-red-400" :
-                        song.status === "completed" ? "bg-green-500/20 text-green-400" :
-                        "bg-zinc-500/20 text-zinc-400"
-                      }`}>
-                        {song.status === "pending" && "In attesa"}
-                        {song.status === "queued" && "In coda"}
-                        {song.status === "performing" && "Sul palco!"}
-                        {song.status === "completed" && "Completata"}
-                        {song.status === "rejected" && "Rifiutata"}
-                      </span>
+              <div className="space-y-3">
+                {myRequests.map(req => (
+                  <div key={req.id} className="glass rounded-xl p-4">
+                    <p className="font-medium">{req.title}</p>
+                    <p className="text-zinc-400 text-sm">{req.artist}</p>
+                    <p className="text-xs mt-2 uppercase">{req.status}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            <h2 className="text-xl font-bold mb-2">Coda</h2>
+            {queue.length === 0 ? (
+              <p className="text-zinc-500 text-center py-4">Coda vuota</p>
+            ) : (
+              <div className="space-y-3">
+                {queue.map((song, index) => (
+                  <div key={song.id} className="glass rounded-xl p-4 flex items-center gap-3">
+                    <span className="text-2xl font-bold text-fuchsia-400">{index + 1}</span>
+                    <div className="flex-1">
+                      <p className="font-medium">{song.title}</p>
+                      <p className="text-zinc-400 text-sm">{song.artist}</p>
+                      <p className="text-cyan-400 text-xs mt-1">{song.user_nickname}</p>
                     </div>
                   </div>
                 ))}
@@ -571,138 +350,81 @@ export default function ClientApp() {
         )}
 
         {activeTab === "leaderboard" && (
-          <div className="space-y-4 animate-fade-in-up">
-            <h2 className="text-xl font-bold flex items-center gap-2">
-              <Trophy className="w-5 h-5 text-yellow-500" /> Classifica Quiz
-            </h2>
+          <div className="space-y-3">
             {leaderboard.length === 0 ? (
-              <p className="text-zinc-500 text-center py-12">Nessun punteggio ancora</p>
+              <p className="text-zinc-500 text-center py-12">Nessun punteggio</p>
             ) : (
-              <div className="space-y-2">
-                {leaderboard.map((player, index) => (
-                  <div key={player.id || index} className={`leaderboard-item glass rounded-xl p-4 flex items-center gap-4 ${
-                    player.id === user?.id ? 'ring-1 ring-fuchsia-500' : ''
+              leaderboard.map((player, index) => (
+                <div key={player.id} className="glass rounded-xl p-4 flex items-center gap-3">
+                  <span className={`text-2xl font-bold ${
+                    index === 0 ? 'text-yellow-500' :
+                    index === 1 ? 'text-zinc-400' :
+                    index === 2 ? 'text-amber-700' :
+                    'text-zinc-600'
                   }`}>
-                    <span className={`text-2xl font-bold w-8 ${
-                      index === 0 ? 'text-yellow-500' :
-                      index === 1 ? 'text-zinc-400' :
-                      index === 2 ? 'text-amber-700' :
-                      'text-zinc-600'
-                    }`}>
-                      {index + 1}
-                    </span>
-                    <div className="flex-1">
-                      <p className="font-medium">{player.nickname}</p>
-                    </div>
-                    <span className="mono text-lg font-bold text-cyan-400">{player.score || 0}</span>
-                  </div>
-                ))}
-              </div>
+                    {index + 1}
+                  </span>
+                  <p className="flex-1 font-medium">{player.nickname}</p>
+                  <span className="text-xl font-bold text-cyan-400">{player.score}</span>
+                </div>
+              ))
             )}
-          </div>
-        )}
-
-        {activeTab === "profile" && (
-          <div className="space-y-6 animate-fade-in-up">
-            <div className="text-center py-8">
-              <div className="w-24 h-24 rounded-full bg-fuchsia-500/20 flex items-center justify-center mx-auto mb-4">
-                <User className="w-12 h-12 text-fuchsia-400" />
-              </div>
-              <h2 className="text-2xl font-bold">{user?.nickname}</h2>
-              <p className="text-zinc-500">{user?.pub_name}</p>
-            </div>
-            
-            <div className="glass rounded-2xl p-6 space-y-4">
-              <div className="flex justify-between">
-                <span className="text-zinc-400">Canzoni richieste</span>
-                <span className="font-bold">{myRequests.length}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-zinc-400">Punteggio Quiz</span>
-                <span className="font-bold text-cyan-400">{leaderboard.find(p => p.id === user?.id)?.score || 0}</span>
-              </div>
-            </div>
-
-            <Button 
-              data-testid="logout-profile-btn"
-              onClick={logout}
-              variant="outline"
-              className="w-full rounded-full border-red-500/30 text-red-400 hover:bg-red-500/10"
-            >
-              Esci dal Pub
-            </Button>
           </div>
         )}
       </main>
 
-      {/* Bottom Navigation */}
-      <nav className="mobile-nav safe-bottom">
-        {[
-          { id: "home", icon: Home, label: "Home" },
-          { id: "songs", icon: Music, label: "Canzoni" },
-          { id: "leaderboard", icon: Trophy, label: "Classifica" },
-          { id: "profile", icon: User, label: "Profilo" },
-        ].map(tab => (
-          <button
-            key={tab.id}
-            data-testid={`nav-${tab.id}`}
-            onClick={() => setActiveTab(tab.id)}
-            className={`mobile-nav-item flex flex-col items-center gap-1 touch-target ${
-              activeTab === tab.id ? 'active' : 'text-zinc-500'
-            }`}
-          >
-            <tab.icon className="w-6 h-6" />
-            <span className="text-xs">{tab.label}</span>
-          </button>
-        ))}
+      {/* Navigation */}
+      <nav className="p-2 border-t border-white/5">
+        <div className="grid grid-cols-4">
+          {[
+            { id: "home", icon: Home, label: "Home" },
+            { id: "songs", icon: Music, label: "Canzoni" },
+            { id: "leaderboard", icon: Trophy, label: "Classifica" },
+            { id: "profile", icon: User, label: "Profilo" },
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex flex-col items-center p-2 ${
+                activeTab === tab.id ? 'text-fuchsia-500' : 'text-zinc-500'
+              }`}
+            >
+              <tab.icon className="w-6 h-6 mb-1" />
+              <span className="text-xs">{tab.label}</span>
+            </button>
+          ))}
+        </div>
       </nav>
 
-      {/* Request Song Modal */}
+      {/* Request Modal */}
       <Dialog open={showRequestModal} onOpenChange={setShowRequestModal}>
         <DialogContent className="bg-zinc-900 border-zinc-800">
           <DialogHeader>
-            <DialogTitle>Richiedi una Canzone</DialogTitle>
-            <DialogDescription>Compila i campi per richiedere il brano.</DialogDescription>
+            <DialogTitle>Richiesta Canzone</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleRequestSong} className="space-y-4 mt-4">
-            <div className="space-y-2">
-              <label className="text-sm text-zinc-400">Titolo Canzone *</label>
-              <Input
-                data-testid="song-title-input"
-                value={songTitle}
-                onChange={(e) => setSongTitle(e.target.value)}
-                placeholder="Es: Wonderwall"
-                className="bg-zinc-800 border-zinc-700"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm text-zinc-400">Artista *</label>
-              <Input
-                data-testid="song-artist-input"
-                value={songArtist}
-                onChange={(e) => setSongArtist(e.target.value)}
-                placeholder="Es: Oasis"
-                className="bg-zinc-800 border-zinc-700"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm text-zinc-400">Link YouTube Karaoke (opzionale)</label>
-              <Input
-                value={songYoutubeUrl}
-                onChange={(e) => setSongYoutubeUrl(e.target.value)}
-                placeholder="https://www.youtube.com/watch?v=..."
-                className="bg-zinc-800 border-zinc-700"
-              />
-              <p className="text-xs text-zinc-500">Se hai trovato il video karaoke, incollalo qui!</p>
-            </div>
-            <Button 
-              data-testid="submit-song-request"
-              type="submit"
-              className="w-full rounded-full bg-fuchsia-500 hover:bg-fuchsia-600"
-            >
-              <Send className="w-4 h-4 mr-2" /> Invia Richiesta
+          <div className="space-y-4 mt-4">
+            <Input
+              value={songTitle}
+              onChange={(e) => setSongTitle(e.target.value)}
+              placeholder="Titolo"
+              className="bg-zinc-800 border-zinc-700"
+            />
+            <Input
+              value={songArtist}
+              onChange={(e) => setSongArtist(e.target.value)}
+              placeholder="Artista"
+              className="bg-zinc-800 border-zinc-700"
+            />
+            <Input
+              value={songYoutubeUrl}
+              onChange={(e) => setSongYoutubeUrl(e.target.value)}
+              placeholder="URL YouTube (opzionale)"
+              className="bg-zinc-800 border-zinc-700"
+            />
+            <Button onClick={handleSongRequest} className="w-full bg-fuchsia-500 hover:bg-fuchsia-600" size="lg">
+              <Send className="w-5 h-5 mr-2" /> Invia
             </Button>
-          </form>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -710,65 +432,23 @@ export default function ClientApp() {
       <Dialog open={showVoteModal} onOpenChange={setShowVoteModal}>
         <DialogContent className="bg-zinc-900 border-zinc-800">
           <DialogHeader>
-            <DialogTitle className="text-center">Vota l'Esibizione!</DialogTitle>
-            <DialogDescription className="text-center">Assegna un punteggio da 1 a 5 stelle.</DialogDescription>
+            <DialogTitle>Vota l'Esibizione</DialogTitle>
           </DialogHeader>
-          <div className="py-8 text-center">
-            <p className="mb-2 text-lg">{currentPerformance?.song_title}</p>
-            <p className="text-zinc-400 mb-6">di {currentPerformance?.user_nickname}</p>
-            
-            <div className="flex justify-center gap-2">
-              {[1, 2, 3, 4, 5].map(star => (
-                <button
+          <div className="py-6 text-center">
+            <p className="text-xl mb-4">{currentPerformance?.song_title} - {currentPerformance?.user_nickname}</p>
+            <div className="flex justify-center gap-2 mb-4">
+              {[1,2,3,4,5].map(star => (
+                <Star
                   key={star}
-                  data-testid={`star-${star}`}
+                  className={`w-10 h-10 cursor-pointer ${
+                    star <= selectedStars ? 'fill-yellow-500 text-yellow-500' : 'text-zinc-700'
+                  }`}
                   onClick={() => setSelectedStars(star)}
-                  className="star-rating touch-target"
-                >
-                  <Star 
-                    className={`w-12 h-12 ${selectedStars >= star ? 'text-yellow-500 fill-yellow-500' : 'text-zinc-600'}`} 
-                  />
-                </button>
+                />
               ))}
             </div>
-
-            <Button 
-              data-testid="submit-vote-btn"
-              onClick={handleVote}
-              disabled={selectedStars === 0}
-              className="mt-8 rounded-full bg-yellow-500 hover:bg-yellow-600 text-black px-8"
-            >
-              Conferma Voto
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Message Modal */}
-      <Dialog open={showMessageModal} onOpenChange={setShowMessageModal}>
-        <DialogContent className="bg-zinc-900 border-zinc-800">
-          <DialogHeader>
-            <DialogTitle>Manda un Messaggio</DialogTitle>
-            <DialogDescription>Invia un messaggio rapido al display.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 mt-4">
-            <p className="text-sm text-zinc-400">
-              Il tuo messaggio apparirà sul display dopo l'approvazione dell'admin
-            </p>
-            <Input
-              value={messageText}
-              onChange={(e) => setMessageText(e.target.value.slice(0, 100))}
-              placeholder="Scrivi il tuo messaggio..."
-              className="bg-zinc-800 border-zinc-700"
-              maxLength={100}
-            />
-            <p className="text-xs text-zinc-500 text-right">{messageText.length}/100</p>
-            <Button 
-              onClick={handleSendMessage}
-              disabled={!messageText.trim()}
-              className="w-full rounded-full bg-cyan-500 hover:bg-cyan-600"
-            >
-              <Send className="w-4 h-4 mr-2" /> Invia
+            <Button onClick={handleVote} disabled={selectedStars === 0} className="w-full bg-yellow-500 hover:bg-yellow-600 text-black" size="lg">
+              <Check className="w-5 h-5 mr-2" /> Invia Voto
             </Button>
           </div>
         </DialogContent>
@@ -781,9 +461,6 @@ export default function ClientApp() {
             <DialogTitle className="text-center gradient-text text-2xl">
               {quizResult ? "Risultato Quiz!" : "Quiz Time!"}
             </DialogTitle>
-            <DialogDescription className="text-center">
-              {quizResult ? "Ecco com'è andata." : "Rispondi velocemente!"}
-            </DialogDescription>
           </DialogHeader>
           
           {!quizResult && activeQuiz && (
@@ -834,6 +511,26 @@ export default function ClientApp() {
               <p className="text-zinc-500 mt-4">{quizResult.total_answers} risposte totali</p>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Message Modal */}
+      <Dialog open={showMessageModal} onOpenChange={setShowMessageModal}>
+        <DialogContent className="bg-zinc-900 border-zinc-800">
+          <DialogHeader>
+            <DialogTitle>Invia Messaggio</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <Input
+              value={messageText}
+              onChange={(e) => setMessageText(e.target.value)}
+              placeholder="Scrivi il tuo messaggio..."
+              className="bg-zinc-800 border-zinc-700"
+            />
+            <Button onClick={handleSendMessage} className="w-full bg-fuchsia-500 hover:bg-fuchsia-600" size="lg">
+              <Send className="w-5 h-5 mr-2" /> Invia
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

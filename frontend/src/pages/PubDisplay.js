@@ -89,7 +89,6 @@ export default function PubDisplay() {
           videoId: videoId,
           playerVars: {
             autoplay: 1,
-            mute: 1,
             controls: 0,
             modestbranding: 1,
             rel: 0,
