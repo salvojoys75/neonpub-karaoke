@@ -310,37 +310,21 @@ const handleLogout = () => {
   };
 
 const handleOpenDisplay = () => {
-  const LOCAL_IP = "192.168.100.41"; // il tuo IP locale
-  const url = `http://${LOCAL_IP}:3000/display/${pubCode}`;
+  // URL pubblico del tuo deploy (cambia con il tuo vero dominio Vercel/Netlify)
+  const PUBLIC_URL = "https://neonpub-karaoke.vercel.app"; // ← METTI QUI IL TUO URL VERO!
 
-  // Apri in nuova finestra con dimensioni grandi
-  const displayWindow = window.open(
-    url,
-    "_blank",
-    "width=1920,height=1080,resizable=yes,scrollbars=yes,toolbar=no,menubar=no"
-  );
+  const url = `${PUBLIC_URL}/display/${pubCode}`;
 
-  if (!displayWindow || displayWindow.closed || typeof displayWindow.closed == "undefined") {
-    toast.error("Popup bloccato dal browser! Permetti popup per questo sito.");
+  const displayWindow = window.open(url, "_blank", "width=1920,height=1080,resizable=yes");
+
+  if (!displayWindow) {
+    toast.error("Popup bloccato! Permetti popup per questo sito.");
     return;
   }
 
-  // Tenta fullscreen dopo caricamento
+  // Tenta fullscreen
   displayWindow.addEventListener("load", () => {
-    try {
-      const elem = displayWindow.document.documentElement;
-      if (elem.requestFullscreen) {
-        elem.requestFullscreen();
-      } else if (elem.mozRequestFullScreen) { // Firefox
-        elem.mozRequestFullScreen();
-      } else if (elem.webkitRequestFullscreen) { // Chrome/Safari
-        elem.webkitRequestFullscreen();
-      } else if (elem.msRequestFullscreen) { // IE/Edge
-        elem.msRequestFullscreen();
-      }
-    } catch (err) {
-      console.log("Fullscreen non supportato o bloccato:", err);
-    }
+    displayWindow.document.documentElement.requestFullscreen?.().catch(() => {});
   });
 };
 
