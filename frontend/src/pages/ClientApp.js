@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Home, Music, Trophy, User, Send, Star, MessageSquare, RefreshCw } from "lucide-react";
+import { Home, Music, Trophy, User, Send, Star, MessageSquare, RefreshCw, Mic2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
