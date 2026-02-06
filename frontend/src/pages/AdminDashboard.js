@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { 
+import {
   Music, Play, Square, Trophy, Tv, Star, HelpCircle,
-  Check, X, Sparkles, LogOut, SkipForward, Pause, 
+  Check, X, Sparkles, LogOut, SkipForward, Pause,
   RotateCcw, MessageSquare, Mic2, Search
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,13 +30,13 @@ const QUIZ_CATEGORIES = [
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const { isAuthenticated, isAdmin, logout } = useAuth();
-  
+ 
   const [queue, setQueue] = useState([]);
   const [currentPerformance, setCurrentPerformance] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
   const [activeSection, setActiveSection] = useState("queue");
   const [pendingMessages, setPendingMessages] = useState([]);
-  
+ 
   // Quiz
   const [showQuizModal, setShowQuizModal] = useState(false);
   const [quizTab, setQuizTab] = useState("custom");
@@ -45,7 +45,7 @@ export default function AdminDashboard() {
   const [quizOptions, setQuizOptions] = useState(["", "", "", ""]);
   const [quizCorrectIndex, setQuizCorrectIndex] = useState(0);
   const [activeQuizId, setActiveQuizId] = useState(null);
-
+  
   // YouTube
   const [showYoutubeModal, setShowYoutubeModal] = useState(false);
   const [youtubeUrl, setYoutubeUrl] = useState("");
@@ -53,18 +53,11 @@ export default function AdminDashboard() {
   const [youtubeSearchResults, setYoutubeSearchResults] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [searchingYoutube, setSearchingYoutube] = useState(false);
-
+  
   // Effects
   const [showEffectModal, setShowEffectModal] = useState(false);
 
   const pubCode = localStorage.getItem("neonpub_pub_code");
-useEffect(() => {
-  const savedPubCode = localStorage.getItem("neonpub_pub_code");
-  if (!savedPubCode && isAuthenticated && isAdmin) {
-    // Admin loggato ma nessun evento - redirect a home per crearne uno
-    navigate("/");
-  }
-}, [isAuthenticated, isAdmin, navigate]);
   const pollIntervalRef = useRef(null);
 
   useEffect(() => {
@@ -80,14 +73,14 @@ useEffect(() => {
 
   const loadData = useCallback(async () => {
     if (!pubCode) return;
-    
+   
     try {
       const [queueRes, perfRes, lbRes] = await Promise.all([
         api.getAdminQueue(),
         api.getAdminCurrentPerformance(),
         api.getAdminLeaderboard(),
       ]);
-      
+     
       setQueue(queueRes.data || []);
       setCurrentPerformance(perfRes.data);
       setLeaderboard(lbRes.data || []);
@@ -112,22 +105,37 @@ useEffect(() => {
       return;
     }
 
+    const apiKey = process.env.REACT_APP_YOUTUBE_API_KEY;
+
+    if (!apiKey) {
+      toast.error("Chiave YouTube API non configurata! Aggiungi REACT_APP_YOUTUBE_API_KEY nel file .env");
+      console.warn("Missing REACT_APP_YOUTUBE_API_KEY in environment variables");
+      return;
+    }
+
     setSearchingYoutube(true);
+
     try {
-      const query = `${selectedRequest?.title || youtubeSearchQuery} ${selectedRequest?.artist || ''} karaoke`.trim();
+      // Query migliorata leggermente per risultati karaoke più rilevanti
+      const query = `${selectedRequest?.title || youtubeSearchQuery} ${selectedRequest?.artist || ''} karaoke official lyrics`.trim();
+      
       const response = await fetch(
         `https://www.googleapis.com/youtube/v3/search?` +
         `part=snippet&q=${encodeURIComponent(query)}&type=video&maxResults=5&` +
-        `key=${process.env.REACT_APP_YOUTUBE_API_KEY || 'YOUR_KEY'}`
+        `key=${apiKey}`
       );
-      
-      if (!response.ok) throw new Error('YouTube API error');
-      
+     
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error?.message || `YouTube API error (${response.status})`);
+      }
+     
       const data = await response.json();
       setYoutubeSearchResults(data.items || []);
+      console.log("YouTube search results:", data.items?.length || 0, "videos found");
     } catch (error) {
       console.error("YouTube search error:", error);
-      toast.error("Errore ricerca YouTube");
+      toast.error(`Errore nella ricerca YouTube: ${error.message}`);
       setYoutubeSearchResults([]);
     } finally {
       setSearchingYoutube(false);
@@ -172,7 +180,6 @@ useEffect(() => {
       toast.error("Inserisci URL YouTube");
       return;
     }
-
     try {
       await api.startPerformance(selectedRequest.id, youtubeUrl);
       toast.success("Esibizione iniziata!");
@@ -233,7 +240,7 @@ useEffect(() => {
   const handleSkip = async () => {
     if (!currentPerformance) return;
     if (!window.confirm("Sicuro di saltare questa esibizione?")) return;
-    
+   
     try {
       await api.skipPerformance(currentPerformance.id);
       toast.info("Esibizione saltata");
@@ -245,13 +252,12 @@ useEffect(() => {
 
   const handleStartQuiz = async (e) => {
     e.preventDefault();
-    
+   
     if (quizTab === "custom") {
       if (!quizQuestion.trim() || quizOptions.some(o => !o.trim())) {
         toast.error("Compila tutti i campi");
         return;
       }
-
       try {
         const { data } = await api.startQuiz({
           category: "custom",
@@ -260,7 +266,7 @@ useEffect(() => {
           correct_index: quizCorrectIndex,
           points: 10
         });
-        
+       
         setActiveQuizId(data.id);
         toast.success("Quiz lanciato!");
         setShowQuizModal(false);
@@ -322,7 +328,6 @@ useEffect(() => {
             <p className="mono text-lg text-cyan-400 font-bold">{pubCode}</p>
           </div>
         </div>
-
         <nav className="space-y-2 flex-1">
           {[
             { id: "queue", icon: Music, label: "Coda", badge: queuedRequests.length + pendingRequests.length },
@@ -350,7 +355,6 @@ useEffect(() => {
             </button>
           ))}
         </nav>
-
         <div className="space-y-3 pt-6 border-t border-white/10">
           <Button onClick={handleOpenDisplay} className="w-full rounded-xl bg-cyan-500 hover:bg-cyan-600">
             <Tv className="w-4 h-4 mr-2" /> Apri Display
@@ -383,7 +387,7 @@ useEffect(() => {
                 <p className="text-xl text-zinc-400">{currentPerformance.song_artist}</p>
                 <p className="text-fuchsia-400 mt-2 text-lg">🎤 {currentPerformance.user_nickname}</p>
               </div>
-              
+             
               {currentPerformance.vote_count > 0 && (
                 <div className="text-right">
                   <div className="flex items-center gap-2 justify-end">
@@ -394,7 +398,6 @@ useEffect(() => {
                 </div>
               )}
             </div>
-
             <div className="flex gap-2 flex-wrap">
               {currentPerformance.status === 'live' && (
                 <>
@@ -409,7 +412,7 @@ useEffect(() => {
                   </Button>
                 </>
               )}
-              
+             
               {currentPerformance.status === 'paused' && (
                 <>
                   <Button onClick={handleResume} className="bg-green-500 hover:bg-green-600" size="lg">
@@ -420,7 +423,7 @@ useEffect(() => {
                   </Button>
                 </>
               )}
-              
+             
               {currentPerformance.status === 'voting' && (
                 <Button onClick={handleCloseVoting} className="bg-yellow-500 hover:bg-yellow-600 text-black" size="lg">
                   <Check className="w-5 h-5 mr-2" /> Chiudi Votazione
@@ -532,7 +535,7 @@ useEffect(() => {
             <Trophy className="w-5 h-5 mr-2" /> Termina Quiz
           </Button>
         )}
-        <Button 
+        <Button
           onClick={() => setShowQuizModal(true)}
           disabled={activeQuizId !== null}
           className="bg-fuchsia-500 hover:bg-fuchsia-600 rounded-full shadow-2xl"
@@ -553,13 +556,11 @@ useEffect(() => {
               <p className="text-lg font-bold mb-1">{selectedRequest?.title}</p>
               <p className="text-zinc-400">{selectedRequest?.artist}</p>
             </div>
-
             <Tabs defaultValue="search" className="w-full">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="search">Ricerca Auto</TabsTrigger>
                 <TabsTrigger value="manual">URL Manuale</TabsTrigger>
               </TabsList>
-
               <TabsContent value="search" className="space-y-4">
                 <div className="flex gap-2">
                   <Input
@@ -573,17 +574,16 @@ useEffect(() => {
                     <Search className="w-4 h-4" />
                   </Button>
                 </div>
-
                 {youtubeSearchResults.length > 0 && (
                   <div className="space-y-2 max-h-96 overflow-y-auto">
                     {youtubeSearchResults.map(video => (
-                      <div 
+                      <div
                         key={video.id.videoId}
                         onClick={() => selectYouTubeVideo(video.id.videoId)}
                         className="glass rounded-lg p-3 flex gap-3 cursor-pointer hover:bg-white/10 transition"
                       >
-                        <img 
-                          src={video.snippet.thumbnails.default.url} 
+                        <img
+                          src={video.snippet.thumbnails.default.url}
                           alt={video.snippet.title}
                           className="w-24 h-18 rounded object-cover"
                         />
@@ -596,7 +596,6 @@ useEffect(() => {
                   </div>
                 )}
               </TabsContent>
-
               <TabsContent value="manual">
                 <Input
                   value={youtubeUrl}
@@ -606,8 +605,7 @@ useEffect(() => {
                 />
               </TabsContent>
             </Tabs>
-
-            <Button 
+            <Button
               onClick={startPerformance}
               disabled={!youtubeUrl.trim()}
               className="w-full bg-green-500 hover:bg-green-600"
@@ -625,13 +623,12 @@ useEffect(() => {
           <DialogHeader>
             <DialogTitle>Crea Quiz</DialogTitle>
           </DialogHeader>
-          
+         
           <Tabs value={quizTab} onValueChange={setQuizTab} className="mt-4">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="custom">Personalizzato</TabsTrigger>
               <TabsTrigger value="category">Da Categoria</TabsTrigger>
             </TabsList>
-
             <TabsContent value="custom" className="space-y-4 mt-4">
               <form onSubmit={handleStartQuiz} className="space-y-4">
                 <div>
@@ -643,7 +640,6 @@ useEffect(() => {
                     className="bg-zinc-800 border-zinc-700 min-h-20"
                   />
                 </div>
-
                 <div className="space-y-2">
                   <label className="text-sm text-zinc-400">Opzioni di Risposta</label>
                   {quizOptions.map((option, idx) => (
@@ -669,13 +665,11 @@ useEffect(() => {
                     </div>
                   ))}
                 </div>
-
                 <Button type="submit" className="w-full bg-fuchsia-500 hover:bg-fuchsia-600" size="lg">
                   <HelpCircle className="w-5 h-5 mr-2" /> Lancia Quiz
                 </Button>
               </form>
             </TabsContent>
-
             <TabsContent value="category" className="space-y-4 mt-4">
               <div className="grid grid-cols-2 gap-3">
                 {QUIZ_CATEGORIES.map(cat => (
@@ -692,7 +686,7 @@ useEffect(() => {
                   </button>
                 ))}
               </div>
-              <Button 
+              <Button
                 onClick={handleStartQuiz}
                 className="w-full bg-fuchsia-500 hover:bg-fuchsia-600"
                 size="lg"
