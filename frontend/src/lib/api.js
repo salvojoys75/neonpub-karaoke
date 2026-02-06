@@ -552,5 +552,6 @@ export default {
   getActiveQuiz,
   sendEffect,
   getLeaderboard,
-  getDisplayData
+  getDisplayData,
+  sendMessage
 }
