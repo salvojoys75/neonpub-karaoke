@@ -169,8 +169,11 @@ isEmbeddable(videoId).then((ok) => {
       }
 
       if (payload.new.status === 'ended') {
-        setVoteResult(payload.new.average_score);
-        setTimeout(() => setVoteResult(null), 8000);
+  api.getDisplayData(pubCode).then((res) => {
+    const avg = res.data.current_performance?.average_score || 0;
+    setVoteResult(avg);
+    setTimeout(() => setVoteResult(null), 8000);
+  }).catch(console.error);
       }
     }
   );
