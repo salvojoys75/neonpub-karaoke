@@ -35,6 +35,16 @@ export default function PubDisplay() {
     if (embedMatch) videoId = embedMatch[1];
     return videoId;
   };
+const isEmbeddable = async (videoId) => {
+  try {
+    const res = await fetch(
+      `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+};
 
   useEffect(() => {
     if (!window.YT) {
@@ -59,18 +69,42 @@ export default function PubDisplay() {
     }
 
     const videoId = extractVideoId(perf.youtube_url);
-    if (videoId && videoId !== currentVideoIdRef.current) {
-      currentVideoIdRef.current = videoId;
-      if (playerRef.current) {
-        playerRef.current.loadVideoById(videoId);
-      } else {
-        playerRef.current = new window.YT.Player('youtube-player', {
-          height: '100%', width: '100%', videoId: videoId,
-          playerVars: { autoplay: 1, controls: 0, modestbranding: 1, rel: 0, fs: 0 },
-          events: { onReady: (e) => e.target.playVideo() }
-        });
-      }
+if (!videoId) return;
+
+isEmbeddable(videoId).then((ok) => {
+  if (!ok) {
+    window.open(
+      `https://www.youtube.com/watch?v=${videoId}`,
+      "_blank"
+    );
+    return;
+  }
+
+  if (videoId !== currentVideoIdRef.current) {
+    currentVideoIdRef.current = videoId;
+
+    if (playerRef.current) {
+      playerRef.current.loadVideoById(videoId);
+    } else {
+      playerRef.current = new window.YT.Player("youtube-player", {
+        height: "100%",
+        width: "100%",
+        videoId,
+        playerVars: {
+          autoplay: 1,
+          controls: 0,
+          modestbranding: 1,
+          rel: 0,
+          fs: 0
+        },
+        events: {
+          onReady: (e) => e.target.playVideo()
+        }
+      });
     }
+  }
+});
+
 
     if (playerRef.current && typeof playerRef.current.getPlayerState === 'function') {
       if (status === 'paused') playerRef.current.pauseVideo();
