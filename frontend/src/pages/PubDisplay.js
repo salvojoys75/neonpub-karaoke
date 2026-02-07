@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
-import { Mic2, Music, Trophy, Star, HelpCircle } from "lucide-react";
+import { Mic2, Music, Trophy } from "lucide-react";
 import api from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 
@@ -9,21 +9,19 @@ export default function PubDisplay() {
   const { pubCode } = useParams();
   const [displayData, setDisplayData] = useState(null);
   const [floatingReactions, setFloatingReactions] = useState([]);
-  const [approvedMessages, setApprovedMessages] = useState([]);
+  // NUOVO: Gestione messaggi flash temporanei
+  const [flashMessages, setFlashMessages] = useState([]);
   const [ticker, setTicker] = useState("");
   const [activeQuiz, setActiveQuiz] = useState(null);
   const [quizResults, setQuizResults] = useState(null);
   
   // Player Refs
   const playerRef = useRef(null);
-  const playerContainerRef = useRef(null);
   const [isPlayerReady, setIsPlayerReady] = useState(false);
-  const currentVideoIdRef = useRef(null); // Tiene traccia del video attuale per non ricaricarlo
-
+  const currentVideoIdRef = useRef(null);
   const pollIntervalRef = useRef(null);
-  const messageIntervalRef = useRef(null);
 
-  // Extract video ID helper
+  // Helper per estrarre ID Video
   const extractVideoId = (url) => {
     if (!url) return null;
     if (url.includes("results?search_query")) return null;
@@ -37,83 +35,53 @@ export default function PubDisplay() {
     return videoId;
   };
 
-  // 1. Inizializza API YouTube una volta sola
+  // 1. Inizializza API YouTube
   useEffect(() => {
     if (!window.YT) {
       const tag = document.createElement('script');
       tag.src = 'https://www.youtube.com/iframe_api';
       const firstScriptTag = document.getElementsByTagName('script')[0];
       firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-      
-      window.onYouTubeIframeAPIReady = () => {
-        setIsPlayerReady(true);
-      };
+      window.onYouTubeIframeAPIReady = () => setIsPlayerReady(true);
     } else {
       setIsPlayerReady(true);
     }
   }, []);
 
-  // 2. Gestione Logica Player (Creazione e Comandi)
+  // 2. Gestione Player
   useEffect(() => {
     if (!isPlayerReady || !displayData?.current_performance) return;
 
     const perf = displayData.current_performance;
     const videoId = extractVideoId(perf.youtube_url);
-    const status = perf.status; // live, paused, restarted, voting
+    const status = perf.status;
 
-    // SE C'È UN NUOVO VIDEO -> CREA O CARICA
     if (videoId && videoId !== currentVideoIdRef.current) {
-      console.log("Loading new video:", videoId);
       currentVideoIdRef.current = videoId;
-
       if (playerRef.current) {
         playerRef.current.loadVideoById(videoId);
       } else {
         playerRef.current = new window.YT.Player('youtube-player', {
-          height: '100%',
-          width: '100%',
-          videoId: videoId,
-          playerVars: {
-            autoplay: 1,
-            controls: 0,
-            modestbranding: 1,
-            rel: 0,
-            fs: 0
-          },
-          events: {
-            onReady: (event) => {
-              event.target.playVideo();
-            }
-          }
+          height: '100%', width: '100%', videoId: videoId,
+          playerVars: { autoplay: 1, controls: 0, modestbranding: 1, rel: 0, fs: 0 },
+          events: { onReady: (e) => e.target.playVideo() }
         });
       }
     }
 
-    // GESTIONE COMANDI (Senza ricaricare)
     if (playerRef.current && typeof playerRef.current.getPlayerState === 'function') {
-      if (status === 'paused') {
-        playerRef.current.pauseVideo();
-      } else if (status === 'live') {
-        // Se era in pausa, riprendi. Se è nuovo, sta già andando.
-        if (playerRef.current.getPlayerState() !== 1) { 
-           playerRef.current.playVideo();
-        }
-      } else if (status === 'restarted') {
-        playerRef.current.seekTo(0);
-        playerRef.current.playVideo();
-      }
+      if (status === 'paused') playerRef.current.pauseVideo();
+      else if (status === 'live' && playerRef.current.getPlayerState() !== 1) playerRef.current.playVideo();
+      else if (status === 'restarted') { playerRef.current.seekTo(0); playerRef.current.playVideo(); }
     }
-
   }, [isPlayerReady, displayData?.current_performance]);
 
-  // Caricamento Dati Iniziali
+  // Caricamento Dati Base
   const loadDisplayData = useCallback(async () => {
     try {
       const { data } = await api.getDisplayData(pubCode);
-      // Aggiorniamo displayData ma facciamo attenzione a non triggerare re-render inutili del player
       setDisplayData(data);
       
-      // Ticker logic
       const queueCount = data.queue?.length || 0;
       if (queueCount > 0) {
         const queueText = data.queue.slice(0, 5).map((s, i) => `${i + 1}. ${s.title} (${s.user_nickname})`).join(' • ');
@@ -121,53 +89,52 @@ export default function PubDisplay() {
       } else {
         setTicker("Richiedi la tua canzone scansionando il QR code!");
       }
-    } catch (error) {
-      console.error(error);
-    }
+    } catch (error) { console.error(error); }
   }, [pubCode]);
-
-  // Caricamento Messaggi
-  const loadApprovedMessages = useCallback(async () => {
-    if (!displayData?.pub?.id) return;
-    try {
-      const { data } = await supabase
-        .from('messages')
-        .select('*, participants(nickname)')
-        .eq('event_id', displayData.pub.id)
-        .eq('status', 'approved')
-        .order('created_at', { ascending: false })
-        .limit(5);
-        
-      if (data) setApprovedMessages(data.map(m => ({
-        id: m.id, text: m.text, nickname: m.participants?.nickname
-      })));
-    } catch (e) { console.error(e); }
-  }, [displayData?.pub?.id]);
 
   useEffect(() => {
     loadDisplayData();
     pollIntervalRef.current = setInterval(loadDisplayData, 3000);
-    messageIntervalRef.current = setInterval(loadApprovedMessages, 5000);
-    return () => {
-      clearInterval(pollIntervalRef.current);
-      clearInterval(messageIntervalRef.current);
-    };
-  }, [loadDisplayData, loadApprovedMessages]);
+    return () => clearInterval(pollIntervalRef.current);
+  }, [loadDisplayData]);
 
-  // Realtime
+  // NUOVO: Funzione per mostrare messaggi flash
+  const showFlashMessage = (msg) => {
+    const id = Date.now();
+    setFlashMessages(prev => [...prev, { ...msg, internalId: id }]);
+    // Scompare dopo 8 secondi
+    setTimeout(() => {
+      setFlashMessages(prev => prev.filter(m => m.internalId !== id));
+    }, 8000);
+  };
+
+  const addFloatingReaction = (emoji, nickname) => {
+    const id = Date.now() + Math.random();
+    const left = Math.random() * 80 + 10;
+    setFloatingReactions(prev => [...prev, { id, emoji, nickname, left }]);
+    setTimeout(() => setFloatingReactions(prev => prev.filter(r => r.id !== id)), 3000);
+  };
+
+  // Realtime Subscriptions (Aggiornato per Messaggi)
   useEffect(() => {
     if (!displayData?.pub?.id) return;
     
     const channel = supabase
       .channel(`display_realtime`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${displayData.pub.id}` }, 
-        (payload) => {
-           // Aggiorna SOLO la performance corrente nei dati locali per triggerare l'effetto del player
-           setDisplayData(prev => ({...prev, current_performance: payload.new}));
-        }
+        (payload) => setDisplayData(prev => ({...prev, current_performance: payload.new}))
       )
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `event_id=eq.${displayData.pub.id}` }, 
         (payload) => addFloatingReaction(payload.new.emoji, payload.new.nickname)
+      )
+      // QUI IL FIX DEI MESSAGGI: Ascolta quando un messaggio viene approvato
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `event_id=eq.${displayData.pub.id}` }, 
+        async (payload) => {
+          if (payload.new.status === 'approved') {
+            const { data } = await supabase.from('participants').select('nickname').eq('id', payload.new.participant_id).single();
+            showFlashMessage({ text: payload.new.text, nickname: data?.nickname || 'Anonimo' });
+          }
+        }
       )
       .on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${displayData.pub.id}` }, 
         async (payload) => {
@@ -184,13 +151,6 @@ export default function PubDisplay() {
 
     return () => supabase.removeChannel(channel);
   }, [displayData?.pub?.id]);
-
-  const addFloatingReaction = (emoji, nickname) => {
-    const id = Date.now() + Math.random();
-    const left = Math.random() * 80 + 10;
-    setFloatingReactions(prev => [...prev, { id, emoji, nickname, left }]);
-    setTimeout(() => setFloatingReactions(prev => prev.filter(r => r.id !== id)), 3000);
-  };
 
   const currentPerf = displayData?.current_performance;
   const queue = displayData?.queue || [];
@@ -213,17 +173,18 @@ export default function PubDisplay() {
         ))}
       </div>
 
-      {/* Messages Overlay */}
-      {approvedMessages.length > 0 && (
-        <div className="fixed top-24 right-8 z-40 space-y-3 max-w-md">
-          {approvedMessages.map(msg => (
-            <div key={msg.id} className="glass rounded-2xl p-4 border-l-4 border-cyan-500 animate-fade-in-scale shadow-2xl">
-              <p className="text-sm text-cyan-400 mb-1 font-bold">💬 {msg.nickname}</p>
-              <p className="text-xl font-medium">{msg.text}</p>
+      {/* MESSAGGI FLASH (CENTRALI) */}
+      <div className="fixed top-32 left-0 right-0 z-[60] flex flex-col items-center pointer-events-none gap-4">
+        {flashMessages.map(msg => (
+          <div key={msg.internalId} className="glass bg-black/90 rounded-3xl p-8 border-4 border-cyan-500 shadow-[0_0_100px_rgba(6,182,212,0.6)] animate-zoom-in max-w-4xl text-center">
+            <div className="flex items-center justify-center gap-3 mb-4">
+              <span className="bg-cyan-500 text-black text-sm font-black px-3 py-1 rounded uppercase">Nuovo Messaggio</span>
+              <p className="text-cyan-400 font-bold text-2xl">da {msg.nickname}</p>
             </div>
-          ))}
-        </div>
-      )}
+            <p className="text-6xl font-black text-white leading-tight drop-shadow-lg">{msg.text}</p>
+          </div>
+        ))}
+      </div>
 
       {/* Grid Layout */}
       <div className="grid grid-cols-12 gap-6 p-6 h-screen">
@@ -237,10 +198,7 @@ export default function PubDisplay() {
           <div className="flex-1 glass rounded-2xl p-6 flex flex-col relative overflow-hidden bg-black">
             {currentPerf ? (
               <>
-                {/* DIV PER YOUTUBE - NON RIMUOVERE ID */}
                 <div id="youtube-player" className="w-full h-full absolute inset-0 rounded-2xl"></div>
-                
-                {/* Overlay Info */}
                 <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/80 to-transparent p-8 pointer-events-none">
                   <h2 className="text-5xl font-bold mb-2">{currentPerf.song_title}</h2>
                   <div className="flex justify-between items-end">
@@ -308,7 +266,7 @@ export default function PubDisplay() {
 
       {/* QUIZ OVERLAYS */}
       {activeQuiz && !quizResults && (
-        <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-12">
+        <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-12">
           <div className="glass rounded-3xl p-12 w-full max-w-4xl border-4 border-fuchsia-500 text-center animate-zoom-in">
             <h2 className="text-6xl font-bold mb-4 gradient-text">QUIZ TIME!</h2>
             <p className="text-4xl text-white mb-8">{activeQuiz.question}</p>
@@ -324,7 +282,7 @@ export default function PubDisplay() {
       )}
 
       {quizResults && (
-        <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-12">
+        <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-12">
           <div className="glass rounded-3xl p-12 w-full max-w-4xl border-4 border-green-500 text-center animate-zoom-in">
             <Trophy className="w-24 h-24 text-yellow-500 mx-auto mb-6" />
             <h2 className="text-6xl font-bold mb-8">RISULTATI</h2>

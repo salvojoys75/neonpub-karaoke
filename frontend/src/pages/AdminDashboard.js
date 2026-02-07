@@ -376,8 +376,19 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleOpenDisplay = () => {
-    window.open(`/display/${pubCode}`, '_blank');
+const handleOpenDisplay = () => {
+    // Calcola posizione centrale
+    const width = 1280;
+    const height = 720;
+    const left = (window.screen.width - width) / 2;
+    const top = (window.screen.height - height) / 2;
+    
+    // Apre popup pulita
+    window.open(
+      `/display/${pubCode}`, 
+      'NeonPubDisplay', 
+      `popup=yes,width=${width},height=${height},top=${top},left=${left},toolbar=no,menubar=no,scrollbars=no,status=no`
+    );
   };
 
   const pendingRequests = queue.filter(r => r.status === "pending");
