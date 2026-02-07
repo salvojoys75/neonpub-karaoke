@@ -160,12 +160,19 @@ isEmbeddable(videoId).then((ok) => {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${displayData.pub.id}` }, 
         (payload) => {
              setDisplayData(prev => ({...prev, current_performance: payload.new}));
-             if (payload.new.status === 'ended') {
-                 setVoteResult(payload.new.average_score);
-                 setTimeout(() => { loadDisplayData(); setVoteResult(null); }, 8000);
-             }
-        }
-      )
+              // 🔥 QUANDO CAMBIANO I VOTI → RICARICA DATI (leaderboard inclusa)
+  if (
+    payload.new.status === 'voting' ||
+    payload.new.status === 'ended'
+  ) {
+    loadDisplayData();
+  }
+
+  if (payload.new.status === 'ended') {
+    setVoteResult(payload.new.average_score);
+    setTimeout(() => setVoteResult(null), 8000);
+  }
+}
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `event_id=eq.${displayData.pub.id}` }, 
         (payload) => {
              if (!payload.new.emoji && payload.new.message) {

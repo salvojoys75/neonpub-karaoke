@@ -148,9 +148,9 @@ export default function LandingPage() {
             <Input 
               value={roomCode}
               onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-              placeholder="CODICE STANZA (es. A1B2)" 
+              placeholder="CODICE STANZA (es. A1B24W)" 
               className="bg-transparent border-none text-white placeholder:text-zinc-600 h-14 text-lg font-mono uppercase tracking-widest focus-visible:ring-0 focus-visible:ring-offset-0"
-              maxLength={4}
+              maxLength={8}
             />
             <Button 
               type="submit" 
