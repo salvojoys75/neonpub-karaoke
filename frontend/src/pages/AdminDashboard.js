@@ -624,101 +624,94 @@ const handleOpenDisplay = () => {
           </div>
         )}
 
-        {/* QUIZ SECTION */}
+       {/* QUIZ SECTION */}
         {activeSection === "quiz" && (
           <div>
-            <h2 className="text-2xl font-bold mb-6">Gestione Quiz</h2>
+            <h2 className="text-2xl font-bold mb-6">Gestione Quiz Live</h2>
             
             {!activeQuizId ? (
-              <div className="text-center py-12">
-                <p className="text-zinc-500 mb-6">Nessun quiz attivo</p>
+              <div className="text-center py-12 glass rounded-2xl">
+                <HelpCircle className="w-16 h-16 text-zinc-600 mx-auto mb-4" />
+                <p className="text-zinc-500 mb-6 text-xl">Il quiz è spento.</p>
                 <Button 
                   onClick={() => setShowQuizModal(true)}
-                  className="bg-fuchsia-500 hover:bg-fuchsia-600"
-                  size="lg"
+                  className="bg-fuchsia-600 hover:bg-fuchsia-700 text-lg px-8 py-6 rounded-xl"
                 >
-                  <HelpCircle className="w-5 h-5 mr-2" /> Lancia Nuovo Quiz
+                  <Play className="w-6 h-6 mr-2" /> Lancia Nuovo Quiz
                 </Button>
               </div>
             ) : (
               <div className="space-y-6">
-                {/* Quiz Status */}
-                <div className="glass rounded-xl p-6">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className={`w-3 h-3 rounded-full ${
-                      quizStatus === 'active' ? 'bg-green-500 animate-pulse' :
-                      quizStatus === 'showing_results' ? 'bg-yellow-500' :
-                      'bg-zinc-500'
-                    }`}></div>
-                    <span className="text-lg font-medium">
-                      {quizStatus === 'active' && '🟢 Quiz Attivo - In attesa risposte'}
-                      {quizStatus === 'showing_results' && '🟡 Risultati Mostrati'}
-                    </span>
+                {/* Control Panel Big */}
+                <div className="glass rounded-2xl p-8 border-2 border-fuchsia-500/30">
+                  <div className="flex justify-between items-center mb-6">
+                     <h3 className="text-3xl font-bold text-white">Domanda in corso</h3>
+                     <div className={`px-4 py-2 rounded-full font-bold uppercase tracking-wider ${
+                        quizStatus === 'active' ? 'bg-green-500 text-black animate-pulse' :
+                        quizStatus === 'closed' ? 'bg-red-500 text-white' :
+                        'bg-yellow-500 text-black'
+                     }`}>
+                        {quizStatus === 'active' && "TELEVOTO APERTO"}
+                        {quizStatus === 'closed' && "TELEVOTO CHIUSO"}
+                        {quizStatus === 'showing_results' && "RISULTATI A SCHERMO"}
+                     </div>
                   </div>
                   
-                  <div className="bg-white/5 rounded-xl p-4 mb-4">
-                    <p className="text-sm text-zinc-400 mb-2">Domanda:</p>
-                    <p className="text-xl font-medium">{quizQuestion}</p>
-                  </div>
+                  <p className="text-2xl font-medium mb-8 text-center bg-black/30 p-4 rounded-xl">{quizQuestion}</p>
 
-                  <div className="grid grid-cols-2 gap-3 mb-6">
-                    {quizOptions.map((opt, idx) => (
-                      <div 
-                        key={idx}
-                        className={`p-3 rounded-lg border ${
-                          idx === quizCorrectIndex 
-                            ? 'border-green-500 bg-green-500/10' 
-                            : 'border-white/10 bg-white/5'
-                        }`}
-                      >
-                        <span className="text-xs text-zinc-500 mr-2">{String.fromCharCode(65 + idx)}.</span>
-                        <span>{opt}</span>
-                        {idx === quizCorrectIndex && <span className="ml-2 text-green-400">✓</span>}
-                      </div>
-                    ))}
-                  </div>
+                  <div className="grid grid-cols-4 gap-4 mb-8">
+                     <Button 
+                        onClick={async () => {
+                           // 1. STOP VOTING
+                           try {
+                              await api.closeQuizVoting(activeQuizId);
+                              setQuizStatus('closed');
+                              toast.success("Televoto chiuso! Telefoni bloccati.");
+                           } catch(e) { toast.error("Errore chiusura"); }
+                        }}
+                        disabled={quizStatus !== 'active'}
+                        className="h-16 text-lg bg-red-600 hover:bg-red-700 disabled:opacity-20"
+                     >
+                        🛑 1. STOP VOTO
+                     </Button>
 
-                  {/* Quiz Results */}
-                  {quizResults && (
-                    <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 mb-4">
-                      <p className="text-green-400 font-bold mb-2">Risultati:</p>
-                      <p className="text-sm mb-1">Risposte totali: {quizResults.total_answers}</p>
-                      <p className="text-sm mb-1">Risposte corrette: {quizResults.correct_count}</p>
-                      <p className="text-sm">Vincitori: {quizResults.winners.join(', ') || 'Nessuno'}</p>
-                    </div>
-                  )}
-
-                  {/* Actions */}
-                  <div className="flex gap-3">
-                    {quizStatus === 'active' && (
-                      <Button 
+                     <Button 
                         onClick={handleShowResults}
-                        className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-black"
-                        size="lg"
-                      >
-                        📊 Mostra Risultati
-                      </Button>
-                    )}
-                    
-                    {quizStatus === 'showing_results' && (
-                      <>
-                        <Button 
-                          onClick={handleNextQuestion}
-                          className="flex-1 bg-blue-500 hover:bg-blue-600"
-                          size="lg"
-                        >
-                          ➡️ Prossima Domanda
-                        </Button>
-                        <Button 
-                          onClick={handleEndQuiz}
-                          className="flex-1 bg-red-500 hover:bg-red-600"
-                          size="lg"
-                        >
-                          🏁 Fine Quiz
-                        </Button>
-                      </>
-                    )}
+                        disabled={quizStatus !== 'closed'}
+                        className="h-16 text-lg bg-yellow-500 hover:bg-yellow-600 text-black disabled:opacity-20"
+                     >
+                        🏆 2. MOSTRA RISULTATI
+                     </Button>
+
+                     <Button 
+                        onClick={async () => {
+                           // Mostra Classifica (Aggiorna leaderboard)
+                           try {
+                              const { data } = await api.getQuizLeaderboard();
+                              setLeaderboard(data);
+                              toast.success("Classifica aggiornata");
+                           } catch(e) { toast.error("Errore classifica"); }
+                        }}
+                        className="h-16 text-lg bg-blue-600 hover:bg-blue-700"
+                     >
+                        📊 3. AGGIORNA CLASSIFICA
+                     </Button>
+
+                     <Button 
+                        onClick={handleEndQuiz}
+                        className="h-16 text-lg bg-zinc-700 hover:bg-zinc-600"
+                     >
+                        🏁 4. FINE / PROSSIMA
+                     </Button>
                   </div>
+
+                  {quizResults && (
+                     <div className="bg-green-900/20 border border-green-500/30 p-4 rounded-xl">
+                        <p className="text-green-400 font-bold mb-2">Statistiche Round:</p>
+                        <p>Risposte totali: {quizResults.total_answers}</p>
+                        <p>Indovinate: {quizResults.correct_count}</p>
+                     </div>
+                  )}
                 </div>
               </div>
             )}

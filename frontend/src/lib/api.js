@@ -494,15 +494,14 @@ export const endQuiz = async (id) => {
   if (error) throw error; return { data: 'ok' }
 }
 
-export const showQuizResults = async (quizId) => {
+export const closeQuizVoting = async (quizId) => {
   const { data, error } = await supabase
     .from('quizzes')
-    .update({ status: 'showing_results' })
+    .update({ status: 'closed' }) // Nuovo stato 'closed'
     .eq('id', quizId)
     .select()
-    .single()
-  if (error) throw error
-  return { data }
+  if (error) throw error; 
+  return { data };
 }
 
 export const getQuizResults = async (quizId) => {
@@ -535,7 +534,12 @@ export const answerQuiz = async (data) => {
 
 export const getActiveQuiz = async () => {
   const participant = getParticipantFromToken()
-  const { data, error } = await supabase.from('quizzes').select('*').eq('event_id', participant.event_id).in('status', ['active', 'showing_results']).maybeSingle()
+  const { data, error } = await supabase
+    .from('quizzes')
+    .select('*')
+    .eq('event_id', participant.event_id)
+    .in('status', ['active', 'closed', 'showing_results']) // Aggiunto 'closed'
+    .maybeSingle()
   if (error) throw error; return { data }
 }
 
@@ -582,6 +586,6 @@ export default {
   submitVote, sendReaction, sendEffect,
   sendMessage, getAdminPendingMessages, approveMessage, rejectMessage,
   startQuiz, endQuiz, answerQuiz, getActiveQuiz, showQuizResults, getQuizResults, getQuizLeaderboard,
-  getLeaderboard, getAdminLeaderboard,
+  getLeaderboard, getAdminLeaderboard, closeQuizVoting,
   getDisplayData
 }

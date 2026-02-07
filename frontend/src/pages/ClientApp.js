@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Home, Music, Trophy, User, Send, Star, MessageSquare, RefreshCw, Mic2, Check } from "lucide-react";
+import { Home, Music, Trophy, User, Send, Star, MessageSquare, RefreshCw, Mic2, Check, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -63,6 +63,7 @@ export default function ClientApp() {
       setMyRequests(myRes.data || []);
       setLeaderboard(lbRes.data || []);
       
+      // Gestione Performance
       const newPerf = perfRes.data;
       setCurrentPerformance(prev => {
         if ((!prev && newPerf) || (prev && newPerf && prev.id !== newPerf.id)) {
@@ -84,47 +85,54 @@ export default function ClientApp() {
         return newPerf;
       });
       
-      // FIX QUIZ: Controllo robusto
+      // Gestione Quiz Avanzata
       const serverQuiz = quizRes.data;
-      if (serverQuiz && serverQuiz.status === 'active') {
-        setActiveQuiz(prev => {
-           // Se è un nuovo quiz o se non avevo il quiz attivo -> Apro modale
-           if (!prev || prev.id !== serverQuiz.id) {
-             console.log("Quiz rilevato da polling");
-             setQuizAnswer(null);
-             setQuizResult(null);
-             setShowQuizModal(true); // FORZA APERTURA
-             return serverQuiz;
-           }
-           return prev;
-        });
-      } else if (serverQuiz && serverQuiz.status === 'showing_results') {
-         // Se stiamo mostrando i risultati e non li ho ancora visti
-         if (!quizResult) {
-            const resResults = await api.getQuizResults(serverQuiz.id);
-            setQuizResult(resResults.data);
-            setShowQuizModal(true);
-         }
+      if (serverQuiz) {
+        // 1. Quiz Attivo: Mostra domande
+        if (serverQuiz.status === 'active') {
+             setActiveQuiz(prev => {
+               if (!prev || prev.id !== serverQuiz.id) {
+                 setQuizAnswer(null); 
+                 setQuizResult(null); 
+                 setShowQuizModal(true); 
+                 return serverQuiz;
+               }
+               return prev; // Mantiene lo stato corrente se è lo stesso quiz
+             });
+        } 
+        // 2. Quiz Chiuso (Stop al voto): Mostra "Tempo Scaduto"
+        else if (serverQuiz.status === 'closed') {
+             setActiveQuiz(serverQuiz);
+             if (!showQuizModal && !quizResult) setShowQuizModal(true);
+        }
+        // 3. Risultati: Mostra vincitori
+        else if (serverQuiz.status === 'showing_results') {
+             if (!quizResult) {
+                const resResults = await api.getQuizResults(serverQuiz.id);
+                setQuizResult(resResults.data);
+                setShowQuizModal(true);
+             }
+        }
       } else {
-        // Se non c'è quiz attivo
-        if (activeQuiz && !quizResult) {
-           setActiveQuiz(null);
-           setShowQuizModal(false);
+        // Nessun quiz attivo
+        if (activeQuiz && !quizResult) { 
+           setShowQuizModal(false); 
+           setActiveQuiz(null); 
         }
       }
 
     } catch (error) { console.error(error); }
-  }, [user?.id, hasVoted, activeQuiz, quizResult]);
+  }, [user?.id, hasVoted, activeQuiz, quizResult, showQuizModal]);
 
   useEffect(() => {
     if (isAuthenticated) {
       loadData();
-      pollIntervalRef.current = setInterval(loadData, 5000);
+      pollIntervalRef.current = setInterval(loadData, 3000); // Polling più veloce (3s) per reattività quiz
       return () => clearInterval(pollIntervalRef.current);
     }
   }, [isAuthenticated, loadData]);
 
-  // WebSocket Handlers
+  // WebSocket
   useEffect(() => {
     if (!lastMessage) return;
     
@@ -164,17 +172,11 @@ export default function ClientApp() {
       case "reaction":
         addFloatingReaction(lastMessage.data.emoji);
         break;
-      case "quiz_started": {
-        const quizId = lastMessage.data?.id;
-        if (!quizId || lastQuizIdRef.current === quizId) return;
-        lastQuizIdRef.current = quizId;
-        setActiveQuiz(lastMessage.data);
-        setQuizAnswer(null);
-        setQuizResult(null);
-        setShowQuizModal(true);
+      // QUIZ EVENTS
+      case "quiz_started":
+        loadData(); // Forza ricaricamento immediato
         toast.info("🎯 Quiz Time!");
         break;
-      }
       case "quiz_ended":
         setQuizResult(lastMessage.data);
         loadData();
@@ -240,22 +242,33 @@ export default function ClientApp() {
 
   const handleQuizAnswer = async (index) => {
     if (quizAnswer !== null || !activeQuiz) return;
-    setQuizAnswer(index);
+    
+    // Controllo se il quiz è ancora attivo
+    if (activeQuiz.status !== 'active') {
+       toast.error("Tempo scaduto! Il televoto è chiuso.");
+       return;
+    }
+    
+    setQuizAnswer(index); // Feedback visivo immediato
+    
     try {
       const { data } = await api.answerQuiz({ quiz_id: activeQuiz.id, answer_index: index });
       data.is_correct ? toast.success(`Corretto! +${data.points_earned} punti!`) : toast.error("Sbagliato!");
       setTimeout(() => loadData(), 1000);
-    } catch (error) { toast.error("Errore risposta"); }
+    } catch (error) { 
+        toast.info("Risposta registrata.");
+        // Non resettiamo quizAnswer così l'utente vede cosa ha votato
+    }
   };
 
   if (!isAuthenticated) return null;
 
   return (
-    <div className="min-h-screen bg-[#050505] flex flex-col pb-24">
+    <div className="min-h-screen bg-[#050505] flex flex-col pb-24 font-sans text-white">
       {/* Header */}
       <header className="sticky top-0 z-40 bg-[#050505]/90 backdrop-blur-md p-4 flex justify-between items-center border-b border-white/5">
         <div>
-          <h1 className="font-bold text-lg">{user?.pub_name || "NeonPub"}</h1>
+          <h1 className="font-bold text-lg text-fuchsia-500">{user?.pub_name || "NeonPub"}</h1>
           <p className="text-xs text-zinc-500 flex items-center gap-1">
             <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-yellow-500'}`}></span>
             {user?.nickname}
@@ -283,7 +296,9 @@ export default function ClientApp() {
               <div className="glass rounded-2xl p-5 neon-border bg-gradient-to-br from-fuchsia-900/20 to-black">
                 <div className="flex items-center gap-2 mb-3">
                   <span className={`w-3 h-3 rounded-full ${currentPerformance.status === "live" ? "bg-red-500 animate-pulse" : "bg-green-500"}`}></span>
-                  <span className="text-sm font-medium uppercase tracking-wider text-white">{currentPerformance.status}</span>
+                  <span className="text-sm font-medium uppercase tracking-wider text-white">
+                    {currentPerformance.status === 'live' ? 'LIVE ORA' : currentPerformance.status}
+                  </span>
                 </div>
                 <h2 className="text-2xl font-bold text-white mb-1">{currentPerformance.song_title}</h2>
                 <p className="text-zinc-400 text-sm mb-4">{currentPerformance.song_artist}</p>
@@ -299,7 +314,7 @@ export default function ClientApp() {
                         <p className="text-xs text-zinc-400 mb-3 text-center">Reazioni: <span className="text-cyan-400 font-bold">{remainingReactions}/3</span></p>
                         <div className="flex justify-between gap-1">
                           {EMOJIS.map(emoji => (
-                            <button key={emoji} onClick={() => handleReaction(emoji)} className="text-2xl p-2 rounded-lg hover:bg-white/10">{emoji}</button>
+                            <button key={emoji} onClick={() => handleReaction(emoji)} className="text-3xl p-2 transition-transform active:scale-90">{emoji}</button>
                           ))}
                         </div>
                       </div>
@@ -318,11 +333,11 @@ export default function ClientApp() {
             ) : (
                <div className="glass rounded-2xl p-8 text-center border-dashed border-2 border-zinc-800">
                   <Music className="w-12 h-12 mx-auto text-zinc-600 mb-2" />
-                  <p className="text-zinc-500">Nessuna esibizione</p>
+                  <p className="text-zinc-500">Il palco è vuoto</p>
                </div>
             )}
 
-            <Button onClick={() => setShowRequestModal(true)} className="w-full rounded-full bg-gradient-to-r from-fuchsia-600 to-purple-600 py-6 text-lg shadow-lg">
+            <Button onClick={() => setShowRequestModal(true)} className="w-full rounded-full bg-gradient-to-r from-fuchsia-600 to-purple-600 py-6 text-lg shadow-lg font-bold">
               <Music className="w-5 h-5 mr-2" /> Richiedi Canzone
             </Button>
 
@@ -349,17 +364,20 @@ export default function ClientApp() {
             {myRequests.map(song => (
               <div key={song.id} className="glass rounded-xl p-4">
                 <p className="font-medium">{song.title}</p>
-                <p className="text-sm text-zinc-500">{song.status}</p>
+                <div className="flex justify-between mt-1">
+                   <p className="text-sm text-zinc-500">{song.artist}</p>
+                   <span className="text-xs text-cyan-400 uppercase">{song.status}</span>
+                </div>
               </div>
             ))}
           </div>
         )}
         {activeTab === "leaderboard" && (
           <div className="space-y-4">
-            <h2 className="text-xl font-bold">Classifica Quiz</h2>
+            <h2 className="text-xl font-bold text-yellow-500">Classifica Quiz</h2>
             {leaderboard.map((player, index) => (
               <div key={index} className="glass rounded-xl p-4 flex items-center gap-4">
-                <span className="text-2xl font-bold text-yellow-500 w-8">#{index + 1}</span>
+                <span className={`text-2xl font-bold w-8 ${index===0 ? 'text-yellow-400' : 'text-zinc-500'}`}>#{index + 1}</span>
                 <span className="flex-1 font-medium">{player.nickname}</span>
                 <span className="font-bold text-cyan-400">{player.score}</span>
               </div>
@@ -370,14 +388,14 @@ export default function ClientApp() {
           <div className="space-y-6 text-center">
              <div className="w-24 h-24 rounded-full bg-fuchsia-500/20 flex items-center justify-center mx-auto"><User className="w-12 h-12 text-fuchsia-400" /></div>
              <h2 className="text-2xl font-bold">{user?.nickname}</h2>
-             <Button onClick={logout} variant="outline" className="w-full">Esci</Button>
+             <Button onClick={logout} variant="outline" className="w-full border-red-500/50 text-red-400">Esci</Button>
           </div>
         )}
       </main>
 
-      <nav className="mobile-nav safe-bottom">
+      <nav className="mobile-nav safe-bottom bg-[#0a0a0a] border-t border-white/10">
         {[ { id: "home", icon: Home, label: "Home" }, { id: "songs", icon: Music, label: "Canzoni" }, { id: "leaderboard", icon: Trophy, label: "Classifica" }, { id: "profile", icon: User, label: "Profilo" } ].map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`mobile-nav-item flex flex-col items-center gap-1 ${activeTab === tab.id ? 'active' : 'text-zinc-500'}`}>
+          <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`mobile-nav-item flex flex-col items-center gap-1 ${activeTab === tab.id ? 'text-fuchsia-500' : 'text-zinc-500'}`}>
             <tab.icon className="w-6 h-6" /><span className="text-xs">{tab.label}</span>
           </button>
         ))}
@@ -388,10 +406,10 @@ export default function ClientApp() {
         <DialogContent className="bg-zinc-900 border-zinc-800">
           <DialogHeader><DialogTitle>Richiedi Canzone</DialogTitle></DialogHeader>
           <form onSubmit={handleRequestSong} className="space-y-4 mt-4">
-            <Input value={songTitle} onChange={(e) => setSongTitle(e.target.value)} placeholder="Titolo" />
-            <Input value={songArtist} onChange={(e) => setSongArtist(e.target.value)} placeholder="Artista" />
-            <Input value={songYoutubeUrl} onChange={(e) => setSongYoutubeUrl(e.target.value)} placeholder="YouTube URL (Opzionale)" />
-            <Button type="submit" className="w-full bg-fuchsia-500">Invia</Button>
+            <Input value={songTitle} onChange={(e) => setSongTitle(e.target.value)} placeholder="Titolo" className="bg-zinc-800 border-zinc-700"/>
+            <Input value={songArtist} onChange={(e) => setSongArtist(e.target.value)} placeholder="Artista" className="bg-zinc-800 border-zinc-700"/>
+            <Input value={songYoutubeUrl} onChange={(e) => setSongYoutubeUrl(e.target.value)} placeholder="Link YouTube (facoltativo)" className="bg-zinc-800 border-zinc-700"/>
+            <Button type="submit" className="w-full bg-fuchsia-600 hover:bg-fuchsia-700">Invia</Button>
           </form>
         </DialogContent>
       </Dialog>
@@ -406,37 +424,74 @@ export default function ClientApp() {
               </button>
             ))}
           </div>
-          <Button onClick={handleVote} disabled={selectedStars === 0} className="w-full bg-yellow-500 text-black">Conferma</Button>
+          <Button onClick={handleVote} disabled={selectedStars === 0} className="w-full bg-yellow-500 text-black">Conferma Voto</Button>
         </DialogContent>
       </Dialog>
 
       <Dialog open={showMessageModal} onOpenChange={setShowMessageModal}>
         <DialogContent className="bg-zinc-900 border-zinc-800">
-          <DialogHeader><DialogTitle>Manda un Messaggio</DialogTitle></DialogHeader>
-          <Input value={messageText} onChange={(e) => setMessageText(e.target.value)} placeholder="Scrivi messaggio..." />
-          <Button onClick={handleSendMessage} className="w-full mt-4 bg-cyan-500">Invia</Button>
+          <DialogHeader><DialogTitle>Messaggio al Pub</DialogTitle></DialogHeader>
+          <Input value={messageText} onChange={(e) => setMessageText(e.target.value)} placeholder="Scrivi messaggio..." className="bg-zinc-800 border-zinc-700"/>
+          <Button onClick={handleSendMessage} className="w-full mt-4 bg-cyan-600 hover:bg-cyan-700">Invia</Button>
         </DialogContent>
       </Dialog>
 
+      {/* QUIZ MODAL */}
       <Dialog open={showQuizModal} onOpenChange={setShowQuizModal}>
-        <DialogContent className="bg-zinc-900 border-fuchsia-500/30">
-          <DialogHeader><DialogTitle className="text-center text-2xl">{quizResult ? "Risultato" : "Quiz Time!"}</DialogTitle></DialogHeader>
+        <DialogContent className="bg-zinc-900 border-fuchsia-500/30 max-w-md w-[90%] rounded-2xl">
+          <DialogHeader>
+             <DialogTitle className="text-center text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-400 to-purple-600">
+                {activeQuiz?.status === 'closed' ? "STOP AL VOTO!" : quizResult ? "Risultato" : "Quiz Time!"}
+             </DialogTitle>
+          </DialogHeader>
+
           {!quizResult && activeQuiz && (
             <div className="py-4">
-              <p className="text-xl text-center mb-6">{activeQuiz.question}</p>
-              <div className="space-y-3">
-                {activeQuiz.options.map((option, index) => (
-                  <button key={index} onClick={() => handleQuizAnswer(index)} disabled={quizAnswer !== null} className={`w-full p-4 rounded-xl border border-white/10 text-left ${quizAnswer === index ? 'bg-fuchsia-500/20 border-fuchsia-500' : ''}`}>
-                    <span className="mono text-fuchsia-400 mr-3">{String.fromCharCode(65 + index)}.</span>{option}
-                  </button>
-                ))}
-              </div>
+              <p className="text-xl text-center mb-6 font-medium text-white">{activeQuiz.question}</p>
+              
+              {/* SEZIONE OPZIONI */}
+              {activeQuiz.status === 'closed' ? (
+                 <div className="text-center p-6 bg-white/5 rounded-xl border border-white/10 animate-pulse">
+                    <Lock className="w-12 h-12 mx-auto text-red-500 mb-2" />
+                    <p className="text-lg font-bold text-red-400">Tempo Scaduto</p>
+                    <p className="text-sm text-zinc-500">Risposte chiuse. Attendi i risultati...</p>
+                 </div>
+              ) : (
+                 <div className="space-y-3">
+                   {activeQuiz.options.map((option, index) => (
+                     <button 
+                        key={index} 
+                        onClick={() => handleQuizAnswer(index)} 
+                        disabled={quizAnswer !== null} 
+                        className={`w-full p-4 rounded-xl border text-left transition-all active:scale-95 flex items-center ${
+                           quizAnswer === index 
+                              ? 'bg-fuchsia-600 border-fuchsia-500 text-white shadow-[0_0_15px_rgba(192,38,211,0.5)]' 
+                              : 'border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200'
+                        }`}
+                     >
+                       <span className={`font-bold mr-3 w-6 h-6 flex items-center justify-center rounded-full text-xs ${
+                          quizAnswer === index ? 'bg-white text-fuchsia-600' : 'bg-zinc-700 text-zinc-300'
+                       }`}>
+                          {String.fromCharCode(65 + index)}
+                       </span>
+                       <span className="flex-1">{option}</span>
+                       {quizAnswer === index && <Check className="w-5 h-5 ml-2" />}
+                     </button>
+                   ))}
+                 </div>
+              )}
             </div>
           )}
+
+          {/* SEZIONE RISULTATI */}
           {quizResult && (
-            <div className="text-center py-4">
-              <p className="text-lg">Risposta: <span className="text-green-400 font-bold">{quizResult.correct_option}</span></p>
-              <p className="text-zinc-500 mt-2">{quizResult.total_answers} risposte</p>
+            <div className="text-center py-6 animate-zoom-in">
+              <Trophy className="w-16 h-16 text-yellow-400 mx-auto mb-4" />
+              <p className="text-sm text-zinc-400 uppercase tracking-widest mb-1">Risposta Corretta</p>
+              <div className="bg-green-500/20 border border-green-500 p-4 rounded-xl mb-6">
+                 <p className="text-2xl font-bold text-white">{quizResult.correct_option}</p>
+              </div>
+              <p className="text-zinc-500 text-sm">{quizResult.total_answers} persone hanno partecipato</p>
             </div>
           )}
         </DialogContent>
