@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
-import { Mic2, Music, Trophy } from "lucide-react";
+import { Mic2, Music, Trophy, Star } from "lucide-react"; // Aggiunto Star
 import api from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 
@@ -13,7 +13,7 @@ export default function PubDisplay() {
   const [ticker, setTicker] = useState("");
   const [activeQuiz, setActiveQuiz] = useState(null);
   const [quizResults, setQuizResults] = useState(null);
-  const [quizStatus, setQuizStatus] = useState(null); // 'active', 'closed', 'showing_results'
+  const [quizStatus, setQuizStatus] = useState(null);
   
   // Player Refs
   const playerRef = useRef(null);
@@ -21,7 +21,6 @@ export default function PubDisplay() {
   const currentVideoIdRef = useRef(null);
   const pollIntervalRef = useRef(null);
 
-  // Helper YouTube
   const extractVideoId = (url) => {
     if (!url) return null;
     if (url.includes("results?search_query")) return null;
@@ -45,12 +44,22 @@ export default function PubDisplay() {
     } else { setIsPlayerReady(true); }
   }, []);
 
+  // GESTIONE VIDEO AVANZATA
   useEffect(() => {
     if (!isPlayerReady || !displayData?.current_performance) return;
     const perf = displayData.current_performance;
     const videoId = extractVideoId(perf.youtube_url);
     const status = perf.status;
 
+    // Se siamo in fase VOTING o ENDED, fermiamo il video
+    if (status === 'voting' || status === 'ended') {
+        if (playerRef.current && typeof playerRef.current.stopVideo === 'function') {
+            playerRef.current.stopVideo();
+        }
+        return; // Non fare altro
+    }
+
+    // Caricamento Video
     if (videoId && videoId !== currentVideoIdRef.current) {
       currentVideoIdRef.current = videoId;
       if (playerRef.current) {
@@ -64,6 +73,7 @@ export default function PubDisplay() {
       }
     }
 
+    // Controlli Play/Pause
     if (playerRef.current && typeof playerRef.current.getPlayerState === 'function') {
       if (status === 'paused') playerRef.current.pauseVideo();
       else if (status === 'live' && playerRef.current.getPlayerState() !== 1) playerRef.current.playVideo();
@@ -152,7 +162,7 @@ export default function PubDisplay() {
   return (
     <div className="h-screen bg-black text-white overflow-hidden flex flex-col font-sans">
       
-      {/* 1. Header & Ticker (Piccolo in alto) */}
+      {/* 1. Header & Ticker */}
       <div className="h-16 bg-zinc-900 flex items-center px-6 border-b border-zinc-800 z-20 relative">
          <div className="font-bold text-xl mr-8 text-fuchsia-500">{displayData?.pub?.name || "Karaoke"}</div>
          <div className="flex-1 overflow-hidden relative h-full flex items-center">
@@ -165,23 +175,42 @@ export default function PubDisplay() {
       {/* 2. Main Area (Grid) */}
       <div className="flex-1 flex overflow-hidden">
         
-        {/* Sinistra: VIDEO (Grande Importanza) */}
+        {/* Sinistra: VIDEO o VOTO */}
         <div className="flex-1 relative bg-black flex flex-col justify-center">
-           {/* YouTube Layer */}
-           <div id="youtube-player" className="absolute inset-0 w-full h-full pointer-events-none z-0"></div>
            
-           {/* Overlay Info Canzone (Sempre visibile in basso al video) */}
-           {currentPerf && (
-             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/80 to-transparent p-12 z-10 pb-20">
-                <h2 className="text-6xl font-black text-white mb-2 drop-shadow-lg">{currentPerf.song_title}</h2>
-                <div className="flex items-end gap-6">
-                   <p className="text-4xl text-zinc-300 font-medium">{currentPerf.song_artist}</p>
-                   <div className="bg-fuchsia-600 px-6 py-2 rounded-full flex items-center gap-3 animate-pulse">
-                      <Mic2 className="w-8 h-8" />
-                      <span className="text-2xl font-bold uppercase tracking-wider">{currentPerf.user_nickname}</span>
+           {/* LOGICA VISUALIZZAZIONE VIDEO/VOTO */}
+           {currentPerf && currentPerf.status === 'voting' ? (
+              // SCHERMATA VOTAZIONE (Sostituisce il video)
+              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-gradient-to-t from-fuchsia-900/50 to-black animate-fade-in">
+                 <h2 className="text-7xl font-black text-white mb-6 animate-pulse">VOTAZIONE APERTA</h2>
+                 <p className="text-4xl text-zinc-300 mb-8">Vota l'esibizione dal tuo telefono!</p>
+                 <div className="bg-white/10 p-12 rounded-full border-4 border-yellow-500 shadow-[0_0_80px_rgba(234,179,8,0.4)]">
+                    <Star className="w-40 h-40 text-yellow-500 fill-yellow-500 animate-spin-slow" />
+                 </div>
+                 <div className="mt-12 text-center">
+                    <p className="text-2xl text-zinc-400 mb-2">Esibizione conclusa</p>
+                    <p className="text-5xl font-bold text-white">{currentPerf.song_title}</p>
+                 </div>
+              </div>
+           ) : (
+              // VIDEO PLAYER (Visibile solo se live/paused/restarted)
+              <>
+                 <div id="youtube-player" className={`absolute inset-0 w-full h-full pointer-events-none z-0 ${!currentPerf ? 'hidden' : ''}`}></div>
+                 
+                 {/* Overlay Info Canzone (Visibile solo se NON siamo in votazione) */}
+                 {currentPerf && (
+                   <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/80 to-transparent p-12 z-10 pb-20">
+                      <h2 className="text-6xl font-black text-white mb-2 drop-shadow-lg">{currentPerf.song_title}</h2>
+                      <div className="flex items-end gap-6">
+                         <p className="text-4xl text-zinc-300 font-medium">{currentPerf.song_artist}</p>
+                         <div className="bg-fuchsia-600 px-6 py-2 rounded-full flex items-center gap-3 animate-pulse">
+                            <Mic2 className="w-8 h-8" />
+                            <span className="text-2xl font-bold uppercase tracking-wider">{currentPerf.user_nickname}</span>
+                         </div>
+                      </div>
                    </div>
-                </div>
-             </div>
+                 )}
+              </>
            )}
 
            {/* Placeholder se vuoto */}
@@ -196,7 +225,7 @@ export default function PubDisplay() {
         {/* Destra: Sidebar (QR, Coda, Classifica) */}
         <div className="w-[350px] bg-zinc-900/90 border-l border-zinc-800 flex flex-col z-20 shadow-2xl">
            
-           {/* QR Code Box */}
+           {/* QR Code */}
            <div className="p-6 flex flex-col items-center bg-white/5 border-b border-white/10">
               <div className="bg-white p-3 rounded-xl mb-3">
                  <QRCodeSVG value={joinUrl} size={180} />
@@ -237,7 +266,7 @@ export default function PubDisplay() {
         </div>
       </div>
 
-      {/* LAYER: MESSAGGI (Discreto in alto al centro) */}
+      {/* LAYER: MESSAGGI */}
       <div className="fixed top-20 left-0 right-0 z-50 flex flex-col items-center pointer-events-none gap-2">
         {flashMessages.map(msg => (
           <div key={msg.internalId} className="bg-black/70 backdrop-blur-md rounded-full px-8 py-3 border border-cyan-500/50 shadow-lg animate-fade-in-down flex items-center gap-4">
@@ -256,13 +285,15 @@ export default function PubDisplay() {
         ))}
       </div>
 
-      {/* LAYER: QUIZ (Copre tutto se attivo) */}
+      {/* LAYER: QUIZ (Copre tutto) */}
       {activeQuiz && !quizResults && (
         <div className="fixed inset-0 z-[100] bg-black/90 flex flex-col items-center justify-center p-20 animate-fade-in">
            <div className="max-w-5xl w-full text-center">
               <div className="mb-8">
-                 <span className="bg-fuchsia-600 text-white px-6 py-2 rounded-full text-xl font-bold uppercase tracking-widest animate-pulse">
-                    {quizStatus === 'closed' ? "TEMPO SCADUTO - ATTENDI..." : "QUIZ IN CORSO"}
+                 <span className={`px-6 py-2 rounded-full text-xl font-bold uppercase tracking-widest ${
+                    quizStatus === 'closed' ? 'bg-red-600 text-white' : 'bg-fuchsia-600 text-white animate-pulse'
+                 }`}>
+                    {quizStatus === 'closed' ? "TEMPO SCADUTO - ATTENDI I RISULTATI" : "QUIZ IN CORSO"}
                  </span>
               </div>
               <h2 className="text-7xl font-black text-white mb-12 leading-tight">{activeQuiz.question}</h2>
@@ -302,6 +333,8 @@ export default function PubDisplay() {
         @keyframes ticker { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
         .animate-float-up { animation: floatUp 4s ease-out forwards; }
         @keyframes floatUp { 0% { transform: translateY(0) scale(0.5); opacity: 0; } 10% { opacity: 1; } 100% { transform: translateY(-80vh) scale(1.5); opacity: 0; } }
+        .animate-spin-slow { animation: spin 8s linear infinite; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
       `}</style>
