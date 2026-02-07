@@ -1,4 +1,3 @@
-// lib/api.js - FIX DEFINITIVO
 import { supabase } from './supabase'
 
 // ============================================
@@ -302,27 +301,35 @@ export const pausePerformance = async (performanceId) => {
 }
 
 export const resumePerformance = async (performanceId) => {
+  const { data, error } = await supabase
+    .from('performances')
+    .update({ status: 'live' })
+    .eq('id', performanceId)
+    .select()
+  if (error) throw error; return { data };
+}
+
+// *** NUOVA FUNZIONE RESTART (RIAVVOLGI) ***
 export const restartPerformance = async (performanceId) => {
-  // Imposta lo stato su 'restarted' che il display intercetterà per tornare a 0
+  // Imposta lo stato su 'restarted' per triggerare il player
   const { data, error } = await supabase
     .from('performances')
     .update({ status: 'restarted', started_at: new Date().toISOString() })
     .eq('id', performanceId)
     .select()
   
+  if (error) throw error;
+
   // Subito dopo rimettiamo a live
-  if (!error) {
-     await supabase.from('performances').update({ status: 'live' }).eq('id', performanceId);
-  }
+  await supabase.from('performances').update({ status: 'live' }).eq('id', performanceId);
   
-  if (error) throw error; 
   return { data };
 }
 
 export const skipPerformance = async (performanceId) => {
   const { data, error } = await supabase
     .from('performances')
-    .update({ status: 'ended' })
+    .update({ status: 'ended' }) 
     .eq('id', performanceId)
     .select()
   if (error) throw error; return { data };
@@ -401,7 +408,7 @@ export const submitVote = async (data) => {
   return { data: vote }
 }
 
-// Funzione sendMessage AGGIUNTA QUI
+// Funzione sendMessage CORRETTA
 export const sendMessage = async (data) => {
   const participant = getParticipantFromToken()
   const text = typeof data === 'string' ? data : (data.text || data.message);
@@ -421,6 +428,7 @@ export const sendMessage = async (data) => {
   return { data: message }
 }
 
+// Funzione sendReaction CORRETTA (include nickname)
 export const sendReaction = async (data) => {
   const participant = getParticipantFromToken()
   
@@ -433,7 +441,7 @@ export const sendReaction = async (data) => {
         event_id: participant.event_id,
         participant_id: participant.participant_id,
         emoji: data.emoji,
-        nickname: participant.nickname // <--- ECCO LA FIX
+        nickname: participant.nickname // Include nickname per il display
       }).select().single()
     if (error) throw error
     return { data: reaction }
@@ -569,10 +577,11 @@ export default {
   createPub, getPub, joinPub, adminLogin, getMe,
   requestSong, getSongQueue, getMyRequests, getAdminQueue, approveRequest, rejectRequest,
   startPerformance, pausePerformance, resumePerformance, endPerformance, closeVoting, skipPerformance,
+  restartPerformance, // Added here
   getCurrentPerformance, getAdminCurrentPerformance,
   submitVote, sendReaction, sendEffect,
   sendMessage, getAdminPendingMessages, approveMessage, rejectMessage,
   startQuiz, endQuiz, answerQuiz, getActiveQuiz, showQuizResults, getQuizResults, getQuizLeaderboard,
-  getLeaderboard, getAdminLeaderboard, restartPerformance,
+  getLeaderboard, getAdminLeaderboard,
   getDisplayData
 }
