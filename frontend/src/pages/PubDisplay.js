@@ -267,14 +267,14 @@ export default function PubDisplay() {
       </div>
 
       {/* LAYER: MESSAGGI */}
-      <div className="fixed top-20 left-0 right-0 z-50 flex flex-col items-center pointer-events-none gap-2">
-        {flashMessages.map(msg => (
-          <div key={msg.internalId} className="bg-black/70 backdrop-blur-md rounded-full px-8 py-3 border border-cyan-500/50 shadow-lg animate-fade-in-down flex items-center gap-4">
-            <span className="text-cyan-400 font-bold uppercase text-sm">{msg.nickname}:</span>
-            <span className="text-white font-medium text-2xl">{msg.text}</span>
-          </div>
-        ))}
-      </div>
+      <div className="reactions-overlay pointer-events-none fixed inset-0 z-40">
+  {floatingReactions.map(r => (
+    <div key={r.id} className="absolute flex flex-col items-center animate-float-up" style={{ left: `${r.left}%`, bottom: '0' }}>
+      <span className="text-5xl drop-shadow-md">{r.emoji}</span>
+      <span className="text-sm text-white/80 font-medium mt-1 bg-black/50 px-2 py-1 rounded">{r.nickname}</span>
+    </div>
+  ))}
+</div>
 
       {/* LAYER: REAZIONI */}
       <div className="reactions-overlay pointer-events-none fixed inset-0 z-40">
