@@ -141,18 +141,52 @@ export default function AdminDashboard() {
     setOperators(data || []);
   };
 
-  const handleCreateOperator = async (e) => {
+const handleCreateOperator = async (e) => {
     e.preventDefault();
     if(!newOperatorEmail || !newOperatorPassword) return;
+    
+    // Avviso l'admin che verra scollegato
+    const confirm = window.confirm("ATTENZIONE: Creando un nuovo utente verrai scollegato dall'Admin e loggato come il nuovo utente. Vuoi procedere?");
+    if (!confirm) return;
+
     try {
-      // Nota: Usare supabase.auth.signUp lato client ti slogga. 
-      // In produzione si usa una Edge Function. Per ora simulo la creazione DB se l'auth è esterna
-      // O per semplicità in fase dev, accetta che ti slogghi e rilogghi.
-      // Qui assumiamo che tu abbia una funzione backend o tolleri il re-login.
-      // Per evitare il logout, l'ideale è inserire solo nel DB profiles se l'auth è gestita altrove, 
-      // ma facciamo finta funzioni l'inserimento diretto per ora.
-      toast.info("Funzione limitata lato client. Implementare backend per creare user senza logout.");
-    } catch (error) { toast.error("Errore: " + error.message); }
+      // 1. Crea l'utente nell'autenticazione (Questo provoca il cambio sessione immediato)
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: newOperatorEmail,
+        password: newOperatorPassword,
+        options: {
+          data: {
+            role: 'operator', // Salviamo il ruolo anche nei metadati
+          }
+        }
+      });
+
+      if (authError) throw authError;
+
+      // 2. Aggiungi il profilo nel database (Se non lo fa il trigger automatico)
+      if (authData.user) {
+          // Nota: Spesso supabase crea il profilo in automatico se c'è un trigger, 
+          // ma per sicurezza proviamo a inserirlo o aggiornarlo.
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .upsert([
+                { 
+                    id: authData.user.id, 
+                    email: newOperatorEmail, 
+                    role: 'operator', 
+                    credits: 5 // Regaliamo 5 crediti di benvenuto
+                }
+            ]);
+            
+          if (profileError) console.error("Errore profilo:", profileError);
+      }
+
+      toast.success("Operatore creato! Ora sei loggato con il nuovo account.");
+      // Qui la pagina si ricaricherà da sola perché l'utente è cambiato
+
+    } catch (error) {
+      toast.error("Errore creazione: " + error.message);
+    }
   };
 
   const addCredits = async (operatorId, currentCredits, amount) => {
