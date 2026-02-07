@@ -36,7 +36,6 @@ export const createPub = async (data) => {
   const { data: user } = await supabase.auth.getUser()
   if (!user?.user) throw new Error('Not authenticated')
 
-  // Verifica crediti (semplificato per ora)
   const code = Math.random().toString(36).substring(2, 8).toUpperCase()
 
   const { data: event, error } = await supabase
@@ -79,10 +78,7 @@ export const joinPub = async ({ pub_code, nickname }) => {
 
   const { data: participant, error } = await supabase
     .from('participants')
-    .insert({
-      event_id: event.id,
-      nickname: nickname
-    })
+    .insert({ event_id: event.id, nickname: nickname })
     .select()
     .single()
 
@@ -98,22 +94,11 @@ export const joinPub = async ({ pub_code, nickname }) => {
     pub_name: event.name
   }))
 
-  return { 
-    data: { 
-      token, 
-      user: { ...participant, pub_name: event.name }
-    } 
-  }
+  return { data: { token, user: { ...participant, pub_name: event.name } } }
 }
 
-export const adminLogin = async (data) => {
-  return { data: { user: { email: data.email } } }
-}
-
-export const getMe = async () => {
-  const { data: { user } } = await supabase.auth.getUser()
-  return { data: user }
-}
+export const adminLogin = async (data) => { return { data: { user: { email: data.email } } } }
+export const getMe = async () => { const { data: { user } } = await supabase.auth.getUser(); return { data: user } }
 
 // ============================================
 // SONG REQUESTS
@@ -130,8 +115,7 @@ export const requestSong = async (data) => {
       artist: data.artist,
       youtube_url: data.youtube_url,
       status: 'pending'
-    })
-    .select().single()
+    }).select().single()
   if (error) throw error
   return { data: request }
 }
@@ -266,43 +250,37 @@ export const sendReaction = async (data) => {
   return { data: reaction }
 }
 
-// AGGIORNATO: Gestisce invio Admin (Regia) e Utente
 export const sendMessage = async (data) => {
   let participantId = null;
   let eventId = null;
   let status = 'pending';
 
-  // Tentativo 1: Verifica se è un utente (ha il token)
   try {
      const p = getParticipantFromToken();
      participantId = p.participant_id;
      eventId = p.event_id;
   } catch (e) {
-     // Tentativo 2: Se fallisce, sei l'Admin (hai pub_code in localstorage)
      const pubCode = localStorage.getItem('neonpub_pub_code');
      if(pubCode) {
         const { data: event } = await supabase.from('events').select('id').eq('code', pubCode).single();
         if(event) {
            eventId = event.id;
-           status = data.status || 'pending'; // Se admin passa 'approved', usalo
+           status = data.status || 'pending';
         }
      }
   }
 
   if (!eventId) throw new Error("Errore contesto evento: ricarica la pagina");
-
   const text = typeof data === 'string' ? data : (data.text || data.message);
   
   const { data: message, error } = await supabase
     .from('messages')
     .insert({
       event_id: eventId,
-      participant_id: participantId, // Null se è la regia
+      participant_id: participantId,
       text: text,
-      status: status // 'approved' se Admin, 'pending' se utente
-    })
-    .select()
-    .single()
+      status: status
+    }).select().single()
 
   if (error) throw error
   return { data: message }
@@ -326,7 +304,7 @@ export const rejectMessage = async (id) => {
 }
 
 // ============================================
-// QUIZ (AGGIORNATO)
+// QUIZ (LOGICA CORRETTA PUNTEGGI)
 // ============================================
 
 export const startQuiz = async (data) => {
@@ -338,7 +316,6 @@ export const startQuiz = async (data) => {
 }
 
 export const closeQuizVoting = async (quizId) => {
-  // Ora 'closed' funzionerà grazie alla modifica SQL
   const { data, error } = await supabase.from('quizzes').update({ status: 'closed' }).eq('id', quizId).select()
   if (error) throw error; return { data };
 }
@@ -356,9 +333,12 @@ export const endQuiz = async (id) => {
 
 export const getQuizResults = async (quizId) => {
   const { data: quiz } = await supabase.from('quizzes').select('*').eq('id', quizId).single()
+  // Join con participants per avere i nickname dei vincitori
   const { data: answers, error } = await supabase.from('quiz_answers').select('*, participants(nickname)').eq('quiz_id', quizId)
+  
   if (error) throw error
   const correctAnswers = answers.filter(a => a.is_correct)
+  
   return {
     data: {
       quiz_id: quizId,
@@ -367,19 +347,51 @@ export const getQuizResults = async (quizId) => {
       correct_index: quiz.correct_index,
       total_answers: answers.length,
       correct_count: correctAnswers.length,
-      winners: correctAnswers.map(a => a.participants.nickname),
+      winners: correctAnswers.map(a => a.participants?.nickname || 'Unknown'), // Fix nickname
       points: quiz.points
     }
   }
 }
 
+// *** QUIZ ANSWER CON ASSEGNAZIONE PUNTI ***
 export const answerQuiz = async (data) => {
   const participant = getParticipantFromToken()
+  
+  // 1. Recupera il quiz per vedere la risposta corretta
+  const { data: quiz, error: quizError } = await supabase
+    .from('quizzes')
+    .select('correct_index, points')
+    .eq('id', data.quiz_id)
+    .single();
+
+  if (quizError) throw quizError;
+
+  const isCorrect = quiz.correct_index === data.answer_index;
+  const pointsEarned = isCorrect ? quiz.points : 0;
+
+  // 2. Salva la risposta
   const { data: ans, error } = await supabase.from('quiz_answers').insert({
-    quiz_id: data.quiz_id, participant_id: participant.participant_id, answer_index: data.answer_index
+    quiz_id: data.quiz_id, 
+    participant_id: participant.participant_id, 
+    answer_index: data.answer_index,
+    is_correct: isCorrect
   }).select().single()
-  if (error) { if (error.code==='23505') throw new Error('Già risposto'); throw error;}
-  return { data: ans }
+
+  if (error) { 
+      if (error.code==='23505') throw new Error('Già risposto'); 
+      throw error;
+  }
+
+  // 3. Se corretto, AGGIORNA il punteggio del partecipante
+  if (isCorrect) {
+      // Recupera punteggio attuale
+      const { data: p } = await supabase.from('participants').select('score').eq('id', participant.participant_id).single();
+      if (p) {
+          await supabase.from('participants').update({ score: p.score + pointsEarned }).eq('id', participant.participant_id);
+      }
+  }
+
+  return { data: { ...ans, points_earned: pointsEarned } }
 }
 
 export const getActiveQuiz = async () => {

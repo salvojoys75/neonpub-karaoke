@@ -9,26 +9,20 @@ export default function PubDisplay() {
   const { pubCode } = useParams();
   const [displayData, setDisplayData] = useState(null);
   
-  // Stati per animazioni e layer
   const [floatingReactions, setFloatingReactions] = useState([]);
   const [flashMessages, setFlashMessages] = useState([]);
   const [ticker, setTicker] = useState("");
   
-  // Quiz
   const [activeQuiz, setActiveQuiz] = useState(null);
   const [quizResults, setQuizResults] = useState(null);
   const [quizStatus, setQuizStatus] = useState(null);
+  const [voteResult, setVoteResult] = useState(null);
   
-  // Voto Performance
-  const [voteResult, setVoteResult] = useState(null); // Per mostrare la media finale
-  
-  // Player Youtube
   const playerRef = useRef(null);
   const [isPlayerReady, setIsPlayerReady] = useState(false);
   const currentVideoIdRef = useRef(null);
   const pollIntervalRef = useRef(null);
 
-  // --- 1. GESTIONE VIDEO YOUTUBE ---
   const extractVideoId = (url) => {
     if (!url) return null;
     if (url.includes("results?search_query")) return null;
@@ -57,7 +51,6 @@ export default function PubDisplay() {
     const perf = displayData.current_performance;
     const status = perf.status;
 
-    // Se siamo in fase VOTING o ENDED, il video deve fermarsi/sparire
     if (status === 'voting' || status === 'ended') {
         if (playerRef.current && typeof playerRef.current.stopVideo === 'function') {
             playerRef.current.stopVideo();
@@ -65,7 +58,6 @@ export default function PubDisplay() {
         return; 
     }
 
-    // Caricamento Video
     const videoId = extractVideoId(perf.youtube_url);
     if (videoId && videoId !== currentVideoIdRef.current) {
       currentVideoIdRef.current = videoId;
@@ -80,7 +72,6 @@ export default function PubDisplay() {
       }
     }
 
-    // Controlli Play/Pause/Restart
     if (playerRef.current && typeof playerRef.current.getPlayerState === 'function') {
       if (status === 'paused') playerRef.current.pauseVideo();
       else if (status === 'live' && playerRef.current.getPlayerState() !== 1) playerRef.current.playVideo();
@@ -88,13 +79,11 @@ export default function PubDisplay() {
     }
   }, [isPlayerReady, displayData?.current_performance]);
 
-  // --- 2. CARICAMENTO DATI ---
   const loadDisplayData = useCallback(async () => {
     try {
       const { data } = await api.getDisplayData(pubCode);
       setDisplayData(data);
       
-      // Ticker Scorrevole
       const queueCount = data.queue?.length || 0;
       if (queueCount > 0) {
         const queueText = data.queue.slice(0, 5).map((s, i) => `${i + 1}. ${s.title} (${s.user_nickname})`).join(' • ');
@@ -103,10 +92,8 @@ export default function PubDisplay() {
         setTicker("Inquadra il QR Code per cantare!");
       }
 
-      // Controllo se è appena finita una votazione per mostrare il risultato
       if (data.current_performance?.status === 'ended' && !voteResult) {
          setVoteResult(data.current_performance.average_score || 0);
-         // Nascondi il risultato dopo 10 secondi
          setTimeout(() => setVoteResult(null), 10000);
       }
 
@@ -119,13 +106,10 @@ export default function PubDisplay() {
     return () => clearInterval(pollIntervalRef.current);
   }, [loadDisplayData]);
 
-  // --- 3. GESTIONE REALTIME (Messaggi, Reazioni, Cambi Stato) ---
   const showFlashMessage = (msg) => {
     const id = Date.now();
     setFlashMessages(prev => [...prev, { ...msg, internalId: id }]);
-    setTimeout(() => {
-      setFlashMessages(prev => prev.filter(m => m.internalId !== id));
-    }, 10000);
+    setTimeout(() => setFlashMessages(prev => prev.filter(m => m.internalId !== id)), 10000);
   };
 
   const addFloatingReaction = (emoji, nickname) => {
@@ -139,23 +123,15 @@ export default function PubDisplay() {
     if (!displayData?.pub?.id) return;
     const channel = supabase
       .channel(`display_realtime`)
-      // ASCOLTA CAMBIAMENTI PERFORMANCE (Stop Voto, Inizio, Ecc)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${displayData.pub.id}` }, 
         (payload) => {
-             console.log("Performance Update:", payload.new);
              setDisplayData(prev => ({...prev, current_performance: payload.new}));
-             
-             // Se la votazione è chiusa (ended), ricarica tutto per aggiornare classifica
              if (payload.new.status === 'ended') {
                  setVoteResult(payload.new.average_score);
-                 setTimeout(() => {
-                    loadDisplayData(); 
-                    setVoteResult(null);
-                 }, 8000);
+                 setTimeout(() => { loadDisplayData(); setVoteResult(null); }, 8000);
              }
         }
       )
-      // ASCOLTA NUOVE REAZIONI
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `event_id=eq.${displayData.pub.id}` }, 
         (payload) => {
              if (!payload.new.emoji && payload.new.message) {
@@ -165,20 +141,22 @@ export default function PubDisplay() {
              }
         }
       )
-      // ASCOLTA MESSAGGI APPROVATI
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `event_id=eq.${displayData.pub.id}` }, 
+      // *** FIX MESSAGGI: ASCOLTO TUTTI GLI EVENTI (*) SU MESSAGES ***
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `event_id=eq.${displayData.pub.id}` }, 
         async (payload) => {
-          if (payload.new.status === 'approved') {
+          // Se è un nuovo messaggio già approvato (Regia) O un aggiornamento ad approved (Utente)
+          if (payload.new && payload.new.status === 'approved') {
             let nickname = "Utente";
             if (payload.new.participant_id) {
                const { data } = await supabase.from('participants').select('nickname').eq('id', payload.new.participant_id).single();
                if(data) nickname = data.nickname;
+            } else {
+               nickname = "Regia";
             }
             showFlashMessage({ text: payload.new.text, nickname: nickname });
           }
         }
       )
-      // ASCOLTA QUIZ
       .on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${displayData.pub.id}` }, 
         async (payload) => {
            setQuizStatus(payload.new.status);
@@ -202,34 +180,22 @@ export default function PubDisplay() {
   const queue = displayData?.queue || [];
   const leaderboard = displayData?.leaderboard || [];
   const joinUrl = `${window.location.origin}/join/${pubCode}`;
-
-  // Helper per capire lo stato
   const isVoting = currentPerf?.status === 'voting';
   const isPerformanceActive = currentPerf && (currentPerf.status === 'live' || currentPerf.status === 'paused' || currentPerf.status === 'restarted');
 
   return (
     <div className="h-screen bg-black text-white overflow-hidden flex flex-col font-sans">
-      
-      {/* HEADER */}
       <div className="h-16 bg-zinc-900 flex items-center px-6 border-b border-zinc-800 z-30 relative">
          <div className="font-bold text-xl mr-8 text-fuchsia-500">{displayData?.pub?.name || "Karaoke"}</div>
          <div className="flex-1 overflow-hidden relative h-full flex items-center">
-            <div className="ticker-container w-full">
-               <div className="ticker-content text-lg font-medium text-cyan-300">{ticker}</div>
-            </div>
+            <div className="ticker-container w-full"><div className="ticker-content text-lg font-medium text-cyan-300">{ticker}</div></div>
          </div>
       </div>
 
-      {/* MAIN GRID */}
       <div className="flex-1 flex overflow-hidden">
-        
-        {/* SINISTRA: AREA PRINCIPALE (Video, Voto, Risultati) */}
         <div className="flex-1 relative bg-black flex flex-col justify-center overflow-hidden">
-           
-           {/* 1. LAYER VIDEO (Sempre sotto, z-0) */}
            <div id="youtube-player" className={`absolute inset-0 w-full h-full pointer-events-none z-0 ${isPerformanceActive ? 'opacity-100' : 'opacity-0'}`}></div>
 
-           {/* 2. LAYER INFO CANZONE (Sopra il video, z-10) */}
            {isPerformanceActive && (
              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/80 to-transparent p-12 z-10 pb-20 animate-fade-in">
                 <h2 className="text-6xl font-black text-white mb-2 drop-shadow-lg">{currentPerf.song_title}</h2>
@@ -243,20 +209,12 @@ export default function PubDisplay() {
              </div>
            )}
 
-           {/* 3. LAYER VOTAZIONE APERTA (Copre il video, z-20) */}
            {isVoting && (
               <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-900 animate-zoom-in">
                  <div className="absolute inset-0 bg-[url('https://media.giphy.com/media/l41YcGT5ShJa0nCM0/giphy.gif')] opacity-10 bg-cover mix-blend-overlay"></div>
-                 
-                 <h2 className="text-8xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-orange-600 mb-8 animate-pulse drop-shadow-lg">
-                    VOTA ORA!
-                 </h2>
+                 <h2 className="text-8xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-orange-600 mb-8 animate-pulse drop-shadow-lg">VOTA ORA!</h2>
                  <p className="text-4xl text-white mb-12 font-light">Prendi il tuo telefono e dai un voto!</p>
-                 
-                 <div className="bg-white/10 p-16 rounded-full border-8 border-yellow-500 shadow-[0_0_100px_rgba(234,179,8,0.5)] animate-spin-slow">
-                    <Star className="w-48 h-48 text-yellow-500 fill-yellow-500" />
-                 </div>
-                 
+                 <div className="bg-white/10 p-16 rounded-full border-8 border-yellow-500 shadow-[0_0_100px_rgba(234,179,8,0.5)] animate-spin-slow"><Star className="w-48 h-48 text-yellow-500 fill-yellow-500" /></div>
                  <div className="mt-16 text-center z-30">
                     <p className="text-2xl text-zinc-500 mb-2 uppercase tracking-widest">Performance di</p>
                     <p className="text-6xl font-bold text-white">{currentPerf.user_nickname}</p>
@@ -264,7 +222,6 @@ export default function PubDisplay() {
               </div>
            )}
 
-           {/* 4. LAYER RISULTATO VOTO (Appare alla fine, z-25) */}
            {voteResult !== null && (
               <div className="absolute inset-0 z-25 flex flex-col items-center justify-center bg-black/95 animate-fade-in">
                  <h2 className="text-6xl text-white font-bold mb-8">MEDIA VOTO</h2>
@@ -276,7 +233,6 @@ export default function PubDisplay() {
               </div>
            )}
 
-           {/* 5. PLACEHOLDER (Se tutto fermo) */}
            {!currentPerf && !activeQuiz && !voteResult && (
              <div className="flex flex-col items-center justify-center h-full z-10 bg-zinc-950">
                 <h2 className="text-7xl font-bold mb-4 text-zinc-800">PALCO VUOTO</h2>
@@ -285,25 +241,17 @@ export default function PubDisplay() {
            )}
         </div>
 
-        {/* DESTRA: SIDEBAR (QR, Coda, Classifica) */}
         <div className="w-[350px] bg-zinc-900/95 border-l border-zinc-800 flex flex-col z-30 shadow-2xl relative">
            <div className="p-6 flex flex-col items-center bg-white/5 border-b border-white/10">
-              <div className="bg-white p-3 rounded-xl mb-3 shadow-lg transform hover:scale-105 transition">
-                 <QRCodeSVG value={joinUrl} size={180} />
-              </div>
+              <div className="bg-white p-3 rounded-xl mb-3 shadow-lg transform hover:scale-105 transition"><QRCodeSVG value={joinUrl} size={180} /></div>
               <p className="font-mono text-3xl font-bold text-cyan-400 tracking-widest drop-shadow">{pubCode}</p>
               <p className="text-xs text-zinc-500 uppercase mt-2">Scansiona per partecipare</p>
            </div>
            
-           {/* CODA */}
            <div className="flex-1 overflow-hidden flex flex-col p-4">
-              <h3 className="text-lg font-bold text-fuchsia-400 mb-4 flex items-center gap-2 uppercase tracking-wider">
-                 <Music className="w-5 h-5"/> Prossimi
-              </h3>
+              <h3 className="text-lg font-bold text-fuchsia-400 mb-4 flex items-center gap-2 uppercase tracking-wider"><Music className="w-5 h-5"/> Prossimi</h3>
               <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-2">
-                 {queue.length === 0 ? (
-                    <p className="text-center text-zinc-600 italic mt-10">Coda vuota...</p>
-                 ) : queue.map((s, i) => (
+                 {queue.length === 0 ? <p className="text-center text-zinc-600 italic mt-10">Coda vuota...</p> : queue.map((s, i) => (
                     <div key={s.id} className="bg-black/40 p-3 rounded-lg border-l-4 border-fuchsia-600 hover:bg-white/5 transition">
                        <div className="font-bold text-white truncate text-lg">{s.title}</div>
                        <div className="flex justify-between items-center mt-1">
@@ -315,22 +263,13 @@ export default function PubDisplay() {
               </div>
            </div>
 
-           {/* CLASSIFICA MINI */}
            <div className="h-[35%] border-t border-white/10 p-4 bg-gradient-to-b from-zinc-900 to-black">
-              <h3 className="text-lg font-bold text-yellow-500 mb-4 flex items-center gap-2 uppercase tracking-wider">
-                 <Trophy className="w-5 h-5"/> Top Player
-              </h3>
+              <h3 className="text-lg font-bold text-yellow-500 mb-4 flex items-center gap-2 uppercase tracking-wider"><Trophy className="w-5 h-5"/> Top Player</h3>
               <div className="space-y-2 overflow-y-auto custom-scrollbar h-full pb-4">
                  {leaderboard.map((p, i) => (
                     <div key={p.id} className={`flex justify-between items-center p-2 rounded ${i===0 ? 'bg-yellow-500/20 border border-yellow-500/30' : ''}`}>
                        <div className="flex items-center gap-3">
-                          <span className={`font-bold w-6 h-6 flex items-center justify-center rounded-full text-xs ${
-                             i===0 ? 'bg-yellow-500 text-black' : 
-                             i===1 ? 'bg-zinc-400 text-black' : 
-                             i===2 ? 'bg-amber-700 text-white' : 'bg-zinc-800 text-zinc-400'
-                          }`}>
-                             {i+1}
-                          </span>
+                          <span className={`font-bold w-6 h-6 flex items-center justify-center rounded-full text-xs ${i===0 ? 'bg-yellow-500 text-black' : i===1 ? 'bg-zinc-400 text-black' : i===2 ? 'bg-amber-700 text-white' : 'bg-zinc-800 text-zinc-400'}`}>{i+1}</span>
                           <span className={`font-medium ${i===0 ? 'text-white' : 'text-zinc-300'}`}>{p.nickname}</span>
                        </div>
                        <span className="text-cyan-400 font-mono font-bold">{p.score}</span>
@@ -341,32 +280,22 @@ export default function PubDisplay() {
         </div>
       </div>
 
-      {/* --- LIVELLI SOVRAPPOSTI (OVERLAYS) --- */}
-
-      {/* REAZIONI */}
       <div className="reactions-overlay pointer-events-none fixed inset-0 z-40 overflow-hidden">
         {floatingReactions.map(r => (
             <div key={r.id} className="absolute flex flex-col items-center animate-float-up" style={{ left: `${r.left}%`, bottom: '-50px' }}>
               <span className="text-7xl filter drop-shadow-2xl">{r.emoji}</span>
-              <span className="text-xl text-white font-bold mt-1 bg-black/70 px-4 py-1 rounded-full border border-white/20 shadow-xl">
-                  {r.nickname}
-              </span>
+              <span className="text-xl text-white font-bold mt-1 bg-black/70 px-4 py-1 rounded-full border border-white/20 shadow-xl">{r.nickname}</span>
             </div>
         ))}
       </div>
 
-      {/* MESSAGGI FLASH */}
       {flashMessages.length > 0 && (
         <div className="fixed top-24 left-8 z-[60] w-2/3 max-w-4xl flex flex-col gap-4">
           {flashMessages.map(msg => (
             <div key={msg.internalId} className="bg-black/90 backdrop-blur-xl border-l-8 border-cyan-500 text-white p-6 rounded-r-2xl shadow-2xl animate-slide-in-left flex items-start gap-6">
-              <div className="bg-cyan-500/20 p-4 rounded-full">
-                <MessageSquare className="w-10 h-10 text-cyan-400" />
-              </div>
+              <div className="bg-cyan-500/20 p-4 rounded-full"><MessageSquare className="w-10 h-10 text-cyan-400" /></div>
               <div>
-                <p className="text-sm text-cyan-400 font-bold uppercase tracking-widest mb-1">
-                  {msg.nickname === 'Regia' ? '📢 MESSAGGIO DALLA REGIA' : `Messaggio da ${msg.nickname}`}
-                </p>
+                <p className="text-sm text-cyan-400 font-bold uppercase tracking-widest mb-1">{msg.nickname === 'Regia' ? '📢 MESSAGGIO DALLA REGIA' : `Messaggio da ${msg.nickname}`}</p>
                 <p className="text-4xl font-bold leading-tight">{msg.text}</p>
               </div>
             </div>
@@ -374,23 +303,18 @@ export default function PubDisplay() {
         </div>
       )}
 
-      {/* QUIZ (Z-INDEX 100 - Sopra tutto) */}
       {activeQuiz && !quizResults && (
         <div className="fixed inset-0 z-[100] bg-black/95 flex flex-col items-center justify-center p-10 animate-fade-in">
            <div className="max-w-6xl w-full text-center">
               <div className="mb-12">
-                 <span className={`px-8 py-3 rounded-full text-2xl font-bold uppercase tracking-widest shadow-lg ${
-                    quizStatus === 'closed' ? 'bg-red-600 text-white' : 'bg-fuchsia-600 text-white animate-pulse'
-                 }`}>
+                 <span className={`px-8 py-3 rounded-full text-2xl font-bold uppercase tracking-widest shadow-lg ${quizStatus === 'closed' ? 'bg-red-600 text-white' : 'bg-fuchsia-600 text-white animate-pulse'}`}>
                     {quizStatus === 'closed' ? "TEMPO SCADUTO" : "QUIZ IN CORSO"}
                  </span>
               </div>
               <h2 className="text-7xl font-black text-white mb-16 leading-tight drop-shadow-2xl">{activeQuiz.question}</h2>
               <div className="grid grid-cols-2 gap-8">
                  {activeQuiz.options.map((opt, i) => (
-                    <div key={i} className={`p-10 rounded-3xl text-4xl font-bold border-4 transition-all transform ${
-                       quizStatus === 'closed' ? 'border-zinc-800 text-zinc-600 bg-zinc-900 grayscale' : 'border-white/20 bg-white/5 text-white shadow-xl'
-                    }`}>
+                    <div key={i} className={`p-10 rounded-3xl text-4xl font-bold border-4 transition-all transform ${quizStatus === 'closed' ? 'border-zinc-800 text-zinc-600 bg-zinc-900 grayscale' : 'border-white/20 bg-white/5 text-white shadow-xl'}`}>
                        <span className="text-fuchsia-500 mr-6 inline-block scale-125">{String.fromCharCode(65+i)}.</span> {opt}
                     </div>
                  ))}
@@ -399,7 +323,6 @@ export default function PubDisplay() {
         </div>
       )}
       
-      {/* QUIZ RISULTATI */}
       {quizResults && (
         <div className="fixed inset-0 z-[100] bg-gradient-to-br from-green-900 to-black flex flex-col items-center justify-center p-20 animate-zoom-in">
            <Trophy className="w-48 h-48 text-yellow-400 mb-10 animate-bounce drop-shadow-[0_0_50px_rgba(250,204,21,0.6)]" />
