@@ -1,31 +1,40 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Home, Music, Trophy, User, Send, Star, MessageSquare, RefreshCw, Mic2, Check, Lock } from "lucide-react";
+import { Home, Music, Trophy, User, Star, MessageSquare, RefreshCw, Mic2, Check, Lock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAuth } from "@/context/AuthContext";
-import { useWebSocket } from "@/context/WebSocketContext";
+// Se non usi il WebSocketContext, puoi rimuovere l'import e la logica correlata, 
+// qui uso Supabase Realtime che è più affidabile per quello che serve a te.
+import { supabase } from "@/lib/supabase"; 
 import api from "@/lib/api";
 
 const EMOJIS = ["❤️", "🔥", "👏", "🎤", "⭐", "🎉"];
-const REACTION_LIMIT = 3;
+const REACTION_LIMIT = 5;
 
 export default function ClientApp() {
   const navigate = useNavigate();
   const { user, isAuthenticated, logout } = useAuth();
-  const { lastMessage, isConnected } = useWebSocket();
   
   const [activeTab, setActiveTab] = useState("home");
   const [queue, setQueue] = useState([]);
   const [myRequests, setMyRequests] = useState([]);
   const [currentPerformance, setCurrentPerformance] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
+  
+  // Quiz
   const [activeQuiz, setActiveQuiz] = useState(null);
+  const [quizResult, setQuizResult] = useState(null);
+  const [showQuizModal, setShowQuizModal] = useState(false);
+  const [quizAnswer, setQuizAnswer] = useState(null); // Indice risposta data
+  
+  // Reazioni
   const [floatingReactions, setFloatingReactions] = useState([]);
   const [remainingReactions, setRemainingReactions] = useState(REACTION_LIMIT);
   
+  // Modals
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [songTitle, setSongTitle] = useState("");
   const [songArtist, setSongArtist] = useState("");
@@ -35,15 +44,10 @@ export default function ClientApp() {
   const [selectedStars, setSelectedStars] = useState(0);
   const [hasVoted, setHasVoted] = useState(false);
 
-  const [showQuizModal, setShowQuizModal] = useState(false);
-  const [quizAnswer, setQuizAnswer] = useState(null);
-  const [quizResult, setQuizResult] = useState(null);
-
   const [showMessageModal, setShowMessageModal] = useState(false);
   const [messageText, setMessageText] = useState("");
 
   const pollIntervalRef = useRef(null);
-  const lastQuizIdRef = useRef(null);
 
   useEffect(() => {
     if (!isAuthenticated) navigate("/");
@@ -63,9 +67,10 @@ export default function ClientApp() {
       setMyRequests(myRes.data || []);
       setLeaderboard(lbRes.data || []);
       
-      // Gestione Performance
+      // Performance Logic
       const newPerf = perfRes.data;
       setCurrentPerformance(prev => {
+        // Reset stato se cambia canzone
         if ((!prev && newPerf) || (prev && newPerf && prev.id !== newPerf.id)) {
           setRemainingReactions(REACTION_LIMIT);
           setHasVoted(false);
@@ -73,11 +78,13 @@ export default function ClientApp() {
           return newPerf;
         } 
         if (prev && !newPerf) {
+          // Canzone finita
           setHasVoted(false);
           setSelectedStars(0);
           setRemainingReactions(REACTION_LIMIT);
           return null;
         }
+        // Apertura automatica votazione
         if (newPerf && newPerf.status === 'voting' && prev?.status !== 'voting' && newPerf.participant_id !== user?.user?.id && !hasVoted) {
              setShowVoteModal(true);
              toast.info("⭐ Votazione aperta! Vota ora!");
@@ -85,114 +92,89 @@ export default function ClientApp() {
         return newPerf;
       });
       
-      // Gestione Quiz Avanzata
+      // Quiz Logic
       const serverQuiz = quizRes.data;
       if (serverQuiz) {
-        // 1. Quiz Attivo: Mostra domande
-        if (serverQuiz.status === 'active') {
+         if (serverQuiz.status === 'active' || serverQuiz.status === 'closed') {
              setActiveQuiz(prev => {
-               if (!prev || prev.id !== serverQuiz.id) {
-                 setQuizAnswer(null); 
-                 setQuizResult(null); 
-                 setShowQuizModal(true); 
+                 // Se è un nuovo quiz, resetta risposta
+                 if (!prev || prev.id !== serverQuiz.id) {
+                     setQuizAnswer(null);
+                     setQuizResult(null);
+                     setShowQuizModal(true);
+                 }
                  return serverQuiz;
-               }
-               return prev; // Mantiene lo stato corrente se è lo stesso quiz
              });
-        } 
-        // 2. Quiz Chiuso (Stop al voto): Mostra "Tempo Scaduto"
-        else if (serverQuiz.status === 'closed') {
-             setActiveQuiz(serverQuiz);
-             if (!showQuizModal && !quizResult) setShowQuizModal(true);
-        }
-        // 3. Risultati: Mostra vincitori
-        else if (serverQuiz.status === 'showing_results') {
-             if (!quizResult) {
-                const resResults = await api.getQuizResults(serverQuiz.id);
-                setQuizResult(resResults.data);
-                setShowQuizModal(true);
+             // Se lo stato cambia da active a closed mentre modale è aperta
+             if (activeQuiz && activeQuiz.id === serverQuiz.id && activeQuiz.status !== serverQuiz.status) {
+                 setActiveQuiz(serverQuiz);
              }
-        }
+         } else if (serverQuiz.status === 'showing_results') {
+             if (!quizResult) {
+                 const res = await api.getQuizResults(serverQuiz.id);
+                 setQuizResult(res.data);
+                 setShowQuizModal(true);
+             }
+         }
       } else {
-        // Nessun quiz attivo
-        if (activeQuiz && !quizResult) { 
-           setShowQuizModal(false); 
-           setActiveQuiz(null); 
-        }
+         // Nessun quiz attivo
+         if (activeQuiz && !quizResult) {
+             setShowQuizModal(false);
+             setActiveQuiz(null);
+         }
       }
 
     } catch (error) { console.error(error); }
-  }, [user?.id, hasVoted, activeQuiz, quizResult, showQuizModal]);
+  }, [user?.id, hasVoted, activeQuiz, quizResult]);
 
   useEffect(() => {
     if (isAuthenticated) {
       loadData();
-      pollIntervalRef.current = setInterval(loadData, 3000); // Polling più veloce (3s) per reattività quiz
-      return () => clearInterval(pollIntervalRef.current);
-    }
-  }, [isAuthenticated, loadData]);
+      pollIntervalRef.current = setInterval(loadData, 5000); // Polling lento (5s) perché usiamo Realtime
+      
+      // REALTIME SUBSCRIPTION (Per aggiornamenti istantanei)
+      const channel = supabase
+        .channel('client_realtime')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${user?.event_id}` }, 
+            (payload) => {
+                const newPerf = payload.new;
+                if (newPerf.status === 'voting') { 
+                    loadData(); // Ricarica per aprire modale voto
+                } else {
+                    setCurrentPerformance(newPerf);
+                }
+            }
+        )
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${user?.event_id}` }, 
+            async (payload) => {
+                // Gestione istantanea Quiz
+                if (payload.new.status === 'active') {
+                    setQuizAnswer(null); setQuizResult(null); setActiveQuiz(payload.new); setShowQuizModal(true);
+                    toast.info("🎯 Quiz Iniziato!");
+                } 
+                else if (payload.new.status === 'closed') {
+                    setActiveQuiz(prev => ({ ...prev, status: 'closed' }));
+                    toast.warning("🛑 Televoto Chiuso!");
+                }
+                else if (payload.new.status === 'showing_results') {
+                    const res = await api.getQuizResults(payload.new.id);
+                    setQuizResult(res.data);
+                }
+                else if (payload.new.status === 'ended') {
+                    setShowQuizModal(false); setActiveQuiz(null); setQuizResult(null);
+                }
+            }
+        )
+        .subscribe();
 
-  // WebSocket
-  useEffect(() => {
-    if (!lastMessage) return;
-    
-    switch (lastMessage.type) {
-      case "queue_updated":
-      case "new_request":
-        loadData();
-        break;
-      case "performance_started":
-      case "performance_resumed":
-      case "performance_restarted":
-        setCurrentPerformance(lastMessage.data);
-        setHasVoted(false);
-        setSelectedStars(0);
-        setRemainingReactions(REACTION_LIMIT);
-        toast.info(`🎤 ${lastMessage.data?.song_artist || "Qualcuno"} sta cantando!`);
-        break;
-      case "performance_paused":
-        setCurrentPerformance(prev => prev ? { ...prev, status: "paused" } : null);
-        break;
-      case "voting_opened":
-        setCurrentPerformance(lastMessage.data);
-        if (lastMessage.data.participant_id !== user?.user?.id) {
-            setHasVoted(false);
-            setSelectedStars(0);
-            setShowVoteModal(true);
-            toast.info("⭐ Votazione aperta!");
-        }
-        break;
-      case "voting_closed":
-        setShowVoteModal(false);
-        setCurrentPerformance(null);
-        setHasVoted(false);
-        toast.success(`Votazione chiusa!`);
-        loadData();
-        break;
-      case "reaction":
-        addFloatingReaction(lastMessage.data.emoji);
-        break;
-      // QUIZ EVENTS
-      case "quiz_started":
-        loadData(); // Forza ricaricamento immediato
-        toast.info("🎯 Quiz Time!");
-        break;
-      case "quiz_ended":
-        setQuizResult(lastMessage.data);
-        loadData();
-        setTimeout(() => {
-            setShowQuizModal(false);
-            setActiveQuiz(null);
-            setQuizResult(null);
-            lastQuizIdRef.current = null;
-        }, 5000);
-        break;
-      default: break;
+      return () => {
+        clearInterval(pollIntervalRef.current);
+        supabase.removeChannel(channel);
+      };
     }
-  }, [lastMessage, user?.id, hasVoted, loadData]);
+  }, [isAuthenticated, loadData, user?.event_id]);
 
   const addFloatingReaction = (emoji) => {
-    if (!emoji) return;
     const id = Date.now() + Math.random();
     const left = Math.random() * 80 + 10;
     setFloatingReactions(prev => [...prev, { id, emoji, left }]);
@@ -205,9 +187,7 @@ export default function ClientApp() {
     try {
       await api.requestSong({ title: songTitle, artist: songArtist, youtube_url: songYoutubeUrl || null });
       toast.success("Richiesta inviata!");
-      setShowRequestModal(false);
-      setSongTitle(""); setSongArtist(""); setSongYoutubeUrl("");
-      loadData();
+      setShowRequestModal(false); setSongTitle(""); setSongArtist(""); setSongYoutubeUrl(""); loadData();
     } catch (error) { toast.error("Errore invio"); }
   };
 
@@ -216,13 +196,12 @@ export default function ClientApp() {
     try {
       await api.submitVote({ performance_id: currentPerformance.id, score: selectedStars });
       toast.success(`Voto inviato!`);
-      setHasVoted(true);
-      setShowVoteModal(false);
-    } catch (error) { toast.error("Errore voto"); }
+      setHasVoted(true); setShowVoteModal(false);
+    } catch (error) { toast.error("Hai già votato o errore"); setShowVoteModal(false); }
   };
 
   const handleReaction = async (emoji) => {
-    if (remainingReactions <= 0) { toast.error("Reazioni finite!"); return; }
+    if (remainingReactions <= 0) { toast.error("Reazioni finite per questa canzone!"); return; }
     try {
       await api.sendReaction({ emoji });
       addFloatingReaction(emoji);
@@ -233,31 +212,22 @@ export default function ClientApp() {
   const handleSendMessage = async () => {
     if (!messageText.trim()) return;
     try {
-      await api.sendReaction({ emoji: null, message: messageText });
+      await api.sendMessage({ text: messageText }); // API aggiornata gestisce status pending automatico
       toast.success("Messaggio inviato alla regia!");
-      setShowMessageModal(false);
-      setMessageText("");
+      setShowMessageModal(false); setMessageText("");
     } catch (error) { toast.error("Errore invio"); }
   };
 
   const handleQuizAnswer = async (index) => {
-    if (quizAnswer !== null || !activeQuiz) return;
-    
-    // Controllo se il quiz è ancora attivo
-    if (activeQuiz.status !== 'active') {
-       toast.error("Tempo scaduto! Il televoto è chiuso.");
-       return;
-    }
-    
-    setQuizAnswer(index); // Feedback visivo immediato
-    
+    if (quizAnswer !== null) return; // Già risposto
+    if (!activeQuiz || activeQuiz.status !== 'active') { toast.error("Tempo scaduto!"); return; }
+
+    setQuizAnswer(index); // Blocca UI localmente
     try {
-      const { data } = await api.answerQuiz({ quiz_id: activeQuiz.id, answer_index: index });
-      data.is_correct ? toast.success(`Corretto! +${data.points_earned} punti!`) : toast.error("Sbagliato!");
-      setTimeout(() => loadData(), 1000);
-    } catch (error) { 
-        toast.info("Risposta registrata.");
-        // Non resettiamo quizAnswer così l'utente vede cosa ha votato
+        const { data } = await api.answerQuiz({ quiz_id: activeQuiz.id, answer_index: index });
+        if (data.points_earned > 0) toast.success("Risposta registrata!");
+    } catch (e) {
+        toast.info("Risposta salvata.");
     }
   };
 
@@ -270,8 +240,7 @@ export default function ClientApp() {
         <div>
           <h1 className="font-bold text-lg text-fuchsia-500">{user?.pub_name || "NeonPub"}</h1>
           <p className="text-xs text-zinc-500 flex items-center gap-1">
-            <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-yellow-500'}`}></span>
-            {user?.nickname}
+            <span className="w-2 h-2 rounded-full bg-green-500"></span> {user?.nickname}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -282,7 +251,7 @@ export default function ClientApp() {
         </div>
       </header>
 
-      {/* Floating Reactions */}
+      {/* Floating Local Reactions */}
       <div className="reactions-overlay pointer-events-none fixed inset-0 z-50 overflow-hidden">
         {floatingReactions.map(r => (
           <div key={r.id} className="absolute text-4xl animate-float-up" style={{ left: `${r.left}%`, bottom: '-50px' }}>{r.emoji}</div>
@@ -292,6 +261,8 @@ export default function ClientApp() {
       <main className="flex-1 p-4">
         {activeTab === "home" && (
           <div className="space-y-6 animate-fade-in-up">
+            
+            {/* PERFORMANCE CARD */}
             {currentPerformance ? (
               <div className="glass rounded-2xl p-5 neon-border bg-gradient-to-br from-fuchsia-900/20 to-black">
                 <div className="flex items-center gap-2 mb-3">
@@ -309,21 +280,20 @@ export default function ClientApp() {
 
                 {currentPerformance.status === 'live' && (
                   <>
-                    {remainingReactions > 0 ? (
-                      <div className="glass rounded-xl p-4 mt-2 border border-white/10">
-                        <p className="text-xs text-zinc-400 mb-3 text-center">Reazioni: <span className="text-cyan-400 font-bold">{remainingReactions}/3</span></p>
-                        <div className="flex justify-between gap-1">
-                          {EMOJIS.map(emoji => (
-                            <button key={emoji} onClick={() => handleReaction(emoji)} className="text-3xl p-2 transition-transform active:scale-90">{emoji}</button>
-                          ))}
-                        </div>
+                    <div className="glass rounded-xl p-4 mt-2 border border-white/10">
+                      <p className="text-xs text-zinc-400 mb-3 text-center">Reazioni: <span className="text-cyan-400 font-bold">{remainingReactions}</span></p>
+                      <div className="flex justify-between gap-1">
+                        {EMOJIS.map(emoji => (
+                          <button key={emoji} onClick={() => handleReaction(emoji)} className="text-3xl p-2 transition-transform active:scale-90 hover:scale-110">{emoji}</button>
+                        ))}
                       </div>
-                    ) : <p className="text-xs text-red-400 text-center mt-2">Reazioni esaurite</p>}
+                    </div>
                     <Button onClick={() => setShowMessageModal(true)} variant="outline" className="w-full mt-4 border-zinc-700 hover:bg-zinc-800">
                       <MessageSquare className="w-4 h-4 mr-2" /> Invia Messaggio
                     </Button>
                   </>
                 )}
+                
                 {currentPerformance.status === 'voting' && !hasVoted && (
                   <Button onClick={() => setShowVoteModal(true)} className="w-full mt-4 bg-yellow-500 hover:bg-yellow-600 text-black font-bold animate-pulse">
                     <Star className="w-5 h-5 mr-2" /> Vota ora!
@@ -366,7 +336,9 @@ export default function ClientApp() {
                 <p className="font-medium">{song.title}</p>
                 <div className="flex justify-between mt-1">
                    <p className="text-sm text-zinc-500">{song.artist}</p>
-                   <span className="text-xs text-cyan-400 uppercase">{song.status}</span>
+                   <span className={`text-xs uppercase px-2 py-1 rounded ${song.status==='queued' ? 'bg-green-500/20 text-green-400' : 'bg-zinc-800 text-zinc-500'}`}>
+                      {song.status}
+                   </span>
                 </div>
               </div>
             ))}
@@ -385,23 +357,31 @@ export default function ClientApp() {
           </div>
         )}
         {activeTab === "profile" && (
-          <div className="space-y-6 text-center">
-             <div className="w-24 h-24 rounded-full bg-fuchsia-500/20 flex items-center justify-center mx-auto"><User className="w-12 h-12 text-fuchsia-400" /></div>
-             <h2 className="text-2xl font-bold">{user?.nickname}</h2>
-             <Button onClick={logout} variant="outline" className="w-full border-red-500/50 text-red-400">Esci</Button>
+          <div className="space-y-6 text-center pt-8">
+             <div className="w-24 h-24 rounded-full bg-fuchsia-500/20 flex items-center justify-center mx-auto border-2 border-fuchsia-500/50">
+                <User className="w-12 h-12 text-fuchsia-400" />
+             </div>
+             <div>
+                <h2 className="text-2xl font-bold">{user?.nickname}</h2>
+                <p className="text-zinc-500">{user?.pub_name}</p>
+             </div>
+             <Button onClick={logout} variant="outline" className="w-full border-red-500/50 text-red-400 hover:bg-red-950">
+                 Esci dal Pub
+             </Button>
           </div>
         )}
       </main>
 
-      <nav className="mobile-nav safe-bottom bg-[#0a0a0a] border-t border-white/10">
+      {/* MOBILE NAV */}
+      <nav className="mobile-nav safe-bottom bg-[#0a0a0a] border-t border-white/10 flex justify-around p-2 fixed bottom-0 w-full z-40">
         {[ { id: "home", icon: Home, label: "Home" }, { id: "songs", icon: Music, label: "Canzoni" }, { id: "leaderboard", icon: Trophy, label: "Classifica" }, { id: "profile", icon: User, label: "Profilo" } ].map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`mobile-nav-item flex flex-col items-center gap-1 ${activeTab === tab.id ? 'text-fuchsia-500' : 'text-zinc-500'}`}>
-            <tab.icon className="w-6 h-6" /><span className="text-xs">{tab.label}</span>
+          <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center gap-1 p-2 rounded-lg transition ${activeTab === tab.id ? 'text-fuchsia-500' : 'text-zinc-500'}`}>
+            <tab.icon className="w-6 h-6" /><span className="text-[10px]">{tab.label}</span>
           </button>
         ))}
       </nav>
 
-      {/* Modals */}
+      {/* MODALS */}
       <Dialog open={showRequestModal} onOpenChange={setShowRequestModal}>
         <DialogContent className="bg-zinc-900 border-zinc-800">
           <DialogHeader><DialogTitle>Richiedi Canzone</DialogTitle></DialogHeader>
@@ -445,16 +425,16 @@ export default function ClientApp() {
              </DialogTitle>
           </DialogHeader>
 
+          {/* DOMANDA */}
           {!quizResult && activeQuiz && (
             <div className="py-4">
               <p className="text-xl text-center mb-6 font-medium text-white">{activeQuiz.question}</p>
               
-              {/* SEZIONE OPZIONI */}
               {activeQuiz.status === 'closed' ? (
                  <div className="text-center p-6 bg-white/5 rounded-xl border border-white/10 animate-pulse">
                     <Lock className="w-12 h-12 mx-auto text-red-500 mb-2" />
                     <p className="text-lg font-bold text-red-400">Tempo Scaduto</p>
-                    <p className="text-sm text-zinc-500">Risposte chiuse. Attendi i risultati...</p>
+                    <p className="text-sm text-zinc-500">Attendi i risultati...</p>
                  </div>
               ) : (
                  <div className="space-y-3">
@@ -483,7 +463,7 @@ export default function ClientApp() {
             </div>
           )}
 
-          {/* SEZIONE RISULTATI */}
+          {/* RISULTATI */}
           {quizResult && (
             <div className="text-center py-6 animate-zoom-in">
               <Trophy className="w-16 h-16 text-yellow-400 mx-auto mb-4" />
