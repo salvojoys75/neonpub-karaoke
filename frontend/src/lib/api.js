@@ -1,4 +1,4 @@
-// lib/api.js - FIX VERSION
+// lib/api.js - FIX DEFINITIVO
 import { supabase } from './supabase'
 
 // ============================================
@@ -121,8 +121,6 @@ export const joinPub = async ({ pub_code, nickname }) => {
 }
 
 export const adminLogin = async (data) => {
-  // Funzione mock o reale se usi email/pass
-  // Se usi supabase auth standard, questo è solo un wrapper
   return { data: { user: { email: data.email } } }
 }
 
@@ -315,13 +313,12 @@ export const resumePerformance = async (performanceId) => {
 export const skipPerformance = async (performanceId) => {
   const { data, error } = await supabase
     .from('performances')
-    .update({ status: 'ended' }) // Skipped = ended without voting usually
+    .update({ status: 'ended' })
     .eq('id', performanceId)
     .select()
   if (error) throw error; return { data };
 }
 
-// --- FIX: Questa funzione ora scarica anche il nickname per il CLIENT ---
 export const getCurrentPerformance = async () => {
   const participant = getParticipantFromToken()
 
@@ -379,7 +376,7 @@ export const getAdminCurrentPerformance = async () => {
 }
 
 // ============================================
-// VOTING & REACTIONS
+// VOTING & REACTIONS & MESSAGES
 // ============================================
 
 export const submitVote = async (data) => {
@@ -395,24 +392,32 @@ export const submitVote = async (data) => {
   return { data: vote }
 }
 
+// Funzione sendMessage AGGIUNTA QUI
+export const sendMessage = async (data) => {
+  const participant = getParticipantFromToken()
+  const text = typeof data === 'string' ? data : (data.text || data.message);
+
+  const { data: message, error } = await supabase
+    .from('messages')
+    .insert({
+      event_id: participant.event_id,
+      participant_id: participant.participant_id,
+      text: text,
+      status: 'pending'
+    })
+    .select()
+    .single()
+
+  if (error) throw error
+  return { data: message }
+}
+
 export const sendReaction = async (data) => {
   const participant = getParticipantFromToken()
-  // Data può essere { emoji } oppure { emoji: null, message: "..." }
   
   if (data.message) {
-    // Messaggio testuale
-    const { data: msg, error } = await supabase
-      .from('messages')
-      .insert({
-        event_id: participant.event_id,
-        participant_id: participant.participant_id,
-        text: data.message,
-        status: 'pending'
-      }).select().single()
-    if (error) throw error
-    return { data: msg }
+    return sendMessage(data.message)
   } else {
-    // Reazione Emoji
     const { data: reaction, error } = await supabase
       .from('reactions')
       .insert({
@@ -426,7 +431,6 @@ export const sendReaction = async (data) => {
 }
 
 export const sendEffect = async (data) => {
-  // Effetti admin (non salvati su DB, solo broadcast via realtime se implementato)
   return { data: 'ok' } 
 }
 
@@ -456,7 +460,7 @@ export const rejectMessage = async (id) => {
 }
 
 // ============================================
-// QUIZ & LEADERBOARD
+// QUIZ
 // ============================================
 
 export const startQuiz = async (data) => {
@@ -470,6 +474,36 @@ export const startQuiz = async (data) => {
 export const endQuiz = async (id) => {
   const { error } = await supabase.from('quizzes').update({status: 'ended', ended_at: new Date().toISOString()}).eq('id', id);
   if (error) throw error; return { data: 'ok' }
+}
+
+export const showQuizResults = async (quizId) => {
+  const { data, error } = await supabase
+    .from('quizzes')
+    .update({ status: 'showing_results' })
+    .eq('id', quizId)
+    .select()
+    .single()
+  if (error) throw error
+  return { data }
+}
+
+export const getQuizResults = async (quizId) => {
+  const { data: quiz } = await supabase.from('quizzes').select('*').eq('id', quizId).single()
+  const { data: answers, error } = await supabase.from('quiz_answers').select('*, participants(nickname)').eq('quiz_id', quizId)
+  if (error) throw error
+  const correctAnswers = answers.filter(a => a.is_correct)
+  return {
+    data: {
+      quiz_id: quizId,
+      question: quiz.question,
+      correct_option: quiz.options[quiz.correct_index],
+      correct_index: quiz.correct_index,
+      total_answers: answers.length,
+      correct_count: correctAnswers.length,
+      winners: correctAnswers.map(a => a.participants.nickname),
+      points: quiz.points
+    }
+  }
 }
 
 export const answerQuiz = async (data) => {
@@ -499,6 +533,10 @@ export const getAdminLeaderboard = async () => {
   if (error) throw error; return { data }
 }
 
+export const getQuizLeaderboard = async () => {
+  return getAdminLeaderboard();
+}
+
 export const getDisplayData = async (pubCode) => {
   const { data: event } = await supabase.from('events').select('*').eq('code', pubCode.toUpperCase()).single()
   const [perf, queue, lb] = await Promise.all([
@@ -524,7 +562,7 @@ export default {
   getCurrentPerformance, getAdminCurrentPerformance,
   submitVote, sendReaction, sendEffect,
   sendMessage, getAdminPendingMessages, approveMessage, rejectMessage,
-  startQuiz, endQuiz, answerQuiz, getActiveQuiz,
+  startQuiz, endQuiz, answerQuiz, getActiveQuiz, showQuizResults, getQuizResults, getQuizLeaderboard,
   getLeaderboard, getAdminLeaderboard,
   getDisplayData
 }
