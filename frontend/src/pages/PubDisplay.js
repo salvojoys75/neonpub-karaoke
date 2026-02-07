@@ -11,253 +11,190 @@ export default function PubDisplay() {
   const [floatingReactions, setFloatingReactions] = useState([]);
   const [approvedMessages, setApprovedMessages] = useState([]);
   const [ticker, setTicker] = useState("");
-  const [playerReady, setPlayerReady] = useState(false);
-  const [currentVideoId, setCurrentVideoId] = useState(null);
   const [activeQuiz, setActiveQuiz] = useState(null);
   const [quizResults, setQuizResults] = useState(null);
   
+  // Player Refs
   const playerRef = useRef(null);
+  const playerContainerRef = useRef(null);
+  const [isPlayerReady, setIsPlayerReady] = useState(false);
+  const currentVideoIdRef = useRef(null); // Tiene traccia del video attuale per non ricaricarlo
+
   const pollIntervalRef = useRef(null);
   const messageIntervalRef = useRef(null);
-  const lastQuizIdRef = useRef(null);
 
-  // Extract video ID from YouTube URL
+  // Extract video ID helper
   const extractVideoId = (url) => {
     if (!url) return null;
     if (url.includes("results?search_query")) return null;
-    
     let videoId = null;
     const watchMatch = url.match(/[?&]v=([^&]+)/);
     if (watchMatch) videoId = watchMatch[1];
-    
     const shortMatch = url.match(/youtu\.be\/([^?&]+)/);
     if (shortMatch) videoId = shortMatch[1];
-    
     const embedMatch = url.match(/embed\/([^?&]+)/);
     if (embedMatch) videoId = embedMatch[1];
-    
     return videoId;
   };
 
-  // Load YouTube IFrame API
+  // 1. Inizializza API YouTube una volta sola
   useEffect(() => {
-    if (window.YT && window.YT.Player) {
-      setPlayerReady(true);
-      return;
+    if (!window.YT) {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+      
+      window.onYouTubeIframeAPIReady = () => {
+        setIsPlayerReady(true);
+      };
+    } else {
+      setIsPlayerReady(true);
     }
-
-    const tag = document.createElement('script');
-    tag.src = 'https://www.youtube.com/iframe_api';
-    const firstScriptTag = document.getElementsByTagName('script')[0];
-    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-
-    window.onYouTubeIframeAPIReady = () => {
-      console.log("YouTube IFrame API Ready");
-      setPlayerReady(true);
-    };
-
-    return () => {
-      window.onYouTubeIframeAPIReady = null;
-    };
   }, []);
 
-  // Create/Update YouTube Player
+  // 2. Gestione Logica Player (Creazione e Comandi)
   useEffect(() => {
-    if (!playerReady) return;
-    
-    const videoId = displayData?.current_performance?.youtube_url 
-      ? extractVideoId(displayData.current_performance.youtube_url)
-      : null;
+    if (!isPlayerReady || !displayData?.current_performance) return;
 
-    if (videoId && videoId !== currentVideoId) {
-      console.log("Creating YouTube player for video:", videoId);
-      setCurrentVideoId(videoId);
+    const perf = displayData.current_performance;
+    const videoId = extractVideoId(perf.youtube_url);
+    const status = perf.status; // live, paused, restarted, voting
+
+    // SE C'È UN NUOVO VIDEO -> CREA O CARICA
+    if (videoId && videoId !== currentVideoIdRef.current) {
+      console.log("Loading new video:", videoId);
+      currentVideoIdRef.current = videoId;
 
       if (playerRef.current) {
-        try {
-          playerRef.current.destroy();
-        } catch (e) {
-          console.log("Error destroying player:", e);
-        }
-      }
-
-      try {
-        playerRef.current = new window.YT.Player('youtube-player-container', {
+        playerRef.current.loadVideoById(videoId);
+      } else {
+        playerRef.current = new window.YT.Player('youtube-player', {
           height: '100%',
           width: '100%',
           videoId: videoId,
           playerVars: {
             autoplay: 1,
-            controls: 0, // Nascondi controlli per stile pro
+            controls: 0,
             modestbranding: 1,
             rel: 0,
-            fs: 0,
-            iv_load_policy: 3
+            fs: 0
           },
           events: {
             onReady: (event) => {
-              if (displayData?.current_performance?.status === 'live') {
-                event.target.playVideo();
-              }
+              event.target.playVideo();
             }
           }
         });
-      } catch (error) {
-        console.error("Error creating player:", error);
       }
     }
 
-    // Pulisci se non c'è video
-    if (!videoId && currentVideoId) {
-      setCurrentVideoId(null);
-      if (playerRef.current) {
-        try {
-          playerRef.current.destroy();
-          playerRef.current = null;
-        } catch (e) {}
+    // GESTIONE COMANDI (Senza ricaricare)
+    if (playerRef.current && typeof playerRef.current.getPlayerState === 'function') {
+      if (status === 'paused') {
+        playerRef.current.pauseVideo();
+      } else if (status === 'live') {
+        // Se era in pausa, riprendi. Se è nuovo, sta già andando.
+        if (playerRef.current.getPlayerState() !== 1) { 
+           playerRef.current.playVideo();
+        }
+      } else if (status === 'restarted') {
+        playerRef.current.seekTo(0);
+        playerRef.current.playVideo();
       }
     }
-  }, [playerReady, displayData?.current_performance, currentVideoId]);
 
-  // Load display data
+  }, [isPlayerReady, displayData?.current_performance]);
+
+  // Caricamento Dati Iniziali
   const loadDisplayData = useCallback(async () => {
     try {
       const { data } = await api.getDisplayData(pubCode);
+      // Aggiorniamo displayData ma facciamo attenzione a non triggerare re-render inutili del player
       setDisplayData(data);
       
-      // Update ticker
+      // Ticker logic
       const queueCount = data.queue?.length || 0;
       if (queueCount > 0) {
-        const queueText = data.queue
-          .slice(0, 5)
-          .map((s, i) => `${i + 1}. ${s.title} - ${s.artist} (${s.user_nickname})`)
-          .join('  •  ');
+        const queueText = data.queue.slice(0, 5).map((s, i) => `${i + 1}. ${s.title} (${s.user_nickname})`).join(' • ');
         setTicker(queueText);
       } else {
-        setTicker("🎤 Richiedi la tua canzone scansionando il QR code!");
+        setTicker("Richiedi la tua canzone scansionando il QR code!");
       }
     } catch (error) {
-      console.error("Error loading display data:", error);
+      console.error(error);
     }
   }, [pubCode]);
 
-  // Load approved messages
+  // Caricamento Messaggi
   const loadApprovedMessages = useCallback(async () => {
+    if (!displayData?.pub?.id) return;
     try {
-      const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
-      if (!event) return;
-
-      const { data: messages } = await supabase
+      const { data } = await supabase
         .from('messages')
         .select('*, participants(nickname)')
-        .eq('event_id', event.id)
+        .eq('event_id', displayData.pub.id)
         .eq('status', 'approved')
         .order('created_at', { ascending: false })
         .limit(5);
+        
+      if (data) setApprovedMessages(data.map(m => ({
+        id: m.id, text: m.text, nickname: m.participants?.nickname
+      })));
+    } catch (e) { console.error(e); }
+  }, [displayData?.pub?.id]);
 
-      // Show specifically the new ones or cycle through them
-      if (messages && messages.length > 0) {
-         setApprovedMessages(messages.map(m => ({
-             id: m.id, 
-             text: m.text, 
-             nickname: m.participants?.nickname 
-         })));
-      }
-    } catch (error) {
-      console.error("Error loading messages:", error);
-    }
-  }, [pubCode]);
-
-  // Polling
   useEffect(() => {
     loadDisplayData();
-    loadApprovedMessages();
-    
     pollIntervalRef.current = setInterval(loadDisplayData, 3000);
-    messageIntervalRef.current = setInterval(loadApprovedMessages, 10000);
-    
+    messageIntervalRef.current = setInterval(loadApprovedMessages, 5000);
     return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-      if (messageIntervalRef.current) clearInterval(messageIntervalRef.current);
+      clearInterval(pollIntervalRef.current);
+      clearInterval(messageIntervalRef.current);
     };
   }, [loadDisplayData, loadApprovedMessages]);
 
-  // Realtime subscriptions
+  // Realtime
   useEffect(() => {
-    if (!pubCode) return;
+    if (!displayData?.pub?.id) return;
+    
+    const channel = supabase
+      .channel(`display_realtime`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${displayData.pub.id}` }, 
+        (payload) => {
+           // Aggiorna SOLO la performance corrente nei dati locali per triggerare l'effetto del player
+           setDisplayData(prev => ({...prev, current_performance: payload.new}));
+        }
+      )
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `event_id=eq.${displayData.pub.id}` }, 
+        (payload) => addFloatingReaction(payload.new.emoji, payload.new.nickname)
+      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${displayData.pub.id}` }, 
+        async (payload) => {
+           if (payload.new.status === 'active') { setActiveQuiz(payload.new); setQuizResults(null); }
+           else if (payload.new.status === 'showing_results') {
+             const res = await api.getQuizResults(payload.new.id);
+             setQuizResults(res.data);
+           } else if (payload.new.status === 'ended') {
+             setTimeout(() => { setActiveQuiz(null); setQuizResults(null); }, 5000);
+           }
+        }
+      )
+      .subscribe();
 
-    const setupRealtime = async () => {
-      const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
-      if (!event) return;
+    return () => supabase.removeChannel(channel);
+  }, [displayData?.pub?.id]);
 
-      const channel = supabase
-        .channel(`display:${event.id}`)
-        // PERFORMANCE STATUS (Play, Pause, Restart)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${event.id}` }, 
-          (payload) => {
-             const status = payload.new.status;
-             // Aggiorna stato locale per UI
-             setDisplayData(prev => prev ? ({...prev, current_performance: payload.new}) : null);
-
-             if (playerRef.current && typeof playerRef.current.playVideo === 'function') {
-                if (status === 'paused') {
-                    playerRef.current.pauseVideo();
-                } else if (status === 'live') {
-                    playerRef.current.playVideo();
-                } else if (status === 'restarted') {
-                    // --- FUNZIONE RIAVVOLGI ---
-                    playerRef.current.seekTo(0);
-                    playerRef.current.playVideo();
-                }
-             }
-          }
-        )
-        // REACTIONS (Con Nickname)
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `event_id=eq.${event.id}` }, 
-          (payload) => {
-            // payload.new.nickname è stato aggiunto nel DB nel passo SQL
-            addFloatingReaction(payload.new.emoji, payload.new.nickname);
-          }
-        )
-        // QUIZ
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${event.id}` }, 
-          async (payload) => {
-            const quiz = payload.new;
-            if (payload.eventType === 'INSERT' && quiz.status === 'active') {
-              setActiveQuiz(quiz);
-              setQuizResults(null);
-            } else if (quiz.status === 'showing_results') {
-              const { data } = await api.getQuizResults(quiz.id);
-              setQuizResults(data);
-              setActiveQuiz(quiz);
-            } else if (quiz.status === 'ended') {
-              setTimeout(() => { setActiveQuiz(null); setQuizResults(null); }, 5000);
-            }
-          }
-        )
-        .subscribe();
-
-      return () => { supabase.removeChannel(channel); };
-    };
-
-    setupRealtime();
-  }, [pubCode]);
-
-  // Add floating reaction with Nickname
   const addFloatingReaction = (emoji, nickname) => {
     const id = Date.now() + Math.random();
     const left = Math.random() * 80 + 10;
     setFloatingReactions(prev => [...prev, { id, emoji, nickname, left }]);
-    
-    setTimeout(() => {
-      setFloatingReactions(prev => prev.filter(r => r.id !== id));
-    }, 3000);
+    setTimeout(() => setFloatingReactions(prev => prev.filter(r => r.id !== id)), 3000);
   };
 
   const currentPerf = displayData?.current_performance;
   const queue = displayData?.queue || [];
   const leaderboard = displayData?.leaderboard || [];
-  const pubName = displayData?.pub?.name || "NeonPub Karaoke";
   const joinUrl = `${window.location.origin}/join/${pubCode}`;
 
   return (
@@ -268,7 +205,7 @@ export default function PubDisplay() {
           <div key={r.id} className="absolute flex flex-col items-center animate-float-up" style={{ left: `${r.left}%`, bottom: '-50px' }}>
             <span className="text-6xl filter drop-shadow-lg">{r.emoji}</span>
             {r.nickname && (
-              <span className="text-lg font-bold bg-black/60 px-3 py-1 rounded-full text-white mt-1 backdrop-blur-md border border-white/10 shadow-lg">
+              <span className="text-lg font-bold bg-black/60 px-3 py-1 rounded-full text-white mt-1 backdrop-blur-md border border-white/10">
                 {r.nickname}
               </span>
             )}
@@ -276,7 +213,7 @@ export default function PubDisplay() {
         ))}
       </div>
 
-      {/* Approved Messages Overlay */}
+      {/* Messages Overlay */}
       {approvedMessages.length > 0 && (
         <div className="fixed top-24 right-8 z-40 space-y-3 max-w-md">
           {approvedMessages.map(msg => (
@@ -288,34 +225,27 @@ export default function PubDisplay() {
         </div>
       )}
 
-      {/* Main Grid */}
+      {/* Grid Layout */}
       <div className="grid grid-cols-12 gap-6 p-6 h-screen">
-        {/* Left Column */}
+        {/* Left: Player */}
         <div className="col-span-8 flex flex-col gap-6">
-          {/* Header */}
-          <div className="glass rounded-2xl p-6 flex justify-between items-center">
-            <div>
-              <h1 className="text-4xl font-bold mb-1">{pubName}</h1>
-              <p className="text-zinc-400 text-xl">Codice: <span className="mono text-cyan-400 font-bold">{pubCode}</span></p>
-            </div>
-            {currentPerf?.status === 'voting' && (
-               <div className="bg-yellow-500 text-black px-6 py-2 rounded-full font-bold text-xl animate-pulse">
-                 VOTAZIONE APERTA!
-               </div>
-            )}
+          <div className="glass rounded-2xl p-6 flex justify-between">
+            <h1 className="text-4xl font-bold">{displayData?.pub?.name || "NeonPub"}</h1>
+            {currentPerf?.status === 'voting' && <div className="bg-yellow-500 text-black px-4 py-1 rounded-full font-bold animate-pulse">VOTAZIONE APERTA</div>}
           </div>
 
-          {/* Video Player */}
           <div className="flex-1 glass rounded-2xl p-6 flex flex-col relative overflow-hidden bg-black">
             {currentPerf ? (
               <>
-                <div id="youtube-player-container" className="w-full h-full absolute inset-0 rounded-2xl"></div>
-                {/* Overlay Info sempre visibile in basso */}
+                {/* DIV PER YOUTUBE - NON RIMUOVERE ID */}
+                <div id="youtube-player" className="w-full h-full absolute inset-0 rounded-2xl"></div>
+                
+                {/* Overlay Info */}
                 <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/80 to-transparent p-8 pointer-events-none">
-                  <h2 className="text-5xl font-bold mb-2 text-white drop-shadow-md">{currentPerf.song_title}</h2>
+                  <h2 className="text-5xl font-bold mb-2">{currentPerf.song_title}</h2>
                   <div className="flex justify-between items-end">
                     <p className="text-3xl text-zinc-300">{currentPerf.song_artist}</p>
-                    <div className="flex items-center gap-3 bg-fuchsia-600/90 px-6 py-2 rounded-full shadow-lg backdrop-blur-md">
+                    <div className="flex items-center gap-3 bg-fuchsia-600/90 px-6 py-2 rounded-full">
                       <Mic2 className="w-8 h-8" />
                       <span className="text-3xl font-bold">{currentPerf.user_nickname}</span>
                     </div>
@@ -331,56 +261,44 @@ export default function PubDisplay() {
             )}
           </div>
 
-          {/* Ticker */}
-          <div className="glass rounded-2xl p-3 overflow-hidden bg-fuchsia-900/20 border border-fuchsia-500/30">
-            <div className="ticker-container">
-              <div className="ticker-content text-fuchsia-200">
-                {ticker} &nbsp;&nbsp;&nbsp; {ticker}
-              </div>
-            </div>
+          <div className="glass rounded-2xl p-3 overflow-hidden bg-fuchsia-900/20">
+            <div className="ticker-container"><div className="ticker-content text-fuchsia-200">{ticker}</div></div>
           </div>
         </div>
 
-        {/* Right Column */}
+        {/* Right: Queue & Leaderboard */}
         <div className="col-span-4 flex flex-col gap-6">
-          {/* QR Code */}
           <div className="glass rounded-2xl p-6 text-center">
             <h3 className="text-2xl font-bold mb-4">Inquadra per Entrare</h3>
-            <div className="bg-white p-4 rounded-xl inline-block">
-              <QRCodeSVG value={joinUrl} size={180} />
-            </div>
+            <div className="bg-white p-4 rounded-xl inline-block"><QRCodeSVG value={joinUrl} size={150} /></div>
+            <p className="text-xl mt-2 font-mono text-cyan-400">{pubCode}</p>
           </div>
 
-          {/* Queue */}
           <div className="glass rounded-2xl p-6 flex-1 flex flex-col overflow-hidden">
             <h3 className="text-2xl font-bold mb-4 flex items-center gap-2 border-b border-white/10 pb-3">
-              <Music className="w-6 h-6 text-fuchsia-400" /> Prossimi
+              <Music className="text-fuchsia-400" /> Coda ({queue.length})
             </h3>
             <div className="space-y-3 overflow-y-auto flex-1 custom-scrollbar">
               {queue.map((song, idx) => (
-                <div key={song.id} className="bg-white/5 rounded-xl p-4 flex items-center gap-3 border-l-4 border-fuchsia-500">
+                <div key={song.id} className="bg-white/5 rounded-xl p-3 flex items-center gap-3 border-l-4 border-fuchsia-500">
                   <span className="text-2xl font-bold text-fuchsia-400 w-8">{idx + 1}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold truncate text-lg">{song.title}</p>
-                    <p className="text-sm text-zinc-400 truncate">{song.artist}</p>
-                    <p className="text-xs text-cyan-400 mt-1 uppercase font-bold">{song.user_nickname}</p>
+                  <div className="min-w-0">
+                    <p className="font-bold truncate">{song.title}</p>
+                    <p className="text-xs text-cyan-400 uppercase">{song.user_nickname}</p>
                   </div>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Leaderboard */}
           <div className="glass rounded-2xl p-6 h-1/4 flex flex-col">
-            <h3 className="text-xl font-bold mb-2 flex items-center gap-2 text-yellow-500">
-              <Trophy className="w-5 h-5" /> Top Quiz
-            </h3>
+            <h3 className="text-xl font-bold mb-2 text-yellow-500 flex gap-2"><Trophy className="w-5 h-5"/> Classifica</h3>
             <div className="space-y-2 overflow-y-auto custom-scrollbar">
-              {leaderboard.map((player, idx) => (
-                <div key={player.id} className="flex justify-between items-center p-2 rounded bg-white/5">
-                  <span className="font-bold w-6">#{idx + 1}</span>
-                  <span className="truncate flex-1">{player.nickname}</span>
-                  <span className="font-mono text-cyan-400">{player.score}</span>
+              {leaderboard.map((p, idx) => (
+                <div key={p.id} className="flex justify-between items-center p-2 rounded bg-white/5">
+                  <span className="font-bold w-6">#{idx+1}</span>
+                  <span className="truncate flex-1">{p.nickname}</span>
+                  <span className="font-mono text-cyan-400">{p.score}</span>
                 </div>
               ))}
             </div>
@@ -388,20 +306,16 @@ export default function PubDisplay() {
         </div>
       </div>
 
-      {/* QUIZ OVERLAYS (Identici a prima) */}
-      {activeQuiz && !quizResults && activeQuiz.status === 'active' && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-lg z-50 flex items-center justify-center p-12">
-          <div className="glass rounded-3xl p-12 max-w-4xl w-full border-4 border-fuchsia-500 animate-zoom-in">
-            <div className="text-center mb-8">
-              <HelpCircle className="w-24 h-24 text-fuchsia-400 mx-auto mb-4 animate-bounce" />
-              <h2 className="text-6xl font-bold mb-4 gradient-text">QUIZ TIME!</h2>
-              <p className="text-3xl text-white">{activeQuiz.question}</p>
-            </div>
+      {/* QUIZ OVERLAYS */}
+      {activeQuiz && !quizResults && (
+        <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-12">
+          <div className="glass rounded-3xl p-12 w-full max-w-4xl border-4 border-fuchsia-500 text-center animate-zoom-in">
+            <h2 className="text-6xl font-bold mb-4 gradient-text">QUIZ TIME!</h2>
+            <p className="text-4xl text-white mb-8">{activeQuiz.question}</p>
             <div className="grid grid-cols-2 gap-6">
               {activeQuiz.options.map((opt, i) => (
-                <div key={i} className="bg-white/10 p-6 rounded-2xl border-2 border-white/20">
-                  <span className="text-3xl font-bold text-fuchsia-400 mr-4">{String.fromCharCode(65+i)}.</span>
-                  <span className="text-3xl">{opt}</span>
+                <div key={i} className="bg-white/10 p-6 rounded-2xl text-3xl font-bold border-2 border-white/20">
+                  <span className="text-fuchsia-400 mr-4">{String.fromCharCode(65+i)}.</span> {opt}
                 </div>
               ))}
             </div>
@@ -410,17 +324,15 @@ export default function PubDisplay() {
       )}
 
       {quizResults && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-lg z-50 flex items-center justify-center p-12">
-          <div className="glass rounded-3xl p-12 max-w-4xl w-full border-4 border-green-500 animate-zoom-in">
-            <div className="text-center">
-              <Trophy className="w-24 h-24 text-yellow-500 mx-auto mb-6" />
-              <h2 className="text-6xl font-bold mb-8">RISULTATI</h2>
-              <div className="bg-green-600/30 p-8 rounded-2xl mb-8 border-2 border-green-500">
-                <p className="text-2xl text-green-200 uppercase mb-2">Risposta Corretta</p>
-                <p className="text-5xl font-bold text-white">{quizResults.correct_option}</p>
-              </div>
-              <p className="text-2xl text-zinc-400">Vincitori: {quizResults.winners.join(', ') || "Nessuno"}</p>
+        <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-12">
+          <div className="glass rounded-3xl p-12 w-full max-w-4xl border-4 border-green-500 text-center animate-zoom-in">
+            <Trophy className="w-24 h-24 text-yellow-500 mx-auto mb-6" />
+            <h2 className="text-6xl font-bold mb-8">RISULTATI</h2>
+            <div className="bg-green-600/30 p-8 rounded-2xl mb-8 border-2 border-green-500">
+              <p className="text-2xl text-green-200 uppercase mb-2">Risposta Corretta</p>
+              <p className="text-5xl font-bold text-white">{quizResults.correct_option}</p>
             </div>
+            <p className="text-2xl text-zinc-400">Vincitori: {quizResults.winners.join(', ') || "Nessuno"}</p>
           </div>
         </div>
       )}
