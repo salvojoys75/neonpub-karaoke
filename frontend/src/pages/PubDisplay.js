@@ -3,20 +3,22 @@ import { useParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import { Mic2, Music, Trophy, Star, HelpCircle } from "lucide-react";
 import api from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 
 export default function PubDisplay() {
   const { pubCode } = useParams();
   const [displayData, setDisplayData] = useState(null);
   const [floatingReactions, setFloatingReactions] = useState([]);
-  const [overlayMessages, setOverlayMessages] = useState([]);
+  const [approvedMessages, setApprovedMessages] = useState([]);
   const [ticker, setTicker] = useState("");
   const [playerReady, setPlayerReady] = useState(false);
   const [currentVideoId, setCurrentVideoId] = useState(null);
   const [activeQuiz, setActiveQuiz] = useState(null);
-  const [quizResult, setQuizResult] = useState(null);
+  const [quizResults, setQuizResults] = useState(null);
   
   const playerRef = useRef(null);
   const pollIntervalRef = useRef(null);
+  const messageIntervalRef = useRef(null);
   const lastQuizIdRef = useRef(null);
 
   // Extract video ID from YouTube URL
@@ -62,24 +64,21 @@ export default function PubDisplay() {
   // Create/Update YouTube Player
   useEffect(() => {
     if (!playerReady) return;
-
-    const videoId = displayData?.current_performance?.youtube_url
+    
+    const videoId = displayData?.current_performance?.youtube_url 
       ? extractVideoId(displayData.current_performance.youtube_url)
       : null;
 
-    // Crea/ricrea solo se videoId cambia
     if (videoId && videoId !== currentVideoId) {
-      console.log("Creating new YouTube player for:", videoId);
+      console.log("Creating YouTube player for video:", videoId);
       setCurrentVideoId(videoId);
 
-      // Distruggi vecchio player se esiste
       if (playerRef.current) {
         try {
           playerRef.current.destroy();
         } catch (e) {
-          console.log("Destroy error:", e);
+          console.log("Error destroying player:", e);
         }
-        playerRef.current = null;
       }
 
       try {
@@ -89,61 +88,51 @@ export default function PubDisplay() {
           videoId: videoId,
           playerVars: {
             autoplay: 1,
-            controls: 0,
+            controls: 1,
             modestbranding: 1,
             rel: 0,
-            showinfo: 0,
-            iv_load_policy: 3,
-            fs: 0,
           },
           events: {
             onReady: (event) => {
-              console.log("Player ready - forcing play if live");
+              console.log("Player ready");
               if (displayData?.current_performance?.status === 'live') {
                 event.target.playVideo();
               }
             },
             onStateChange: (event) => {
-              console.log("Player state changed:", event.data);
-            },
-            onError: (event) => {
-              console.error("YouTube Player Error:", event.data);
-            },
-          },
+              console.log("Player state:", event.data);
+            }
+          }
         });
       } catch (error) {
-        console.error("Error creating YT player:", error);
+        console.error("Error creating player:", error);
       }
     }
 
-    // Controlla stato attuale (pause/play) ogni volta che displayData cambia
-    if (playerRef.current && currentVideoId && playerRef.current.getPlayerState) {
+    // Control playback based on performance status
+    if (playerRef.current && currentVideoId) {
       const status = displayData?.current_performance?.status;
-
-      try {
-        if (status === 'paused') {
-          playerRef.current.pauseVideo();
-        } else if (status === 'live') {
-          playerRef.current.playVideo();
-          // Se vuoi audio → unmute qui (ma solo dopo interazione o se policy lo permette)
-          // playerRef.current.unMute();  // ← prova solo se hai già interazione utente sul display
-        }
-      } catch (e) {
-        console.log("Control error:", e);
+      
+      if (status === 'paused' && playerRef.current.pauseVideo) {
+        playerRef.current.pauseVideo();
+      } else if (status === 'live' && playerRef.current.playVideo) {
+        playerRef.current.playVideo();
       }
     }
 
-    // Pulizia se non c'è più video
+    // Clear video when performance ends
     if (!videoId && currentVideoId) {
       setCurrentVideoId(null);
       if (playerRef.current) {
         try {
           playerRef.current.destroy();
-        } catch (e) {}
-        playerRef.current = null;
+          playerRef.current = null;
+        } catch (e) {
+          console.log("Error clearing player:", e);
+        }
       }
     }
-  }, [playerReady, displayData?.current_performance?.youtube_url, displayData?.current_performance?.status, currentVideoId]);
+  }, [playerReady, displayData?.current_performance, currentVideoId]);
 
   // Load display data
   const loadDisplayData = useCallback(async () => {
@@ -167,17 +156,136 @@ export default function PubDisplay() {
     }
   }, [pubCode]);
 
+  // Load approved messages
+  const loadApprovedMessages = useCallback(async () => {
+    try {
+      // Get event from pubCode
+      const { data: event } = await supabase
+        .from('events')
+        .select('id')
+        .eq('code', pubCode.toUpperCase())
+        .single();
+
+      if (!event) return;
+
+      // Get recent approved messages (last 10)
+      const { data: messages } = await supabase
+        .from('messages')
+        .select(`
+          *,
+          participants (nickname)
+        `)
+        .eq('event_id', event.id)
+        .eq('status', 'approved')
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      setApprovedMessages((messages || []).map(msg => ({
+        id: msg.id,
+        text: msg.text,
+        nickname: msg.participants?.nickname || 'Anonimo'
+      })));
+    } catch (error) {
+      console.error("Error loading messages:", error);
+    }
+  }, [pubCode]);
+
+  // Show message overlay
+  const showMessageOverlay = (message) => {
+    const id = Date.now();
+    const messageEl = { id, text: message.text, nickname: message.nickname };
+    
+    setApprovedMessages(prev => {
+      const newMessages = [messageEl, ...prev.slice(0, 9)];
+      return newMessages;
+    });
+
+    // Auto-hide after 8 seconds
+    setTimeout(() => {
+      setApprovedMessages(prev => prev.filter(m => m.id !== id));
+    }, 8000);
+  };
+
   // Polling
   useEffect(() => {
     loadDisplayData();
+    loadApprovedMessages();
+    
     pollIntervalRef.current = setInterval(loadDisplayData, 3000);
+    messageIntervalRef.current = setInterval(loadApprovedMessages, 5000);
     
     return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-      }
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (messageIntervalRef.current) clearInterval(messageIntervalRef.current);
     };
-  }, [loadDisplayData]);
+  }, [loadDisplayData, loadApprovedMessages]);
+
+  // Realtime subscriptions for reactions, quiz, messages
+  useEffect(() => {
+    if (!pubCode) return;
+
+    const setupRealtime = async () => {
+      const { data: event } = await supabase
+        .from('events')
+        .select('id')
+        .eq('code', pubCode.toUpperCase())
+        .single();
+
+      if (!event) return;
+
+      const channel = supabase
+        .channel(`display:${event.id}`)
+        .on('postgres_changes', 
+          { event: 'INSERT', schema: 'public', table: 'reactions', filter: `event_id=eq.${event.id}` }, 
+          (payload) => {
+            addFloatingReaction(payload.new.emoji);
+          }
+        )
+        .on('postgres_changes', 
+          { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${event.id}` }, 
+          async (payload) => {
+            const quiz = payload.new;
+            
+            if (payload.eventType === 'INSERT' && quiz.status === 'active') {
+              // New quiz started
+              setActiveQuiz(quiz);
+              setQuizResults(null);
+              lastQuizIdRef.current = quiz.id;
+            } else if (quiz.status === 'showing_results') {
+              // Admin showing results
+              try {
+                const { data } = await api.getQuizResults(quiz.id);
+                setQuizResults(data);
+                setActiveQuiz(quiz);
+              } catch (err) {
+                console.error("Error loading quiz results:", err);
+              }
+            } else if (quiz.status === 'ended') {
+              // Quiz ended
+              setTimeout(() => {
+                setActiveQuiz(null);
+                setQuizResults(null);
+              }, 5000);
+            }
+          }
+        )
+        .on('postgres_changes', 
+          { event: 'UPDATE', schema: 'public', table: 'messages', filter: `event_id=eq.${event.id}` }, 
+          (payload) => {
+            if (payload.new.status === 'approved') {
+              loadApprovedMessages();
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    };
+
+    setupRealtime();
+  }, [pubCode, loadApprovedMessages]);
 
   // Add floating reaction
   const addFloatingReaction = (emoji) => {
@@ -188,16 +296,6 @@ export default function PubDisplay() {
     setTimeout(() => {
       setFloatingReactions(prev => prev.filter(r => r.id !== id));
     }, 3000);
-  };
-
-  // Show overlay message
-  const showOverlayMessage = (message) => {
-    const id = Date.now();
-    setOverlayMessages(prev => [...prev, { id, text: message }]);
-    
-    setTimeout(() => {
-      setOverlayMessages(prev => prev.filter(m => m.id !== id));
-    }, 5000);
   };
 
   const currentPerf = displayData?.current_performance;
@@ -222,17 +320,20 @@ export default function PubDisplay() {
         ))}
       </div>
 
-      {/* Overlay Messages */}
-      {overlayMessages.map(msg => (
-        <div 
-          key={msg.id}
-          className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 animate-fade-in-scale"
-        >
-          <div className="glass rounded-3xl p-8 text-center border-2 border-cyan-500">
-            <p className="text-4xl font-bold">{msg.text}</p>
-          </div>
+      {/* Approved Messages Overlay */}
+      {approvedMessages.length > 0 && (
+        <div className="fixed top-24 right-8 z-50 space-y-3 max-w-md">
+          {approvedMessages.slice(0, 3).map(msg => (
+            <div 
+              key={msg.id}
+              className="glass rounded-2xl p-4 border-2 border-cyan-500 animate-fade-in-scale"
+            >
+              <p className="text-sm text-cyan-400 mb-1">💬 {msg.nickname}</p>
+              <p className="text-lg font-medium">{msg.text}</p>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
 
       {/* Main Content */}
       <div className="grid grid-cols-12 gap-6 p-6 h-screen">
@@ -377,14 +478,16 @@ export default function PubDisplay() {
         </div>
       </div>
 
-      {/* Quiz Overlay */}
-      {activeQuiz && !quizResult && (
+      {/* Quiz Overlay - Active */}
+      {activeQuiz && !quizResults && activeQuiz.status === 'active' && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-lg z-50 flex items-center justify-center p-12">
           <div className="glass rounded-3xl p-12 max-w-4xl w-full border-4 border-fuchsia-500">
             <div className="text-center mb-8">
               <HelpCircle className="w-20 h-20 text-fuchsia-400 mx-auto mb-4" />
               <h2 className="text-5xl font-bold mb-4 gradient-text">Quiz Time!</h2>
-              <p className="text-2xl text-zinc-400">{activeQuiz.category_name || 'Quiz Musicale'}</p>
+              {activeQuiz.category && (
+                <p className="text-2xl text-zinc-400">{activeQuiz.category}</p>
+              )}
             </div>
             
             <div className="bg-white/5 rounded-2xl p-8 mb-8">
@@ -413,7 +516,7 @@ export default function PubDisplay() {
       )}
 
       {/* Quiz Result Overlay */}
-      {quizResult && (
+      {quizResults && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-lg z-50 flex items-center justify-center p-12">
           <div className="glass rounded-3xl p-12 max-w-4xl w-full border-4 border-green-500">
             <div className="text-center">
@@ -422,14 +525,14 @@ export default function PubDisplay() {
               
               <div className="bg-green-500/20 rounded-2xl p-8 mb-8 border-2 border-green-500">
                 <p className="text-3xl mb-2">Risposta Corretta:</p>
-                <p className="text-5xl font-bold text-green-400">{quizResult.correct_option}</p>
+                <p className="text-5xl font-bold text-green-400">{quizResults.correct_option}</p>
               </div>
 
-              {quizResult.winners && quizResult.winners.length > 0 && (
+              {quizResults.winners && quizResults.winners.length > 0 ? (
                 <div>
                   <p className="text-3xl mb-6">🎉 Vincitori:</p>
                   <div className="flex flex-wrap justify-center gap-4">
-                    {quizResult.winners.map((winner, i) => (
+                    {quizResults.winners.map((winner, i) => (
                       <span 
                         key={i}
                         className="px-8 py-4 bg-yellow-500/20 text-yellow-400 rounded-full text-2xl font-bold border-2 border-yellow-500"
@@ -439,10 +542,12 @@ export default function PubDisplay() {
                     ))}
                   </div>
                 </div>
+              ) : (
+                <p className="text-2xl text-zinc-400">Nessuno ha risposto correttamente</p>
               )}
 
               <p className="text-2xl text-zinc-400 mt-8">
-                {quizResult.total_answers} risposte totali
+                {quizResults.total_answers} risposte totali • {quizResults.correct_count} corrette
               </p>
             </div>
           </div>
@@ -503,11 +608,11 @@ export default function PubDisplay() {
         @keyframes fade-in-scale {
           from {
             opacity: 0;
-            transform: translate(-50%, -50%) scale(0.8);
+            transform: scale(0.8);
           }
           to {
             opacity: 1;
-            transform: translate(-50%, -50%) scale(1);
+            transform: scale(1);
           }
         }
 

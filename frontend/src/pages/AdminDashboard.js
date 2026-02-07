@@ -36,12 +36,7 @@ export default function AdminDashboard() {
   const [leaderboard, setLeaderboard] = useState([]);
   const [activeSection, setActiveSection] = useState("queue");
   const [pendingMessages, setPendingMessages] = useState([]);
-const handleLogout = () => {
-  localStorage.removeItem("neonpub_pub_code");
-  logout();
-  navigate("/");
-};
- 
+  
   // Quiz
   const [showQuizModal, setShowQuizModal] = useState(false);
   const [quizTab, setQuizTab] = useState("custom");
@@ -50,6 +45,8 @@ const handleLogout = () => {
   const [quizOptions, setQuizOptions] = useState(["", "", "", ""]);
   const [quizCorrectIndex, setQuizCorrectIndex] = useState(0);
   const [activeQuizId, setActiveQuizId] = useState(null);
+  const [quizResults, setQuizResults] = useState(null);
+  const [quizStatus, setQuizStatus] = useState(null); // 'active', 'showing_results', 'ended'
   
   // YouTube
   const [showYoutubeModal, setShowYoutubeModal] = useState(false);
@@ -64,6 +61,12 @@ const handleLogout = () => {
 
   const pubCode = localStorage.getItem("neonpub_pub_code");
   const pollIntervalRef = useRef(null);
+
+  const handleLogout = () => {
+    localStorage.removeItem("neonpub_pub_code");
+    logout();
+    navigate("/");
+  };
 
   useEffect(() => {
     if (!isAuthenticated || !isAdmin) {
@@ -80,15 +83,17 @@ const handleLogout = () => {
     if (!pubCode) return;
    
     try {
-      const [queueRes, perfRes, lbRes] = await Promise.all([
+      const [queueRes, perfRes, lbRes, messagesRes] = await Promise.all([
         api.getAdminQueue(),
         api.getAdminCurrentPerformance(),
         api.getAdminLeaderboard(),
+        api.getAdminPendingMessages(),
       ]);
      
       setQueue(queueRes.data || []);
       setCurrentPerformance(perfRes.data);
       setLeaderboard(lbRes.data || []);
+      setPendingMessages(messagesRes.data || []);
     } catch (error) {
       console.error("Error loading data:", error);
     }
@@ -110,37 +115,30 @@ const handleLogout = () => {
       return;
     }
 
-    const apiKey = process.env.REACT_APP_YOUTUBE_API_KEY;
-
-    if (!apiKey) {
-      toast.error("Chiave YouTube API non configurata! Aggiungi REACT_APP_YOUTUBE_API_KEY nel file .env");
-      console.warn("Missing REACT_APP_YOUTUBE_API_KEY in environment variables");
-      return;
-    }
-
     setSearchingYoutube(true);
-
     try {
-      // Query migliorata leggermente per risultati karaoke più rilevanti
-      const query = `${selectedRequest?.title || youtubeSearchQuery} ${selectedRequest?.artist || ''} karaoke official lyrics`.trim();
+      const query = `${selectedRequest?.title || youtubeSearchQuery} ${selectedRequest?.artist || ''} karaoke`.trim();
+      const apiKey = process.env.REACT_APP_YOUTUBE_API_KEY;
+      
+      if (!apiKey || apiKey === 'YOUR_KEY') {
+        toast.error("YouTube API Key non configurata");
+        setSearchingYoutube(false);
+        return;
+      }
       
       const response = await fetch(
         `https://www.googleapis.com/youtube/v3/search?` +
         `part=snippet&q=${encodeURIComponent(query)}&type=video&maxResults=5&` +
         `key=${apiKey}`
       );
-     
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error?.message || `YouTube API error (${response.status})`);
-      }
-     
+      
+      if (!response.ok) throw new Error('YouTube API error');
+      
       const data = await response.json();
       setYoutubeSearchResults(data.items || []);
-      console.log("YouTube search results:", data.items?.length || 0, "videos found");
     } catch (error) {
       console.error("YouTube search error:", error);
-      toast.error(`Errore nella ricerca YouTube: ${error.message}`);
+      toast.error("Errore ricerca YouTube - usa URL manuale");
       setYoutubeSearchResults([]);
     } finally {
       setSearchingYoutube(false);
@@ -185,6 +183,7 @@ const handleLogout = () => {
       toast.error("Inserisci URL YouTube");
       return;
     }
+
     try {
       await api.startPerformance(selectedRequest.id, youtubeUrl);
       toast.success("Esibizione iniziata!");
@@ -245,7 +244,7 @@ const handleLogout = () => {
   const handleSkip = async () => {
     if (!currentPerformance) return;
     if (!window.confirm("Sicuro di saltare questa esibizione?")) return;
-   
+    
     try {
       await api.skipPerformance(currentPerformance.id);
       toast.info("Esibizione saltata");
@@ -255,6 +254,28 @@ const handleLogout = () => {
     }
   };
 
+  // MESSAGES HANDLERS
+  const handleApproveMessage = async (messageId) => {
+    try {
+      await api.approveMessage(messageId);
+      toast.success("Messaggio approvato!");
+      loadData();
+    } catch (error) {
+      toast.error("Errore approvazione messaggio");
+    }
+  };
+
+  const handleRejectMessage = async (messageId) => {
+    try {
+      await api.rejectMessage(messageId);
+      toast.success("Messaggio rifiutato");
+      loadData();
+    } catch (error) {
+      toast.error("Errore rifiuto messaggio");
+    }
+  };
+
+  // QUIZ HANDLERS - STEP BY STEP
   const handleStartQuiz = async (e) => {
     e.preventDefault();
    
@@ -273,23 +294,59 @@ const handleLogout = () => {
         });
        
         setActiveQuizId(data.id);
-        toast.success("Quiz lanciato!");
+        setQuizStatus('active');
+        setQuizResults(null);
+        toast.success("Quiz lanciato! Aspetta le risposte...");
         setShowQuizModal(false);
       } catch (error) {
         toast.error("Errore lancio quiz");
       }
     } else {
-      // Quiz da categoria
       toast.info(`Quiz categoria "${quizCategory}" - funzione da implementare`);
     }
+  };
+
+  const handleShowResults = async () => {
+    if (!activeQuizId) return;
+    try {
+      // Change quiz status to showing_results
+      await api.showQuizResults(activeQuizId);
+      
+      // Get results
+      const { data } = await api.getQuizResults(activeQuizId);
+      setQuizResults(data);
+      setQuizStatus('showing_results');
+      toast.success("Risultati mostrati!");
+    } catch (error) {
+      toast.error("Errore mostra risultati");
+    }
+  };
+
+  const handleNextQuestion = () => {
+    // Reset for next question
+    setActiveQuizId(null);
+    setQuizStatus(null);
+    setQuizResults(null);
+    setQuizQuestion("");
+    setQuizOptions(["", "", "", ""]);
+    setQuizCorrectIndex(0);
+    setShowQuizModal(true);
+    toast.info("Prepara la prossima domanda");
   };
 
   const handleEndQuiz = async () => {
     if (!activeQuizId) return;
     try {
       await api.endQuiz(activeQuizId);
-      toast.success("Quiz terminato!");
+      
+      // Get final leaderboard
+      const { data } = await api.getQuizLeaderboard();
+      setLeaderboard(data);
+      
+      toast.success("Quiz terminato! Classifica finale aggiornata");
       setActiveQuizId(null);
+      setQuizStatus(null);
+      setQuizResults(null);
       setQuizQuestion("");
       setQuizOptions(["", "", "", ""]);
       setQuizCorrectIndex(0);
@@ -301,7 +358,6 @@ const handleLogout = () => {
 
   const handleSendEffect = async (emoji) => {
     try {
-      // Simula invio effetto - da implementare in API se necessario
       toast.success(`Effetto ${emoji} inviato!`);
       setShowEffectModal(false);
     } catch (error) {
@@ -309,24 +365,9 @@ const handleLogout = () => {
     }
   };
 
-const handleOpenDisplay = () => {
-  // URL pubblico del tuo deploy (cambia con il tuo vero dominio Vercel/Netlify)
-  const PUBLIC_URL = "https://neonpub-karaoke.vercel.app"; // ← METTI QUI IL TUO URL VERO!
-
-  const url = `${PUBLIC_URL}/display/${pubCode}`;
-
-  const displayWindow = window.open(url, "_blank", "width=1920,height=1080,resizable=yes");
-
-  if (!displayWindow) {
-    toast.error("Popup bloccato! Permetti popup per questo sito.");
-    return;
-  }
-
-  // Tenta fullscreen
-  displayWindow.addEventListener("load", () => {
-    displayWindow.document.documentElement.requestFullscreen?.().catch(() => {});
-  });
-};
+  const handleOpenDisplay = () => {
+    window.open(`/display/${pubCode}`, '_blank');
+  };
 
   const pendingRequests = queue.filter(r => r.status === "pending");
   const queuedRequests = queue.filter(r => r.status === "queued");
@@ -342,6 +383,7 @@ const handleOpenDisplay = () => {
             <p className="mono text-lg text-cyan-400 font-bold">{pubCode}</p>
           </div>
         </div>
+
         <nav className="space-y-2 flex-1">
           {[
             { id: "queue", icon: Music, label: "Coda", badge: queuedRequests.length + pendingRequests.length },
@@ -369,6 +411,7 @@ const handleOpenDisplay = () => {
             </button>
           ))}
         </nav>
+
         <div className="space-y-3 pt-6 border-t border-white/10">
           <Button onClick={handleOpenDisplay} className="w-full rounded-xl bg-cyan-500 hover:bg-cyan-600">
             <Tv className="w-4 h-4 mr-2" /> Apri Display
@@ -401,7 +444,7 @@ const handleOpenDisplay = () => {
                 <p className="text-xl text-zinc-400">{currentPerformance.song_artist}</p>
                 <p className="text-fuchsia-400 mt-2 text-lg">🎤 {currentPerformance.user_nickname}</p>
               </div>
-             
+              
               {currentPerformance.vote_count > 0 && (
                 <div className="text-right">
                   <div className="flex items-center gap-2 justify-end">
@@ -412,6 +455,7 @@ const handleOpenDisplay = () => {
                 </div>
               )}
             </div>
+
             <div className="flex gap-2 flex-wrap">
               {currentPerformance.status === 'live' && (
                 <>
@@ -426,7 +470,7 @@ const handleOpenDisplay = () => {
                   </Button>
                 </>
               )}
-             
+              
               {currentPerformance.status === 'paused' && (
                 <>
                   <Button onClick={handleResume} className="bg-green-500 hover:bg-green-600" size="lg">
@@ -437,7 +481,7 @@ const handleOpenDisplay = () => {
                   </Button>
                 </>
               )}
-             
+              
               {currentPerformance.status === 'voting' && (
                 <Button onClick={handleCloseVoting} className="bg-yellow-500 hover:bg-yellow-600 text-black" size="lg">
                   <Check className="w-5 h-5 mr-2" /> Chiudi Votazione
@@ -515,6 +559,144 @@ const handleOpenDisplay = () => {
           </div>
         )}
 
+        {/* MESSAGES SECTION */}
+        {activeSection === "messages" && (
+          <div>
+            <h2 className="text-2xl font-bold mb-6">Messaggi da Approvare</h2>
+            {pendingMessages.length === 0 ? (
+              <p className="text-zinc-500 py-12 text-center">Nessun messaggio in attesa</p>
+            ) : (
+              <div className="space-y-3">
+                {pendingMessages.map((msg) => (
+                  <div key={msg.id} className="glass rounded-xl p-5">
+                    <div className="mb-4">
+                      <p className="text-xs text-zinc-500 mb-1">Da: {msg.user_nickname}</p>
+                      <p className="text-lg">{msg.text}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button 
+                        onClick={() => handleApproveMessage(msg.id)}
+                        className="flex-1 bg-green-500 hover:bg-green-600"
+                      >
+                        <Check className="w-4 h-4 mr-2" /> Approva e Mostra
+                      </Button>
+                      <Button 
+                        onClick={() => handleRejectMessage(msg.id)}
+                        variant="destructive"
+                        className="flex-1"
+                      >
+                        <X className="w-4 h-4 mr-2" /> Rifiuta
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* QUIZ SECTION */}
+        {activeSection === "quiz" && (
+          <div>
+            <h2 className="text-2xl font-bold mb-6">Gestione Quiz</h2>
+            
+            {!activeQuizId ? (
+              <div className="text-center py-12">
+                <p className="text-zinc-500 mb-6">Nessun quiz attivo</p>
+                <Button 
+                  onClick={() => setShowQuizModal(true)}
+                  className="bg-fuchsia-500 hover:bg-fuchsia-600"
+                  size="lg"
+                >
+                  <HelpCircle className="w-5 h-5 mr-2" /> Lancia Nuovo Quiz
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Quiz Status */}
+                <div className="glass rounded-xl p-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className={`w-3 h-3 rounded-full ${
+                      quizStatus === 'active' ? 'bg-green-500 animate-pulse' :
+                      quizStatus === 'showing_results' ? 'bg-yellow-500' :
+                      'bg-zinc-500'
+                    }`}></div>
+                    <span className="text-lg font-medium">
+                      {quizStatus === 'active' && '🟢 Quiz Attivo - In attesa risposte'}
+                      {quizStatus === 'showing_results' && '🟡 Risultati Mostrati'}
+                    </span>
+                  </div>
+                  
+                  <div className="bg-white/5 rounded-xl p-4 mb-4">
+                    <p className="text-sm text-zinc-400 mb-2">Domanda:</p>
+                    <p className="text-xl font-medium">{quizQuestion}</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 mb-6">
+                    {quizOptions.map((opt, idx) => (
+                      <div 
+                        key={idx}
+                        className={`p-3 rounded-lg border ${
+                          idx === quizCorrectIndex 
+                            ? 'border-green-500 bg-green-500/10' 
+                            : 'border-white/10 bg-white/5'
+                        }`}
+                      >
+                        <span className="text-xs text-zinc-500 mr-2">{String.fromCharCode(65 + idx)}.</span>
+                        <span>{opt}</span>
+                        {idx === quizCorrectIndex && <span className="ml-2 text-green-400">✓</span>}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Quiz Results */}
+                  {quizResults && (
+                    <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 mb-4">
+                      <p className="text-green-400 font-bold mb-2">Risultati:</p>
+                      <p className="text-sm mb-1">Risposte totali: {quizResults.total_answers}</p>
+                      <p className="text-sm mb-1">Risposte corrette: {quizResults.correct_count}</p>
+                      <p className="text-sm">Vincitori: {quizResults.winners.join(', ') || 'Nessuno'}</p>
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="flex gap-3">
+                    {quizStatus === 'active' && (
+                      <Button 
+                        onClick={handleShowResults}
+                        className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-black"
+                        size="lg"
+                      >
+                        📊 Mostra Risultati
+                      </Button>
+                    )}
+                    
+                    {quizStatus === 'showing_results' && (
+                      <>
+                        <Button 
+                          onClick={handleNextQuestion}
+                          className="flex-1 bg-blue-500 hover:bg-blue-600"
+                          size="lg"
+                        >
+                          ➡️ Prossima Domanda
+                        </Button>
+                        <Button 
+                          onClick={handleEndQuiz}
+                          className="flex-1 bg-red-500 hover:bg-red-600"
+                          size="lg"
+                        >
+                          🏁 Fine Quiz
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* LEADERBOARD SECTION */}
         {activeSection === "leaderboard" && (
           <div>
             <h2 className="text-2xl font-bold mb-6">Classifica</h2>
@@ -542,22 +724,18 @@ const handleOpenDisplay = () => {
         )}
       </main>
 
-      {/* Quiz Button */}
-      <div className="fixed bottom-8 right-8 flex gap-3">
-        {activeQuizId && (
-          <Button onClick={handleEndQuiz} className="bg-red-500 hover:bg-red-600 rounded-full shadow-2xl" size="lg">
-            <Trophy className="w-5 h-5 mr-2" /> Termina Quiz
+      {/* Quiz Floating Button */}
+      {!activeQuizId && (
+        <div className="fixed bottom-8 right-8">
+          <Button 
+            onClick={() => setShowQuizModal(true)}
+            className="bg-fuchsia-500 hover:bg-fuchsia-600 rounded-full shadow-2xl"
+            size="lg"
+          >
+            <HelpCircle className="w-5 h-5 mr-2" /> Lancia Quiz
           </Button>
-        )}
-        <Button
-          onClick={() => setShowQuizModal(true)}
-          disabled={activeQuizId !== null}
-          className="bg-fuchsia-500 hover:bg-fuchsia-600 rounded-full shadow-2xl"
-          size="lg"
-        >
-          <HelpCircle className="w-5 h-5 mr-2" /> Lancia Quiz
-        </Button>
-      </div>
+        </div>
+      )}
 
       {/* YouTube Modal */}
       <Dialog open={showYoutubeModal} onOpenChange={setShowYoutubeModal}>
@@ -570,11 +748,13 @@ const handleOpenDisplay = () => {
               <p className="text-lg font-bold mb-1">{selectedRequest?.title}</p>
               <p className="text-zinc-400">{selectedRequest?.artist}</p>
             </div>
+
             <Tabs defaultValue="search" className="w-full">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="search">Ricerca Auto</TabsTrigger>
                 <TabsTrigger value="manual">URL Manuale</TabsTrigger>
               </TabsList>
+
               <TabsContent value="search" className="space-y-4">
                 <div className="flex gap-2">
                   <Input
@@ -588,16 +768,17 @@ const handleOpenDisplay = () => {
                     <Search className="w-4 h-4" />
                   </Button>
                 </div>
+
                 {youtubeSearchResults.length > 0 && (
                   <div className="space-y-2 max-h-96 overflow-y-auto">
                     {youtubeSearchResults.map(video => (
-                      <div
+                      <div 
                         key={video.id.videoId}
                         onClick={() => selectYouTubeVideo(video.id.videoId)}
                         className="glass rounded-lg p-3 flex gap-3 cursor-pointer hover:bg-white/10 transition"
                       >
-                        <img
-                          src={video.snippet.thumbnails.default.url}
+                        <img 
+                          src={video.snippet.thumbnails.default.url} 
                           alt={video.snippet.title}
                           className="w-24 h-18 rounded object-cover"
                         />
@@ -610,6 +791,7 @@ const handleOpenDisplay = () => {
                   </div>
                 )}
               </TabsContent>
+
               <TabsContent value="manual">
                 <Input
                   value={youtubeUrl}
@@ -619,7 +801,8 @@ const handleOpenDisplay = () => {
                 />
               </TabsContent>
             </Tabs>
-            <Button
+
+            <Button 
               onClick={startPerformance}
               disabled={!youtubeUrl.trim()}
               className="w-full bg-green-500 hover:bg-green-600"
@@ -637,12 +820,13 @@ const handleOpenDisplay = () => {
           <DialogHeader>
             <DialogTitle>Crea Quiz</DialogTitle>
           </DialogHeader>
-         
+          
           <Tabs value={quizTab} onValueChange={setQuizTab} className="mt-4">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="custom">Personalizzato</TabsTrigger>
               <TabsTrigger value="category">Da Categoria</TabsTrigger>
             </TabsList>
+
             <TabsContent value="custom" className="space-y-4 mt-4">
               <form onSubmit={handleStartQuiz} className="space-y-4">
                 <div>
@@ -654,6 +838,7 @@ const handleOpenDisplay = () => {
                     className="bg-zinc-800 border-zinc-700 min-h-20"
                   />
                 </div>
+
                 <div className="space-y-2">
                   <label className="text-sm text-zinc-400">Opzioni di Risposta</label>
                   {quizOptions.map((option, idx) => (
@@ -679,11 +864,13 @@ const handleOpenDisplay = () => {
                     </div>
                   ))}
                 </div>
+
                 <Button type="submit" className="w-full bg-fuchsia-500 hover:bg-fuchsia-600" size="lg">
                   <HelpCircle className="w-5 h-5 mr-2" /> Lancia Quiz
                 </Button>
               </form>
             </TabsContent>
+
             <TabsContent value="category" className="space-y-4 mt-4">
               <div className="grid grid-cols-2 gap-3">
                 {QUIZ_CATEGORIES.map(cat => (
@@ -700,7 +887,7 @@ const handleOpenDisplay = () => {
                   </button>
                 ))}
               </div>
-              <Button
+              <Button 
                 onClick={handleStartQuiz}
                 className="w-full bg-fuchsia-500 hover:bg-fuchsia-600"
                 size="lg"

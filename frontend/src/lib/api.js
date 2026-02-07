@@ -189,7 +189,6 @@ export const getAdminQueue = async () => {
 
   if (error) throw error
   
-  // Flatten data
   return { 
     data: (data || []).map(req => ({
       ...req,
@@ -416,8 +415,8 @@ export const sendReaction = async (data) => {
     .insert({
       event_id: participant.event_id,
       participant_id: participant.participant_id,
-      emoji: data.emoji,
-      message: data.message
+      performance_id: data.performance_id,
+      emoji: data.emoji
     })
     .select()
     .single()
@@ -425,6 +424,23 @@ export const sendReaction = async (data) => {
   if (error) throw error
   return { data: reaction }
 }
+
+export const getReactionCount = async (performanceId) => {
+  const participant = getParticipantFromToken()
+
+  const { count, error } = await supabase
+    .from('reactions')
+    .select('*', { count: 'exact', head: true })
+    .eq('performance_id', performanceId)
+    .eq('participant_id', participant.participant_id)
+
+  if (error) throw error
+  return { data: { count } }
+}
+
+// ============================================
+// MESSAGES
+// ============================================
 
 export const sendMessage = async (data) => {
   const participant = getParticipantFromToken()
@@ -442,6 +458,68 @@ export const sendMessage = async (data) => {
 
   if (error) throw error
   return { data: message }
+}
+
+export const getAdminPendingMessages = async () => {
+  const event = await getAdminEvent()
+
+  const { data, error } = await supabase
+    .from('messages')
+    .select(`
+      *,
+      participants (nickname)
+    `)
+    .eq('event_id', event.id)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true })
+
+  if (error) throw error
+  
+  return {
+    data: (data || []).map(msg => ({
+      ...msg,
+      user_nickname: msg.participants?.nickname || 'Unknown'
+    }))
+  }
+}
+
+export const approveMessage = async (messageId) => {
+  const { data, error } = await supabase
+    .from('messages')
+    .update({ status: 'approved' })
+    .eq('id', messageId)
+    .select()
+    .single()
+
+  if (error) throw error
+  return { data }
+}
+
+export const rejectMessage = async (messageId) => {
+  const { data, error } = await supabase
+    .from('messages')
+    .update({ status: 'rejected' })
+    .eq('id', messageId)
+    .select()
+    .single()
+
+  if (error) throw error
+  return { data }
+}
+
+export const getApprovedMessages = async () => {
+  const participant = getParticipantFromToken()
+
+  const { data, error } = await supabase
+    .from('messages')
+    .select('*')
+    .eq('event_id', participant.event_id)
+    .eq('status', 'approved')
+    .order('created_at', { ascending: false })
+    .limit(10)
+
+  if (error) throw error
+  return { data }
 }
 
 // ============================================
@@ -469,6 +547,18 @@ export const startQuiz = async (data) => {
   return { data: quiz }
 }
 
+export const showQuizResults = async (quizId) => {
+  const { data, error } = await supabase
+    .from('quizzes')
+    .update({ status: 'showing_results' })
+    .eq('id', quizId)
+    .select()
+    .single()
+
+  if (error) throw error
+  return { data }
+}
+
 export const endQuiz = async (quizId) => {
   const { data, error } = await supabase
     .from('quizzes')
@@ -478,6 +568,57 @@ export const endQuiz = async (quizId) => {
     })
     .eq('id', quizId)
     .select()
+
+  if (error) throw error
+  return { data }
+}
+
+export const getQuizResults = async (quizId) => {
+  // Get quiz details
+  const { data: quiz } = await supabase
+    .from('quizzes')
+    .select('*')
+    .eq('id', quizId)
+    .single()
+
+  // Get all answers with participant info
+  const { data: answers, error } = await supabase
+    .from('quiz_answers')
+    .select(`
+      *,
+      participants (nickname)
+    `)
+    .eq('quiz_id', quizId)
+
+  if (error) throw error
+
+  // Calculate results
+  const correctAnswers = answers.filter(a => a.is_correct)
+  const winners = correctAnswers.map(a => a.participants.nickname)
+
+  return {
+    data: {
+      quiz_id: quizId,
+      question: quiz.question,
+      correct_option: quiz.options[quiz.correct_index],
+      correct_index: quiz.correct_index,
+      total_answers: answers.length,
+      correct_count: correctAnswers.length,
+      winners: winners,
+      points: quiz.points
+    }
+  }
+}
+
+export const getQuizLeaderboard = async () => {
+  const event = await getAdminEvent()
+
+  const { data, error } = await supabase
+    .from('participants')
+    .select('id, nickname, score')
+    .eq('event_id', event.id)
+    .order('score', { ascending: false })
+    .limit(10)
 
   if (error) throw error
   return { data }
@@ -517,7 +658,7 @@ export const getActiveQuiz = async () => {
     .from('quizzes')
     .select('*')
     .eq('event_id', participant.event_id)
-    .eq('status', 'active')
+    .in('status', ['active', 'showing_results'])
     .order('started_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -640,9 +781,17 @@ export default {
   getAdminCurrentPerformance,
   submitVote,
   sendReaction,
+  getReactionCount,
   sendMessage,
+  getAdminPendingMessages,
+  approveMessage,
+  rejectMessage,
+  getApprovedMessages,
   startQuiz,
+  showQuizResults,
   endQuiz,
+  getQuizResults,
+  getQuizLeaderboard,
   answerQuiz,
   getActiveQuiz,
   getLeaderboard,
