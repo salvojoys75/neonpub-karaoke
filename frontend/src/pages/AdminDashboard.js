@@ -13,7 +13,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
-import { RotateCcw } from "lucide-react"; 
 
 const EFFECT_EMOJIS = ["🔥", "❤️", "⭐", "🎉", "👏", "🎤", "💃", "🕺"];
 
@@ -220,16 +219,16 @@ export default function AdminDashboard() {
     }
   };
 
-const handleRestart = async () => {
-  if (!currentPerformance) return;
-  try {
-    await api.restartPerformance(currentPerformance.id);
-    toast.success("Video riavvolto!");
-    loadData(); // Ricarica stato
-  } catch (error) {
-    toast.error("Errore riavvolgimento");
-  }
-};
+  const handleRestart = async () => {
+    if (!currentPerformance) return;
+    try {
+      await api.restartPerformance(currentPerformance.id);
+      toast.success("Video riavvolto!");
+      loadData(); // Ricarica stato
+    } catch (error) {
+      toast.error("Errore riavvolgimento");
+    }
+  };
 
   const handleEndPerformance = async () => {
     if (!currentPerformance) return;
@@ -474,12 +473,13 @@ const handleRestart = async () => {
                   <Button onClick={handlePause} variant="outline" size="lg">
                     <Pause className="w-5 h-5 mr-2" /> Pausa
                   </Button>
-<Button 
-  onClick={handleRestart} 
-  className="rounded-xl bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 py-4"
->
-  <RotateCcw className="w-5 h-5 mr-2" /> Riavvolgi
-</Button>
+                  <Button 
+                    onClick={handleRestart} 
+                    className="rounded-xl bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
+                    size="lg"
+                  >
+                    <RotateCcw className="w-5 h-5 mr-2" /> Riavvolgi
+                  </Button>
                   <Button onClick={handleEndPerformance} className="bg-green-500 hover:bg-green-600" size="lg">
                     <Square className="w-5 h-5 mr-2" /> Fine → Vota
                   </Button>
