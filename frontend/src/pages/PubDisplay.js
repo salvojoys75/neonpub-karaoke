@@ -154,68 +154,77 @@ isEmbeddable(videoId).then((ok) => {
   };
 
   useEffect(() => {
-    if (!displayData?.pub?.id) return;
-    const channel = supabase
-      .channel(`display_realtime`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${displayData.pub.id}` }, 
-        (payload) => {
-             setDisplayData(prev => ({...prev, current_performance: payload.new}));
-              // 🔥 QUANDO CAMBIANO I VOTI → RICARICA DATI (leaderboard inclusa)
-  if (
-    payload.new.status === 'voting' ||
-    payload.new.status === 'ended'
-  ) {
-    loadDisplayData();
-  }
+  if (!displayData?.pub?.id) return;
 
-  if (payload.new.status === 'ended') {
-    setVoteResult(payload.new.average_score);
-    setTimeout(() => setVoteResult(null), 8000);
-  }
-}
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `event_id=eq.${displayData.pub.id}` }, 
-        (payload) => {
-             if (!payload.new.emoji && payload.new.message) {
-                 showFlashMessage({ text: payload.new.message, nickname: payload.new.nickname || "Regia" });
-             } else {
-                 addFloatingReaction(payload.new.emoji, payload.new.nickname);
-             }
-        }
-      )
-      // *** FIX MESSAGGI: ASCOLTO TUTTI GLI EVENTI (*) SU MESSAGES ***
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `event_id=eq.${displayData.pub.id}` }, 
-        async (payload) => {
-          // Se è un nuovo messaggio già approvato (Regia) O un aggiornamento ad approved (Utente)
-          if (payload.new && payload.new.status === 'approved') {
-            let nickname = "Utente";
-            if (payload.new.participant_id) {
-               const { data } = await supabase.from('participants').select('nickname').eq('id', payload.new.participant_id).single();
-               if(data) nickname = data.nickname;
-            } else {
-               nickname = "Regia";
-            }
-            showFlashMessage({ text: payload.new.text, nickname: nickname });
-          }
-        }
-      )
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${displayData.pub.id}` }, 
-        async (payload) => {
-           setQuizStatus(payload.new.status);
-           if (payload.new.status === 'active' || payload.new.status === 'closed') { 
-             setActiveQuiz(payload.new); 
-             setQuizResults(null); 
-           } else if (payload.new.status === 'showing_results') {
-             const res = await api.getQuizResults(payload.new.id);
-             setQuizResults(res.data);
-           } else if (payload.new.status === 'ended') {
-             setTimeout(() => { setActiveQuiz(null); setQuizResults(null); setQuizStatus(null); loadDisplayData(); }, 5000);
-           }
-        }
-      )
-      .subscribe();
+  const channel = supabase.channel(`display_realtime`);
 
-    return () => supabase.removeChannel(channel);
-  }, [displayData?.pub?.id, loadDisplayData]);
+  // performances
+  channel.on('postgres_changes', 
+    { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${displayData.pub.id}` }, 
+    (payload) => {
+      setDisplayData(prev => ({ ...prev, current_performance: payload.new }));
+
+      if (payload.new.status === 'voting' || payload.new.status === 'ended') {
+        loadDisplayData();
+      }
+
+      if (payload.new.status === 'ended') {
+        setVoteResult(payload.new.average_score);
+        setTimeout(() => setVoteResult(null), 8000);
+      }
+    }
+  );
+
+  // reactions
+  channel.on('postgres_changes', 
+    { event: 'INSERT', schema: 'public', table: 'reactions', filter: `event_id=eq.${displayData.pub.id}` }, 
+    (payload) => {
+      if (!payload.new.emoji && payload.new.message) {
+        showFlashMessage({ text: payload.new.message, nickname: payload.new.nickname || "Regia" });
+      } else {
+        addFloatingReaction(payload.new.emoji, payload.new.nickname);
+      }
+    }
+  );
+
+  // messages
+  channel.on('postgres_changes', 
+    { event: '*', schema: 'public', table: 'messages', filter: `event_id=eq.${displayData.pub.id}` }, 
+    async (payload) => {
+      if (payload.new && payload.new.status === 'approved') {
+        let nickname = "Utente";
+        if (payload.new.participant_id) {
+          const { data } = await supabase.from('participants').select('nickname').eq('id', payload.new.participant_id).single();
+          if(data) nickname = data.nickname;
+        } else {
+          nickname = "Regia";
+        }
+        showFlashMessage({ text: payload.new.text, nickname });
+      }
+    }
+  );
+
+  // quizzes
+  channel.on('postgres_changes', 
+    { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${displayData.pub.id}` }, 
+    async (payload) => {
+      setQuizStatus(payload.new.status);
+      if (payload.new.status === 'active' || payload.new.status === 'closed') { 
+        setActiveQuiz(payload.new); 
+        setQuizResults(null); 
+      } else if (payload.new.status === 'showing_results') {
+        const res = await api.getQuizResults(payload.new.id);
+        setQuizResults(res.data);
+      } else if (payload.new.status === 'ended') {
+        setTimeout(() => { setActiveQuiz(null); setQuizResults(null); setQuizStatus(null); loadDisplayData(); }, 5000);
+      }
+    }
+  );
+
+  channel.subscribe();
+
+  return () => supabase.removeChannel(channel);
+}, [displayData?.pub?.id, loadDisplayData]);
 
   const currentPerf = displayData?.current_performance;
   const queue = displayData?.queue || [];
