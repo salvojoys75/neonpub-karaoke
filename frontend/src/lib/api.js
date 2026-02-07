@@ -302,12 +302,21 @@ export const pausePerformance = async (performanceId) => {
 }
 
 export const resumePerformance = async (performanceId) => {
+export const restartPerformance = async (performanceId) => {
+  // Imposta lo stato su 'restarted' che il display intercetterà per tornare a 0
   const { data, error } = await supabase
     .from('performances')
-    .update({ status: 'live' })
+    .update({ status: 'restarted', started_at: new Date().toISOString() })
     .eq('id', performanceId)
     .select()
-  if (error) throw error; return { data };
+  
+  // Subito dopo rimettiamo a live
+  if (!error) {
+     await supabase.from('performances').update({ status: 'live' }).eq('id', performanceId);
+  }
+  
+  if (error) throw error; 
+  return { data };
 }
 
 export const skipPerformance = async (performanceId) => {
@@ -423,7 +432,8 @@ export const sendReaction = async (data) => {
       .insert({
         event_id: participant.event_id,
         participant_id: participant.participant_id,
-        emoji: data.emoji
+        emoji: data.emoji,
+        nickname: participant.nickname // <--- ECCO LA FIX
       }).select().single()
     if (error) throw error
     return { data: reaction }
@@ -563,6 +573,6 @@ export default {
   submitVote, sendReaction, sendEffect,
   sendMessage, getAdminPendingMessages, approveMessage, rejectMessage,
   startQuiz, endQuiz, answerQuiz, getActiveQuiz, showQuizResults, getQuizResults, getQuizLeaderboard,
-  getLeaderboard, getAdminLeaderboard,
+  getLeaderboard, getAdminLeaderboard, restartPerformance,
   getDisplayData
 }

@@ -88,19 +88,17 @@ export default function PubDisplay() {
           videoId: videoId,
           playerVars: {
             autoplay: 1,
-            controls: 1,
+            controls: 0, // Nascondi controlli per stile pro
             modestbranding: 1,
             rel: 0,
+            fs: 0,
+            iv_load_policy: 3
           },
           events: {
             onReady: (event) => {
-              console.log("Player ready");
               if (displayData?.current_performance?.status === 'live') {
                 event.target.playVideo();
               }
-            },
-            onStateChange: (event) => {
-              console.log("Player state:", event.data);
             }
           }
         });
@@ -109,27 +107,14 @@ export default function PubDisplay() {
       }
     }
 
-    // Control playback based on performance status
-    if (playerRef.current && currentVideoId) {
-      const status = displayData?.current_performance?.status;
-      
-      if (status === 'paused' && playerRef.current.pauseVideo) {
-        playerRef.current.pauseVideo();
-      } else if (status === 'live' && playerRef.current.playVideo) {
-        playerRef.current.playVideo();
-      }
-    }
-
-    // Clear video when performance ends
+    // Pulisci se non c'è video
     if (!videoId && currentVideoId) {
       setCurrentVideoId(null);
       if (playerRef.current) {
         try {
           playerRef.current.destroy();
           playerRef.current = null;
-        } catch (e) {
-          console.log("Error clearing player:", e);
-        }
+        } catch (e) {}
       }
     }
   }, [playerReady, displayData?.current_performance, currentVideoId]);
@@ -159,52 +144,29 @@ export default function PubDisplay() {
   // Load approved messages
   const loadApprovedMessages = useCallback(async () => {
     try {
-      // Get event from pubCode
-      const { data: event } = await supabase
-        .from('events')
-        .select('id')
-        .eq('code', pubCode.toUpperCase())
-        .single();
-
+      const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
       if (!event) return;
 
-      // Get recent approved messages (last 10)
       const { data: messages } = await supabase
         .from('messages')
-        .select(`
-          *,
-          participants (nickname)
-        `)
+        .select('*, participants(nickname)')
         .eq('event_id', event.id)
         .eq('status', 'approved')
         .order('created_at', { ascending: false })
-        .limit(10);
+        .limit(5);
 
-      setApprovedMessages((messages || []).map(msg => ({
-        id: msg.id,
-        text: msg.text,
-        nickname: msg.participants?.nickname || 'Anonimo'
-      })));
+      // Show specifically the new ones or cycle through them
+      if (messages && messages.length > 0) {
+         setApprovedMessages(messages.map(m => ({
+             id: m.id, 
+             text: m.text, 
+             nickname: m.participants?.nickname 
+         })));
+      }
     } catch (error) {
       console.error("Error loading messages:", error);
     }
   }, [pubCode]);
-
-  // Show message overlay
-  const showMessageOverlay = (message) => {
-    const id = Date.now();
-    const messageEl = { id, text: message.text, nickname: message.nickname };
-    
-    setApprovedMessages(prev => {
-      const newMessages = [messageEl, ...prev.slice(0, 9)];
-      return newMessages;
-    });
-
-    // Auto-hide after 8 seconds
-    setTimeout(() => {
-      setApprovedMessages(prev => prev.filter(m => m.id !== id));
-    }, 8000);
-  };
 
   // Polling
   useEffect(() => {
@@ -212,7 +174,7 @@ export default function PubDisplay() {
     loadApprovedMessages();
     
     pollIntervalRef.current = setInterval(loadDisplayData, 3000);
-    messageIntervalRef.current = setInterval(loadApprovedMessages, 5000);
+    messageIntervalRef.current = setInterval(loadApprovedMessages, 10000);
     
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
@@ -220,78 +182,72 @@ export default function PubDisplay() {
     };
   }, [loadDisplayData, loadApprovedMessages]);
 
-  // Realtime subscriptions for reactions, quiz, messages
+  // Realtime subscriptions
   useEffect(() => {
     if (!pubCode) return;
 
     const setupRealtime = async () => {
-      const { data: event } = await supabase
-        .from('events')
-        .select('id')
-        .eq('code', pubCode.toUpperCase())
-        .single();
-
+      const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
       if (!event) return;
 
       const channel = supabase
         .channel(`display:${event.id}`)
-        .on('postgres_changes', 
-          { event: 'INSERT', schema: 'public', table: 'reactions', filter: `event_id=eq.${event.id}` }, 
+        // PERFORMANCE STATUS (Play, Pause, Restart)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${event.id}` }, 
           (payload) => {
-            addFloatingReaction(payload.new.emoji);
+             const status = payload.new.status;
+             // Aggiorna stato locale per UI
+             setDisplayData(prev => prev ? ({...prev, current_performance: payload.new}) : null);
+
+             if (playerRef.current && typeof playerRef.current.playVideo === 'function') {
+                if (status === 'paused') {
+                    playerRef.current.pauseVideo();
+                } else if (status === 'live') {
+                    playerRef.current.playVideo();
+                } else if (status === 'restarted') {
+                    // --- FUNZIONE RIAVVOLGI ---
+                    playerRef.current.seekTo(0);
+                    playerRef.current.playVideo();
+                }
+             }
           }
         )
-        .on('postgres_changes', 
-          { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${event.id}` }, 
+        // REACTIONS (Con Nickname)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `event_id=eq.${event.id}` }, 
+          (payload) => {
+            // payload.new.nickname è stato aggiunto nel DB nel passo SQL
+            addFloatingReaction(payload.new.emoji, payload.new.nickname);
+          }
+        )
+        // QUIZ
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${event.id}` }, 
           async (payload) => {
             const quiz = payload.new;
-            
             if (payload.eventType === 'INSERT' && quiz.status === 'active') {
-              // New quiz started
               setActiveQuiz(quiz);
               setQuizResults(null);
-              lastQuizIdRef.current = quiz.id;
             } else if (quiz.status === 'showing_results') {
-              // Admin showing results
-              try {
-                const { data } = await api.getQuizResults(quiz.id);
-                setQuizResults(data);
-                setActiveQuiz(quiz);
-              } catch (err) {
-                console.error("Error loading quiz results:", err);
-              }
+              const { data } = await api.getQuizResults(quiz.id);
+              setQuizResults(data);
+              setActiveQuiz(quiz);
             } else if (quiz.status === 'ended') {
-              // Quiz ended
-              setTimeout(() => {
-                setActiveQuiz(null);
-                setQuizResults(null);
-              }, 5000);
-            }
-          }
-        )
-        .on('postgres_changes', 
-          { event: 'UPDATE', schema: 'public', table: 'messages', filter: `event_id=eq.${event.id}` }, 
-          (payload) => {
-            if (payload.new.status === 'approved') {
-              loadApprovedMessages();
+              setTimeout(() => { setActiveQuiz(null); setQuizResults(null); }, 5000);
             }
           }
         )
         .subscribe();
 
-      return () => {
-        supabase.removeChannel(channel);
-      };
+      return () => { supabase.removeChannel(channel); };
     };
 
     setupRealtime();
-  }, [pubCode, loadApprovedMessages]);
+  }, [pubCode]);
 
-  // Add floating reaction
-  const addFloatingReaction = (emoji) => {
+  // Add floating reaction with Nickname
+  const addFloatingReaction = (emoji, nickname) => {
     const id = Date.now() + Math.random();
     const left = Math.random() * 80 + 10;
-    setFloatingReactions(prev => [...prev, { id, emoji, left }]);
+    setFloatingReactions(prev => [...prev, { id, emoji, nickname, left }]);
     
     setTimeout(() => {
       setFloatingReactions(prev => prev.filter(r => r.id !== id));
@@ -302,335 +258,182 @@ export default function PubDisplay() {
   const queue = displayData?.queue || [];
   const leaderboard = displayData?.leaderboard || [];
   const pubName = displayData?.pub?.name || "NeonPub Karaoke";
-
   const joinUrl = `${window.location.origin}/join/${pubCode}`;
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white overflow-hidden relative">
+    <div className="min-h-screen bg-[#050505] text-white overflow-hidden relative font-sans">
       {/* Floating Reactions */}
-      <div className="reactions-overlay">
+      <div className="reactions-overlay pointer-events-none fixed inset-0 z-50">
         {floatingReactions.map(r => (
-          <div 
-            key={r.id} 
-            className="floating-reaction animate-float-up"
-            style={{ left: `${r.left}%` }}
-          >
-            {r.emoji}
+          <div key={r.id} className="absolute flex flex-col items-center animate-float-up" style={{ left: `${r.left}%`, bottom: '-50px' }}>
+            <span className="text-6xl filter drop-shadow-lg">{r.emoji}</span>
+            {r.nickname && (
+              <span className="text-lg font-bold bg-black/60 px-3 py-1 rounded-full text-white mt-1 backdrop-blur-md border border-white/10 shadow-lg">
+                {r.nickname}
+              </span>
+            )}
           </div>
         ))}
       </div>
 
       {/* Approved Messages Overlay */}
       {approvedMessages.length > 0 && (
-        <div className="fixed top-24 right-8 z-50 space-y-3 max-w-md">
-          {approvedMessages.slice(0, 3).map(msg => (
-            <div 
-              key={msg.id}
-              className="glass rounded-2xl p-4 border-2 border-cyan-500 animate-fade-in-scale"
-            >
-              <p className="text-sm text-cyan-400 mb-1">💬 {msg.nickname}</p>
-              <p className="text-lg font-medium">{msg.text}</p>
+        <div className="fixed top-24 right-8 z-40 space-y-3 max-w-md">
+          {approvedMessages.map(msg => (
+            <div key={msg.id} className="glass rounded-2xl p-4 border-l-4 border-cyan-500 animate-fade-in-scale shadow-2xl">
+              <p className="text-sm text-cyan-400 mb-1 font-bold">💬 {msg.nickname}</p>
+              <p className="text-xl font-medium">{msg.text}</p>
             </div>
           ))}
         </div>
       )}
 
-      {/* Main Content */}
+      {/* Main Grid */}
       <div className="grid grid-cols-12 gap-6 p-6 h-screen">
-        {/* Left Column - Performance/Queue */}
+        {/* Left Column */}
         <div className="col-span-8 flex flex-col gap-6">
           {/* Header */}
-          <div className="glass rounded-2xl p-6">
-            <h1 className="text-4xl font-bold mb-2">{pubName}</h1>
-            <p className="text-zinc-400 text-xl">Codice: <span className="mono text-cyan-400">{pubCode}</span></p>
+          <div className="glass rounded-2xl p-6 flex justify-between items-center">
+            <div>
+              <h1 className="text-4xl font-bold mb-1">{pubName}</h1>
+              <p className="text-zinc-400 text-xl">Codice: <span className="mono text-cyan-400 font-bold">{pubCode}</span></p>
+            </div>
+            {currentPerf?.status === 'voting' && (
+               <div className="bg-yellow-500 text-black px-6 py-2 rounded-full font-bold text-xl animate-pulse">
+                 VOTAZIONE APERTA!
+               </div>
+            )}
           </div>
 
-          {/* Video Player / Current Performance */}
-          <div className="flex-1 glass rounded-2xl p-6 flex flex-col">
+          {/* Video Player */}
+          <div className="flex-1 glass rounded-2xl p-6 flex flex-col relative overflow-hidden bg-black">
             {currentPerf ? (
               <>
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <span className={`w-4 h-4 rounded-full ${
-                      currentPerf.status === 'live' ? 'bg-red-500 animate-pulse' :
-                      currentPerf.status === 'paused' ? 'bg-yellow-500' :
-                      'bg-green-500'
-                    }`}></span>
-                    <span className="text-lg font-medium uppercase">
-                      {currentPerf.status === 'live' && '🔴 LIVE'}
-                      {currentPerf.status === 'paused' && '⏸️ PAUSA'}
-                      {currentPerf.status === 'voting' && '⭐ VOTAZIONE'}
-                    </span>
+                <div id="youtube-player-container" className="w-full h-full absolute inset-0 rounded-2xl"></div>
+                {/* Overlay Info sempre visibile in basso */}
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/80 to-transparent p-8 pointer-events-none">
+                  <h2 className="text-5xl font-bold mb-2 text-white drop-shadow-md">{currentPerf.song_title}</h2>
+                  <div className="flex justify-between items-end">
+                    <p className="text-3xl text-zinc-300">{currentPerf.song_artist}</p>
+                    <div className="flex items-center gap-3 bg-fuchsia-600/90 px-6 py-2 rounded-full shadow-lg backdrop-blur-md">
+                      <Mic2 className="w-8 h-8" />
+                      <span className="text-3xl font-bold">{currentPerf.user_nickname}</span>
+                    </div>
                   </div>
-                  
-                  {currentPerf.vote_count > 0 && (
-                    <div className="flex items-center gap-3 bg-yellow-500/20 px-6 py-3 rounded-full">
-                      <Star className="w-8 h-8 text-yellow-500 fill-yellow-500" />
-                      <span className="text-4xl font-bold">{(currentPerf.average_score || 0).toFixed(1)}</span>
-                      <span className="text-zinc-400">({currentPerf.vote_count})</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* YouTube Player */}
-                <div className="flex-1 bg-black rounded-xl overflow-hidden mb-4 relative">
-                  <div id="youtube-player-container" className="w-full h-full"></div>
-                  {!currentVideoId && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <Mic2 className="w-32 h-32 text-fuchsia-500/20" />
-                    </div>
-                  )}
-                </div>
-
-                {/* Song Info */}
-                <div className="space-y-2">
-                  <h2 className="text-3xl font-bold">{currentPerf.song_title}</h2>
-                  <p className="text-2xl text-zinc-400">{currentPerf.song_artist}</p>
-                  <p className="text-xl text-fuchsia-400">🎤 {currentPerf.user_nickname}</p>
                 </div>
               </>
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center text-center">
                 <Mic2 className="w-32 h-32 text-fuchsia-500/20 mb-6" />
-                <h2 className="text-4xl font-bold mb-4">Nessuna Esibizione</h2>
-                <p className="text-2xl text-zinc-500">In attesa della prossima canzone...</p>
+                <h2 className="text-4xl font-bold mb-4">Palco Vuoto</h2>
+                <p className="text-2xl text-zinc-500">Prenotati ora!</p>
               </div>
             )}
           </div>
 
           {/* Ticker */}
-          <div className="glass rounded-2xl p-4 overflow-hidden">
+          <div className="glass rounded-2xl p-3 overflow-hidden bg-fuchsia-900/20 border border-fuchsia-500/30">
             <div className="ticker-container">
-              <div className="ticker-content">
+              <div className="ticker-content text-fuchsia-200">
                 {ticker} &nbsp;&nbsp;&nbsp; {ticker}
               </div>
             </div>
           </div>
         </div>
 
-        {/* Right Column - QR + Queue + Leaderboard */}
+        {/* Right Column */}
         <div className="col-span-4 flex flex-col gap-6">
           {/* QR Code */}
           <div className="glass rounded-2xl p-6 text-center">
-            <h3 className="text-2xl font-bold mb-4">Partecipa!</h3>
-            <div className="bg-white p-6 rounded-xl inline-block">
-              <QRCodeSVG 
-                value={joinUrl}
-                size={200}
-                level="H"
-                includeMargin={false}
-              />
+            <h3 className="text-2xl font-bold mb-4">Inquadra per Entrare</h3>
+            <div className="bg-white p-4 rounded-xl inline-block">
+              <QRCodeSVG value={joinUrl} size={180} />
             </div>
-            <p className="text-zinc-400 mt-4 text-lg">Scansiona per entrare</p>
           </div>
 
           {/* Queue */}
-          <div className="glass rounded-2xl p-6 flex-1 flex flex-col">
-            <h3 className="text-2xl font-bold mb-4 flex items-center gap-2">
-              <Music className="w-6 h-6 text-fuchsia-400" />
-              Prossimi a Cantare
+          <div className="glass rounded-2xl p-6 flex-1 flex flex-col overflow-hidden">
+            <h3 className="text-2xl font-bold mb-4 flex items-center gap-2 border-b border-white/10 pb-3">
+              <Music className="w-6 h-6 text-fuchsia-400" /> Prossimi
             </h3>
-            {queue.length === 0 ? (
-              <p className="text-zinc-500 text-center py-12">Nessuno in coda</p>
-            ) : (
-              <div className="space-y-3 overflow-y-auto flex-1">
-                {queue.slice(0, 5).map((song, idx) => (
-                  <div key={song.id} className="bg-white/5 rounded-xl p-4 flex items-center gap-3">
-                    <span className="text-2xl font-bold text-fuchsia-400 w-8">{idx + 1}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold truncate text-lg">{song.title}</p>
-                      <p className="text-sm text-zinc-500 truncate">{song.artist}</p>
-                      <p className="text-xs text-cyan-400 mt-1">{song.user_nickname}</p>
-                    </div>
+            <div className="space-y-3 overflow-y-auto flex-1 custom-scrollbar">
+              {queue.map((song, idx) => (
+                <div key={song.id} className="bg-white/5 rounded-xl p-4 flex items-center gap-3 border-l-4 border-fuchsia-500">
+                  <span className="text-2xl font-bold text-fuchsia-400 w-8">{idx + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold truncate text-lg">{song.title}</p>
+                    <p className="text-sm text-zinc-400 truncate">{song.artist}</p>
+                    <p className="text-xs text-cyan-400 mt-1 uppercase font-bold">{song.user_nickname}</p>
                   </div>
-                ))}
-              </div>
-            )}
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Leaderboard */}
-          <div className="glass rounded-2xl p-6">
-            <h3 className="text-2xl font-bold mb-4 flex items-center gap-2">
-              <Trophy className="w-6 h-6 text-yellow-500" />
-              Top 5
+          <div className="glass rounded-2xl p-6 h-1/4 flex flex-col">
+            <h3 className="text-xl font-bold mb-2 flex items-center gap-2 text-yellow-500">
+              <Trophy className="w-5 h-5" /> Top Quiz
             </h3>
-            {leaderboard.length === 0 ? (
-              <p className="text-zinc-500 text-center py-8">Nessun punteggio</p>
-            ) : (
-              <div className="space-y-2">
-                {leaderboard.map((player, idx) => (
-                  <div key={player.id} className="flex items-center gap-3 bg-white/5 rounded-lg p-3">
-                    <span className={`text-xl font-bold w-6 ${
-                      idx === 0 ? 'text-yellow-500' :
-                      idx === 1 ? 'text-zinc-400' :
-                      idx === 2 ? 'text-amber-700' :
-                      'text-zinc-600'
-                    }`}>
-                      {idx + 1}
-                    </span>
-                    <p className="flex-1 font-medium truncate">{player.nickname}</p>
-                    <span className="text-lg font-bold text-cyan-400">{player.score}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+            <div className="space-y-2 overflow-y-auto custom-scrollbar">
+              {leaderboard.map((player, idx) => (
+                <div key={player.id} className="flex justify-between items-center p-2 rounded bg-white/5">
+                  <span className="font-bold w-6">#{idx + 1}</span>
+                  <span className="truncate flex-1">{player.nickname}</span>
+                  <span className="font-mono text-cyan-400">{player.score}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Quiz Overlay - Active */}
+      {/* QUIZ OVERLAYS (Identici a prima) */}
       {activeQuiz && !quizResults && activeQuiz.status === 'active' && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-lg z-50 flex items-center justify-center p-12">
-          <div className="glass rounded-3xl p-12 max-w-4xl w-full border-4 border-fuchsia-500">
+          <div className="glass rounded-3xl p-12 max-w-4xl w-full border-4 border-fuchsia-500 animate-zoom-in">
             <div className="text-center mb-8">
-              <HelpCircle className="w-20 h-20 text-fuchsia-400 mx-auto mb-4" />
-              <h2 className="text-5xl font-bold mb-4 gradient-text">Quiz Time!</h2>
-              {activeQuiz.category && (
-                <p className="text-2xl text-zinc-400">{activeQuiz.category}</p>
-              )}
+              <HelpCircle className="w-24 h-24 text-fuchsia-400 mx-auto mb-4 animate-bounce" />
+              <h2 className="text-6xl font-bold mb-4 gradient-text">QUIZ TIME!</h2>
+              <p className="text-3xl text-white">{activeQuiz.question}</p>
             </div>
-            
-            <div className="bg-white/5 rounded-2xl p-8 mb-8">
-              <p className="text-3xl font-medium text-center">{activeQuiz.question}</p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              {activeQuiz.options.map((option, idx) => (
-                <div 
-                  key={idx}
-                  className="quiz-option bg-white/10 rounded-2xl p-6 border-2 border-white/20"
-                >
-                  <span className="text-2xl font-bold text-fuchsia-400 mr-3">
-                    {String.fromCharCode(65 + idx)}.
-                  </span>
-                  <span className="text-2xl">{option}</span>
+            <div className="grid grid-cols-2 gap-6">
+              {activeQuiz.options.map((opt, i) => (
+                <div key={i} className="bg-white/10 p-6 rounded-2xl border-2 border-white/20">
+                  <span className="text-3xl font-bold text-fuchsia-400 mr-4">{String.fromCharCode(65+i)}.</span>
+                  <span className="text-3xl">{opt}</span>
                 </div>
               ))}
             </div>
-
-            <p className="text-center text-2xl text-cyan-400 mt-8">
-              {activeQuiz.points} punti in palio! Rispondi dall'app!
-            </p>
           </div>
         </div>
       )}
 
-      {/* Quiz Result Overlay */}
       {quizResults && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-lg z-50 flex items-center justify-center p-12">
-          <div className="glass rounded-3xl p-12 max-w-4xl w-full border-4 border-green-500">
+          <div className="glass rounded-3xl p-12 max-w-4xl w-full border-4 border-green-500 animate-zoom-in">
             <div className="text-center">
               <Trophy className="w-24 h-24 text-yellow-500 mx-auto mb-6" />
-              <h2 className="text-6xl font-bold mb-8">Risultato Quiz</h2>
-              
-              <div className="bg-green-500/20 rounded-2xl p-8 mb-8 border-2 border-green-500">
-                <p className="text-3xl mb-2">Risposta Corretta:</p>
-                <p className="text-5xl font-bold text-green-400">{quizResults.correct_option}</p>
+              <h2 className="text-6xl font-bold mb-8">RISULTATI</h2>
+              <div className="bg-green-600/30 p-8 rounded-2xl mb-8 border-2 border-green-500">
+                <p className="text-2xl text-green-200 uppercase mb-2">Risposta Corretta</p>
+                <p className="text-5xl font-bold text-white">{quizResults.correct_option}</p>
               </div>
-
-              {quizResults.winners && quizResults.winners.length > 0 ? (
-                <div>
-                  <p className="text-3xl mb-6">🎉 Vincitori:</p>
-                  <div className="flex flex-wrap justify-center gap-4">
-                    {quizResults.winners.map((winner, i) => (
-                      <span 
-                        key={i}
-                        className="px-8 py-4 bg-yellow-500/20 text-yellow-400 rounded-full text-2xl font-bold border-2 border-yellow-500"
-                      >
-                        {winner}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <p className="text-2xl text-zinc-400">Nessuno ha risposto correttamente</p>
-              )}
-
-              <p className="text-2xl text-zinc-400 mt-8">
-                {quizResults.total_answers} risposte totali • {quizResults.correct_count} corrette
-              </p>
+              <p className="text-2xl text-zinc-400">Vincitori: {quizResults.winners.join(', ') || "Nessuno"}</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* CSS Animations */}
       <style jsx>{`
-        .ticker-container {
-          width: 100%;
-          overflow: hidden;
-        }
-
-        .ticker-content {
-          display: inline-block;
-          white-space: nowrap;
-          animation: ticker 30s linear infinite;
-          font-size: 1.25rem;
-          font-weight: 500;
-        }
-
-        @keyframes ticker {
-          0% { transform: translateX(0%); }
-          100% { transform: translateX(-50%); }
-        }
-
-        .reactions-overlay {
-          position: fixed;
-          inset: 0;
-          pointer-events: none;
-          z-index: 40;
-        }
-
-        .floating-reaction {
-          position: absolute;
-          bottom: -50px;
-          font-size: 3rem;
-          animation: float-up 3s ease-out forwards;
-        }
-
-        @keyframes float-up {
-          0% {
-            bottom: -50px;
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-          100% {
-            bottom: 100vh;
-            opacity: 0;
-            transform: translateY(-20px) scale(1.5);
-          }
-        }
-
-        .animate-fade-in-scale {
-          animation: fade-in-scale 0.5s ease-out;
-        }
-
-        @keyframes fade-in-scale {
-          from {
-            opacity: 0;
-            transform: scale(0.8);
-          }
-          to {
-            opacity: 1;
-            transform: scale(1);
-          }
-        }
-
-        .gradient-text {
-          background: linear-gradient(135deg, #d946ef, #06b6d4);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
-        }
-
-        .quiz-option {
-          transition: all 0.3s ease;
-        }
-
-        .quiz-option:hover {
-          transform: scale(1.02);
-          border-color: rgba(217, 70, 239, 0.5);
-        }
+        .ticker-container { width: 100%; overflow: hidden; }
+        .ticker-content { display: inline-block; white-space: nowrap; animation: ticker 25s linear infinite; font-size: 1.5rem; font-weight: 600; }
+        @keyframes ticker { 0% { transform: translateX(0%); } 100% { transform: translateX(-50%); } }
+        .reactions-overlay { pointer-events: none; z-index: 100; }
+        .animate-float-up { animation: float-up 3s ease-out forwards; }
+        @keyframes float-up { 0% { bottom: -50px; opacity: 1; transform: scale(0.5); } 50% { opacity: 1; transform: scale(1.2); } 100% { bottom: 80vh; opacity: 0; transform: scale(1.5); } }
+        .animate-zoom-in { animation: zoomIn 0.5s ease-out; }
+        @keyframes zoomIn { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
       `}</style>
     </div>
   );
