@@ -309,9 +309,7 @@ export const resumePerformance = async (performanceId) => {
   if (error) throw error; return { data };
 }
 
-// *** NUOVA FUNZIONE RESTART (RIAVVOLGI) ***
 export const restartPerformance = async (performanceId) => {
-  // Imposta lo stato su 'restarted' per triggerare il player
   const { data, error } = await supabase
     .from('performances')
     .update({ status: 'restarted', started_at: new Date().toISOString() })
@@ -320,7 +318,6 @@ export const restartPerformance = async (performanceId) => {
   
   if (error) throw error;
 
-  // Subito dopo rimettiamo a live
   await supabase.from('performances').update({ status: 'live' }).eq('id', performanceId);
   
   return { data };
@@ -408,7 +405,6 @@ export const submitVote = async (data) => {
   return { data: vote }
 }
 
-// Funzione sendMessage CORRETTA
 export const sendMessage = async (data) => {
   const participant = getParticipantFromToken()
   const text = typeof data === 'string' ? data : (data.text || data.message);
@@ -428,7 +424,6 @@ export const sendMessage = async (data) => {
   return { data: message }
 }
 
-// Funzione sendReaction CORRETTA (include nickname)
 export const sendReaction = async (data) => {
   const participant = getParticipantFromToken()
   
@@ -441,7 +436,7 @@ export const sendReaction = async (data) => {
         event_id: participant.event_id,
         participant_id: participant.participant_id,
         emoji: data.emoji,
-        nickname: participant.nickname // Include nickname per il display
+        nickname: participant.nickname 
       }).select().single()
     if (error) throw error
     return { data: reaction }
@@ -451,10 +446,6 @@ export const sendReaction = async (data) => {
 export const sendEffect = async (data) => {
   return { data: 'ok' } 
 }
-
-// ============================================
-// MESSAGES (ADMIN)
-// ============================================
 
 export const getAdminPendingMessages = async () => {
   const event = await getAdminEvent()
@@ -478,7 +469,7 @@ export const rejectMessage = async (id) => {
 }
 
 // ============================================
-// QUIZ
+// QUIZ (LOGICA AGGIORNATA)
 // ============================================
 
 export const startQuiz = async (data) => {
@@ -489,19 +480,32 @@ export const startQuiz = async (data) => {
   if (error) throw error; return { data: quiz }
 }
 
-export const endQuiz = async (id) => {
-  const { error } = await supabase.from('quizzes').update({status: 'ended', ended_at: new Date().toISOString()}).eq('id', id);
-  if (error) throw error; return { data: 'ok' }
-}
-
+// 1. STOP AL VOTO (Nuovo stato 'closed')
 export const closeQuizVoting = async (quizId) => {
   const { data, error } = await supabase
     .from('quizzes')
-    .update({ status: 'closed' }) // Nuovo stato 'closed'
+    .update({ status: 'closed' })
     .eq('id', quizId)
     .select()
   if (error) throw error; 
   return { data };
+}
+
+// 2. MOSTRA RISULTATI
+export const showQuizResults = async (quizId) => {
+  const { data, error } = await supabase
+    .from('quizzes')
+    .update({ status: 'showing_results' })
+    .eq('id', quizId)
+    .select()
+    .single()
+  if (error) throw error
+  return { data }
+}
+
+export const endQuiz = async (id) => {
+  const { error } = await supabase.from('quizzes').update({status: 'ended', ended_at: new Date().toISOString()}).eq('id', id);
+  if (error) throw error; return { data: 'ok' }
 }
 
 export const getQuizResults = async (quizId) => {
@@ -538,7 +542,7 @@ export const getActiveQuiz = async () => {
     .from('quizzes')
     .select('*')
     .eq('event_id', participant.event_id)
-    .in('status', ['active', 'closed', 'showing_results']) // Aggiunto 'closed'
+    .in('status', ['active', 'closed', 'showing_results']) // Include 'closed'
     .maybeSingle()
   if (error) throw error; return { data }
 }
@@ -576,16 +580,19 @@ export const getDisplayData = async (pubCode) => {
   }
 }
 
+// EXPORT COMPLETO
 export default {
-  // Export all
   createPub, getPub, joinPub, adminLogin, getMe,
   requestSong, getSongQueue, getMyRequests, getAdminQueue, approveRequest, rejectRequest,
   startPerformance, pausePerformance, resumePerformance, endPerformance, closeVoting, skipPerformance,
-  restartPerformance, // Added here
+  restartPerformance, 
   getCurrentPerformance, getAdminCurrentPerformance,
   submitVote, sendReaction, sendEffect,
   sendMessage, getAdminPendingMessages, approveMessage, rejectMessage,
-  startQuiz, endQuiz, answerQuiz, getActiveQuiz, showQuizResults, getQuizResults, getQuizLeaderboard,
-  getLeaderboard, getAdminLeaderboard, closeQuizVoting,
+  startQuiz, endQuiz, answerQuiz, getActiveQuiz, 
+  closeQuizVoting, // <--- ORA C'È
+  showQuizResults, // <--- ORA C'È (Questo mancava e dava errore)
+  getQuizResults, getQuizLeaderboard,
+  getLeaderboard, getAdminLeaderboard,
   getDisplayData
 }
