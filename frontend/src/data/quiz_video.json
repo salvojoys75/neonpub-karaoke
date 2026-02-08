@@ -1,11 +1,24 @@
-{
-  "id": "qv1",
-  "type": "video",
-  "title": "Clip muta",
-  "question": "Indovina dal video (senza audio)",
-  "media_url": "https://www.youtube.com/watch?v=9bZkp7q19f0",
-  "options": ["Gangnam Style", "Uptown Funk", "Despacito", "Shape of You"],
-  "correct_index": 0,
-  "points": 25,
-  "effects": ["mute", "blur"]
-}
+[
+  {
+    "id": "qv1",
+    "type": "video",
+    "title": "Clip muta",
+    "question": "Indovina la canzone dal video (senza audio)",
+    "media_url": "https://www.youtube.com/watch?v=9bZkp7q19f0",
+    "options": ["Gangnam Style", "Uptown Funk", "Despacito", "Shape of You"],
+    "correct_index": 0,
+    "points": 25,
+    "effects": ["mute", "blur"]
+  },
+  {
+    "id": "qv2",
+    "type": "video",
+    "title": "Video fermo immagine",
+    "question": "Riconosci l'artista da questa scena?",
+    "media_url": "https://www.youtube.com/watch?v=kXYiU_JCYtU",
+    "options": ["Eminem", "Drake", "Kendrick Lamar", "Travis Scott"],
+    "correct_index": 0,
+    "points": 20,
+    "effects": ["pause_at_10s"]
+  }
+]
