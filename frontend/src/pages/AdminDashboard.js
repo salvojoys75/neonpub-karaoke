@@ -165,7 +165,7 @@ export default function AdminDashboard() {
   }, [isAuthenticated, appState, pubCode, loadData, loadLibrary]);
 
   // --- ACTIONS ---
-  const searchYouTube = async () => { /* ... codice youtube ... */
+  const searchYouTube = async () => {
     if (!youtubeSearchQuery.trim()) { toast.error("Inserisci ricerca"); return; } setSearchingYoutube(true);
     try {
       const apiKey = process.env.REACT_APP_YOUTUBE_API_KEY;
@@ -225,6 +225,7 @@ export default function AdminDashboard() {
   };
 
   // QUIZ LIVE
+  const handleStartQuiz = async (e) => { e.preventDefault(); if (quizTab === "custom") { if (!quizQuestion.trim() || quizOptions.some(o => !o.trim())) { toast.error("Compila tutti i campi"); return; } try { const { data } = await api.startQuiz({ category: "custom", question: quizQuestion, options: quizOptions, correct_index: quizCorrectIndex, points: 10 }); setActiveQuizId(data.id); setQuizStatus('active'); setQuizResults(null); toast.success("Quiz lanciato!"); setShowQuizModal(false); } catch (error) { toast.error("Errore lancio quiz"); } } };
   const handleCloseQuiz = async () => { await api.closeQuizVoting(activeQuizId); setQuizStatus('closed'); };
   const handleShowResults = async () => { await api.showQuizResults(activeQuizId); const { data } = await api.getQuizResults(activeQuizId); setQuizResults(data); setQuizStatus('showing_results'); };
   const handleEndQuiz = async () => { await api.endQuiz(activeQuizId); setActiveQuizId(null); setQuizStatus(null); setQuizResults(null); loadData(); };
@@ -240,8 +241,86 @@ export default function AdminDashboard() {
   const queuedRequests = queue.filter(r => r.status === "queued");
 
   if (appState === 'loading') return <div className="bg-black text-white h-screen flex items-center justify-center">Loading...</div>;
-  if (appState === 'super_admin') return (/* ... codice super admin precedente ... */ <div className="p-10 text-white">Super Admin UI (Use previous code)</div>);
-  if (appState === 'setup') return (/* ... codice setup precedente ... */ <div className="p-10 text-white">Setup UI (Use previous code)</div>);
+
+  // --- VISTA 1: SUPER ADMIN DASHBOARD ---
+  if (appState === 'super_admin') {
+    return (
+        <div className="min-h-screen bg-zinc-950 text-white p-6">
+            <div className="max-w-6xl mx-auto">
+                <div className="flex justify-between items-center mb-10 border-b border-zinc-800 pb-6">
+                    <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-400 to-cyan-400">Super Admin</h1>
+                    <Button variant="ghost" onClick={handleLogout}><LogOut className="w-5 h-5 mr-2" /> Esci</Button>
+                </div>
+                <div className="grid md:grid-cols-2 gap-8">
+                    <Card className="bg-zinc-900 border-zinc-800">
+                        <CardHeader><CardTitle className="text-white">Operatori</CardTitle></CardHeader>
+                        <CardContent>
+                            <div className="space-y-4">
+                                {operators.map(op => (
+                                    <div key={op.id} className="flex justify-between items-center p-3 bg-zinc-950/50 rounded-lg border border-zinc-800">
+                                        <div><div className="font-medium text-white">{op.email}</div><div className="text-xs text-zinc-500">Crediti: {op.credits}</div></div>
+                                        <div className="flex gap-2">
+                                            <Button size="sm" variant="outline" onClick={() => addCredits(op.id, op.credits, 5)}>+5 <Coins className="w-3 h-3 ml-1" /></Button>
+                                            <Button size="sm" variant="outline" onClick={() => addCredits(op.id, op.credits, 10)}>+10 <Coins className="w-3 h-3 ml-1" /></Button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </CardContent>
+                    </Card>
+                    <Card className="bg-zinc-900 border-zinc-800 h-fit">
+                         <CardHeader><CardTitle className="text-white">Nuovo Operatore</CardTitle></CardHeader>
+                         <CardContent>
+                             <div className="space-y-4">
+                                <Input placeholder="Email" value={newOperatorEmail} onChange={e => setNewOperatorEmail(e.target.value)} className="bg-zinc-800 border-zinc-700" />
+                                <Input type="password" placeholder="Password" value={newOperatorPassword} onChange={e => setNewOperatorPassword(e.target.value)} className="bg-zinc-800 border-zinc-700" />
+                                <Button onClick={handleCreateOperator} className="w-full bg-fuchsia-600">Crea (Simulato)</Button>
+                             </div>
+                         </CardContent>
+                    </Card>
+                </div>
+            </div>
+        </div>
+    );
+  }
+
+  // --- VISTA 2: OPERATORE SETUP (LOBBY) ---
+  if (appState === 'setup') {
+      return (
+        <div className="min-h-screen bg-zinc-950 text-white p-6 flex items-center justify-center">
+            <Card className="w-full max-w-lg bg-zinc-900 border-zinc-800 shadow-2xl">
+                <CardHeader>
+                    <CardTitle className="text-2xl text-center text-white">Nuovo Evento</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <div className="text-center mb-6">
+                        <div className="inline-flex items-center gap-2 bg-yellow-500/10 text-yellow-500 px-4 py-2 rounded-full mb-4">
+                            <Coins className="w-5 h-5" />
+                            <span className="font-bold">{profile?.credits} Crediti disponibili</span>
+                        </div>
+                        <p className="text-zinc-400">Creare un evento costa 1 credito.</p>
+                    </div>
+                    <div className="space-y-4">
+                        <Input 
+                            placeholder="Nome del Locale / Evento" 
+                            className="bg-zinc-950 border-zinc-700 text-lg h-12 text-center"
+                            value={newEventName}
+                            onChange={e => setNewEventName(e.target.value)}
+                        />
+                        <Button 
+                            onClick={handleStartEvent}
+                            disabled={creatingEvent || profile?.credits < 1}
+                            className="w-full h-12 text-lg bg-gradient-to-r from-fuchsia-600 to-pink-600 hover:from-fuchsia-500 hover:to-pink-500"
+                        >
+                            {creatingEvent ? "Attivazione..." : "LANCIA EVENTO (-1 Credito)"}
+                        </Button>
+                        <Button variant="ghost" onClick={handleLogout} className="w-full text-zinc-500">Esci</Button>
+                    </div>
+                </CardContent>
+            </Card>
+        </div>
+      );
+  }
 
   return (
     <div className="min-h-screen bg-[#050505] flex text-white">
@@ -259,7 +338,7 @@ export default function AdminDashboard() {
           {[
             { id: "queue", icon: Music, label: "Coda", badge: queuedRequests.length + pendingRequests.length },
             { id: "performance", icon: Mic2, label: "Live Control", badge: currentPerformance ? 1 : 0 },
-            { id: "library", icon: BookOpen, label: "Libreria & AI", badge: 0 }, // NUOVA TAB
+            { id: "library", icon: BookOpen, label: "Libreria & AI", badge: 0 },
             { id: "messages", icon: MessageSquare, label: "Messaggi", badge: pendingMessages.length },
             { id: "quiz", icon: HelpCircle, label: "Quiz Live", badge: activeQuizId ? 1 : 0 },
             { id: "leaderboard", icon: Trophy, label: "Classifica", badge: 0 },
@@ -288,7 +367,7 @@ export default function AdminDashboard() {
       {/* Main Content */}
       <main className="flex-1 p-8 overflow-y-auto">
         
-        {/* LIVE PERFORMANCE PANEL (Sempre visibile se c'è live) */}
+        {/* LIVE PERFORMANCE PANEL */}
         {currentPerformance && (
           <div className="glass rounded-2xl p-6 mb-8 bg-zinc-900 border border-zinc-800">
             <div className="flex justify-between items-start mb-4">
@@ -311,17 +390,8 @@ export default function AdminDashboard() {
                 <>
                   <Button onClick={handlePause} variant="outline"><Pause className="w-4 h-4 mr-2"/> Pausa</Button>
                   <Button onClick={handleRestart} variant="outline" className="text-blue-400 border-blue-900/50"><RotateCcw className="w-4 h-4 mr-2"/> Riavvolgi</Button>
-                  
-                  {/* NUOVI COMANDI AVANZATI */}
-                  <Button onClick={toggleMute} variant="outline" className={currentPerformance.is_muted ? "bg-red-900/50 text-red-400 border-red-500" : ""}>
-                    {currentPerformance.is_muted ? <VolumeX className="w-4 h-4 mr-2"/> : <Volume2 className="w-4 h-4 mr-2"/>}
-                    {currentPerformance.is_muted ? "UNMUTE" : "MUTE"}
-                  </Button>
-                  <Button onClick={toggleBlur} variant="outline" className={currentPerformance.is_blurred ? "bg-purple-900/50 text-purple-400 border-purple-500" : ""}>
-                    {currentPerformance.is_blurred ? <Eye className="w-4 h-4 mr-2"/> : <EyeOff className="w-4 h-4 mr-2"/>}
-                    {currentPerformance.is_blurred ? "SVELA" : "OSCURA"}
-                  </Button>
-
+                  <Button onClick={toggleMute} variant="outline" className={currentPerformance.is_muted ? "bg-red-900/50 text-red-400 border-red-500" : ""}>{currentPerformance.is_muted ? <VolumeX className="w-4 h-4 mr-2"/> : <Volume2 className="w-4 h-4 mr-2"/>}{currentPerformance.is_muted ? "UNMUTE" : "MUTE"}</Button>
+                  <Button onClick={toggleBlur} variant="outline" className={currentPerformance.is_blurred ? "bg-purple-900/50 text-purple-400 border-purple-500" : ""}>{currentPerformance.is_blurred ? <Eye className="w-4 h-4 mr-2"/> : <EyeOff className="w-4 h-4 mr-2"/>}{currentPerformance.is_blurred ? "SVELA" : "OSCURA"}</Button>
                   <Button onClick={handleEndPerformance} className="bg-green-600 hover:bg-green-700 ml-auto"><Square className="w-4 h-4 mr-2"/> Fine & Vota</Button>
                 </>
               )}
@@ -331,38 +401,27 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* SEZIONE: LIBRERIA & AI (NUOVA) */}
+        {/* LIBRARY */}
         {activeSection === "library" && (
           <div className="space-y-8">
             <div className="grid md:grid-cols-3 gap-6">
-              {/* Import Box */}
               <div className="md:col-span-1 space-y-4">
                 <Card className="bg-zinc-900 border-zinc-800">
                   <CardHeader><CardTitle className="text-white flex items-center gap-2"><Upload className="w-5 h-5"/> Importa da AI</CardTitle></CardHeader>
                   <CardContent>
                     <p className="text-xs text-zinc-400 mb-2">Incolla qui il JSON generato da ChatGPT</p>
-                    <Textarea 
-                      value={jsonImport} 
-                      onChange={e => setJsonImport(e.target.value)} 
-                      placeholder='[{"category": "Rock", "question": "..."}]' 
-                      className="bg-black border-zinc-700 font-mono text-xs h-40 mb-4"
-                    />
+                    <Textarea value={jsonImport} onChange={e => setJsonImport(e.target.value)} placeholder='[{"category": "Rock", "question": "..."}]' className="bg-black border-zinc-700 font-mono text-xs h-40 mb-4"/>
                     <Button onClick={handleBulkImport} className="w-full bg-blue-600 hover:bg-blue-700">Importa nel Database</Button>
                   </CardContent>
                 </Card>
               </div>
-
-              {/* Library List */}
               <div className="md:col-span-2">
                 <h2 className="text-2xl font-bold mb-4">Libreria Quiz</h2>
                 <div className="space-y-3">
                   {libraryQuizzes.length === 0 ? <p className="text-zinc-500">Libreria vuota. Importa qualcosa!</p> : libraryQuizzes.map(quiz => (
                     <div key={quiz.id} className="glass rounded-xl p-4 flex items-center gap-4 bg-zinc-900/50 border border-zinc-800">
                       <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center font-bold text-zinc-500">{quiz.category[0]}</div>
-                      <div className="flex-1">
-                        <p className="font-bold">{quiz.question}</p>
-                        <p className="text-xs text-zinc-500">{quiz.category} • {quiz.type} • {quiz.points}pt</p>
-                      </div>
+                      <div className="flex-1"><p className="font-bold">{quiz.question}</p><p className="text-xs text-zinc-500">{quiz.category} • {quiz.type}</p></div>
                       <Button onClick={() => handleLaunchLibraryQuiz(quiz.id)} size="sm" className="bg-fuchsia-600 hover:bg-fuchsia-700">Lancia Ora</Button>
                     </div>
                   ))}
@@ -372,7 +431,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* SEZIONE: CODA (Classica) */}
+        {/* QUEUE */}
         {activeSection === "queue" && (
           <div className="space-y-6">
             <h2 className="text-2xl font-bold">Coda Cantanti</h2>
@@ -404,8 +463,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* ALTRE SEZIONI (MESSAGGI, QUIZ LIVE, CLASSIFICA) RESTANO UGUALI */}
-        {activeSection === 'messages' && <div className="text-center py-20 text-zinc-500">Sezione Messaggi (Vedi codice precedente)</div>}
+        {activeSection === 'messages' && (/* ...codice messaggi... */ <div>Sezione Messaggi</div>)}
         {activeSection === 'quiz' && !activeQuizId && (
            <div className="text-center py-20">
              <HelpCircle className="w-16 h-16 mx-auto text-zinc-700 mb-4"/>
@@ -426,7 +484,7 @@ export default function AdminDashboard() {
         )}
       </main>
 
-      {/* MODALS (Youtube, Quiz Manuale, Messaggi) */}
+      {/* MODALS */}
       <Dialog open={showYoutubeModal} onOpenChange={setShowYoutubeModal}>
         <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
           <DialogHeader><DialogTitle>Avvia Canzone</DialogTitle></DialogHeader>
@@ -435,7 +493,7 @@ export default function AdminDashboard() {
                <Input value={youtubeSearchQuery} onChange={e=>setYoutubeSearchQuery(e.target.value)} placeholder="Cerca su YouTube..." className="bg-black"/>
                <Button onClick={searchYouTube}><Search/></Button>
              </div>
-             {youtubeSearchResults.length > 0 && <div className="space-y-2">{youtubeSearchResults.map(v => 
+             {youtubeSearchResults.length > 0 && <div className="space-y-2 max-h-96 overflow-y-auto">{youtubeSearchResults.map(v => 
                <div key={v.id.videoId} onClick={() => selectYouTubeVideo(v.id.videoId)} className="p-2 hover:bg-zinc-800 cursor-pointer flex gap-3"><img src={v.snippet.thumbnails.default.url} className="w-20"/><p>{v.snippet.title}</p></div>
              )}</div>}
              <Input value={youtubeUrl} onChange={e=>setYoutubeUrl(e.target.value)} placeholder="URL Manuale"/>
@@ -444,12 +502,23 @@ export default function AdminDashboard() {
         </DialogContent>
       </Dialog>
       
-      {/* Quiz Manuale Modal */}
       <Dialog open={showQuizModal} onOpenChange={setShowQuizModal}>
          <DialogContent className="bg-zinc-900 border-zinc-800">
             <DialogHeader><DialogTitle>Crea Quiz Manuale</DialogTitle></DialogHeader>
-            {/* ... form quiz manuale come prima ... */}
+            <form onSubmit={handleStartQuiz} className="space-y-4">
+              <Textarea value={quizQuestion} onChange={e => setQuizQuestion(e.target.value)} placeholder="Domanda..." className="bg-zinc-800"/>
+              {quizOptions.map((o,i)=><Input key={i} value={o} onChange={e=>{const n=[...quizOptions];n[i]=e.target.value;setQuizOptions(n)}} placeholder={`Opzione ${i+1}`} className="bg-zinc-800"/>)}
+              <Button type="submit" className="w-full bg-fuchsia-600">Lancia</Button>
+            </form>
          </DialogContent>
+      </Dialog>
+
+      <Dialog open={showMessageModal} onOpenChange={setShowMessageModal}>
+        <DialogContent className="bg-zinc-900 border-zinc-800">
+          <DialogHeader><DialogTitle>Messaggio</DialogTitle></DialogHeader>
+          <Textarea value={adminMessage} onChange={e=>setAdminMessage(e.target.value)} className="bg-zinc-800"/>
+          <Button onClick={handleBroadcastMessage} className="w-full mt-4 bg-cyan-600">Invia</Button>
+        </DialogContent>
       </Dialog>
 
     </div>
