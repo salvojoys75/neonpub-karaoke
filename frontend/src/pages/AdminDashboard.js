@@ -2,87 +2,77 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
-  Music, Play, Square, Trophy, Tv, Star, HelpCircle,
-  Check, X, MessageSquare, LogOut, SkipForward, Pause,
-  RotateCcw, Mic2, Search, Send, Coins, Users, Plus, ArrowLeft,
-  ListMusic, BrainCircuit, AlertCircle
+  Music, Play, Square, Trophy, Tv, Check, X, MessageSquare, 
+  LogOut, SkipForward, Pause, RotateCcw, Search, Plus, ArrowLeft,
+  ListMusic, BrainCircuit, Swords, Send, Star
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import api, { createPub } from "@/lib/api";
 
-const QUIZ_CATEGORIES = [
-  { id: "music_general", name: "Musica Generale" },
-  { id: "rock", name: "Rock" },
-  { id: "pop", name: "Pop" },
-  { id: "cinema", name: "Cinema" },
-];
-
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const { isAuthenticated, logout } = useAuth();
- 
-  // --- STATI GLOBALI APP ---
-  const [appState, setAppState] = useState("loading"); // 'loading', 'super_admin', 'setup', 'dashboard'
+  
+  // --- STATI GLOBALI ---
+  const [appState, setAppState] = useState("loading");
   const [profile, setProfile] = useState(null);
   const [pubCode, setPubCode] = useState(localStorage.getItem("neonpub_pub_code"));
   
-  // --- STATI SUPER ADMIN ---
-  const [operators, setOperators] = useState([]);
-  const [newOperatorEmail, setNewOperatorEmail] = useState("");
-  const [newOperatorPassword, setNewOperatorPassword] = useState("");
-  
-  // --- STATI SETUP EVENTO ---
-  const [newEventName, setNewEventName] = useState("");
-  const [creatingEvent, setCreatingEvent] = useState(false);
-
-  // --- STATI DASHBOARD REGIA ---
-  // Dati
+  // --- STATI DASHBOARD ---
   const [eventState, setEventState] = useState({ active_module: 'karaoke', active_module_id: null });
   const [queue, setQueue] = useState([]);
   const [currentPerformance, setCurrentPerformance] = useState(null);
-  const [leaderboard, setLeaderboard] = useState([]);
   const [pendingMessages, setPendingMessages] = useState([]);
   const [quizCatalog, setQuizCatalog] = useState([]);
+  // AGGIUNTO: Sfide dummy per ora, finché non crei il catalogo DB
+  const [challenges, setChallenges] = useState([
+      { id: 'c1', title: 'Gara di Shot', type: 'vote' },
+      { id: 'c2', title: 'Limbo', type: 'vote' },
+      { id: 'c3', title: 'Abbraccio Collettivo', type: 'action' }
+  ]);
   
-  // UI Library Tabs
-  const [libraryTab, setLibraryTab] = useState("karaoke"); // 'karaoke', 'quiz', 'messages'
+  const [libraryTab, setLibraryTab] = useState("karaoke"); 
 
-  // Quiz States (Active & Results)
+  // --- STATI QUIZ ---
   const [activeQuizId, setActiveQuizId] = useState(null);
   const [quizStatus, setQuizStatus] = useState(null);
   const [quizResults, setQuizResults] = useState(null);
 
-  // Modals States
+  // --- MODALI ---
   const [showYoutubeModal, setShowYoutubeModal] = useState(false);
   const [showCustomQuizModal, setShowCustomQuizModal] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
 
-  // YouTube Logic Variables
+  // --- YOUTUBE VARS ---
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [youtubeSearchQuery, setYoutubeSearchQuery] = useState("");
   const [youtubeSearchResults, setYoutubeSearchResults] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [searchingYoutube, setSearchingYoutube] = useState(false);
 
-  // Custom Quiz Logic Variables
+  // --- CUSTOM QUIZ VARS ---
   const [quizQuestion, setQuizQuestion] = useState("");
   const [quizOptions, setQuizOptions] = useState(["", "", "", ""]);
   const [quizCorrectIndex, setQuizCorrectIndex] = useState(0);
 
-  // Message Logic Variables
+  // --- MESSAGGI VARS ---
   const [adminMessage, setAdminMessage] = useState("");
+
+  // --- SETUP ---
+  const [newEventName, setNewEventName] = useState("");
+  const [creatingEvent, setCreatingEvent] = useState(false);
 
   const pollIntervalRef = useRef(null);
 
-  // --- 1. INIT & AUTH CHECK ---
+  // 1. INIT
   useEffect(() => {
     checkUserProfile();
   }, [isAuthenticated]);
@@ -96,7 +86,6 @@ export default function AdminDashboard() {
       let { data: userProfile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
 
       if (!userProfile) {
-         // Fallback profile creation
          const { data: newProfile } = await supabase.from('profiles').insert([{ id: user.id, email: user.email, role: 'operator', credits: 0 }]).select().single();
          userProfile = newProfile;
       }
@@ -104,7 +93,6 @@ export default function AdminDashboard() {
 
       if (userProfile.role === 'super_admin') {
         setAppState("super_admin");
-        fetchOperators();
       } else {
         const storedCode = localStorage.getItem("neonpub_pub_code");
         if (storedCode) {
@@ -115,8 +103,7 @@ export default function AdminDashboard() {
         }
       }
     } catch (error) {
-      console.error("Errore check profile:", error);
-      toast.error("Errore caricamento profilo");
+      console.error(error);
     }
   };
 
@@ -126,65 +113,31 @@ export default function AdminDashboard() {
     navigate("/");
   };
 
-  // --- 2. LOGICA SUPER ADMIN & SETUP ---
-  const fetchOperators = async () => {
-    const { data } = await supabase.from('profiles').select('*').neq('role', 'super_admin');
-    setOperators(data || []);
-  };
-
-  const handleCreateOperator = async (e) => {
-    e.preventDefault();
-    if(!newOperatorEmail || !newOperatorPassword) return;
-    if (!window.confirm("Attenzione: verrai scollegato. Procedere?")) return;
-
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email: newOperatorEmail,
-        password: newOperatorPassword,
-      });
-      if (error) throw error;
-      if (data.user) {
-          await supabase.from('profiles').upsert([{ id: data.user.id, email: newOperatorEmail, role: 'operator', credits: 5 }]);
-      }
-      toast.success("Operatore creato!");
-    } catch (error) { toast.error(error.message); }
-  };
-
-  const addCredits = async (operatorId, currentCredits, amount) => {
-    const { error } = await supabase.from('profiles').update({ credits: currentCredits + amount }).eq('id', operatorId);
-    if (error) toast.error("Errore"); else { toast.success("Crediti aggiunti!"); fetchOperators(); }
-  };
-
+  // 2. SETUP EVENTO
   const handleStartEvent = async (e) => {
     e.preventDefault();
-    if (!newEventName) return toast.error("Nome mancante");
-    if (profile.credits < 1) return toast.error("Crediti insufficienti!");
-
+    if (!newEventName) return toast.error("Inserisci nome evento");
     setCreatingEvent(true);
     try {
         const { data: pubData } = await createPub({ name: newEventName });
-        await supabase.from('profiles').update({ credits: profile.credits - 1 }).eq('id', profile.id);
-        
-        setProfile(prev => ({ ...prev, credits: prev.credits - 1 }));
         localStorage.setItem("neonpub_pub_code", pubData.code);
         setPubCode(pubData.code);
         setAppState("dashboard");
+        toast.success("Evento Iniziato!");
     } catch (error) { toast.error(error.message); } finally { setCreatingEvent(false); }
   };
 
-  // --- 3. DATA LOADING & POLLING (DASHBOARD) ---
+  // 3. LOAD DATA
   const loadData = useCallback(async () => {
     if (!pubCode || appState !== 'dashboard') return;
     try {
-      // Load Global State + Data Modules
       const stateData = await api.getEventState();
       if(stateData) setEventState(stateData);
 
-      const [qRes, perfRes, msgRes, lbRes, quizCatRes, activeQuizRes] = await Promise.all([
+      const [qRes, perfRes, msgRes, quizCatRes, activeQuizRes] = await Promise.all([
         api.getAdminQueue(),
         api.getAdminCurrentPerformance(),
         api.getAdminPendingMessages(),
-        api.getAdminLeaderboard(),
         api.getQuizCatalog(),
         api.getActiveQuiz()
       ]);
@@ -192,24 +145,18 @@ export default function AdminDashboard() {
       setQueue(qRes.data || []);
       setCurrentPerformance(perfRes.data);
       setPendingMessages(msgRes.data || []);
-      setLeaderboard(lbRes.data || []);
       setQuizCatalog(quizCatRes.data || []);
       
-      // Update Quiz Local State
       if(activeQuizRes.data) {
          setActiveQuizId(activeQuizRes.data.id);
          setQuizStatus(activeQuizRes.data.status);
-         // Se stiamo mostrando risultati, fetch dei dettagli
          if(activeQuizRes.data.status === 'showing_results') {
              const resData = await api.getQuizResults(activeQuizRes.data.id);
              setQuizResults(resData.data);
          }
       } else {
-         setActiveQuizId(null);
-         setQuizStatus(null);
-         setQuizResults(null);
+         setActiveQuizId(null); setQuizStatus(null); setQuizResults(null);
       }
-
     } catch (error) { console.error(error); }
   }, [pubCode, appState]);
 
@@ -221,41 +168,79 @@ export default function AdminDashboard() {
     }
   }, [appState, loadData]);
 
-  // --- 4. FUNZIONI OPERATIVE REGIA ---
+  // --- FUNZIONI FIXATE ---
 
-  // YOUTUBE & KARAOKE
-  const handleStartLivePre = (req) => {
-    setSelectedRequest(req);
-    setYoutubeUrl(req.youtube_url || "");
-    setYoutubeSearchQuery(`${req.title} ${req.artist} karaoke`);
-    setYoutubeSearchResults([]);
-    setShowYoutubeModal(true);
+  // 1. APERTURA DISPLAY (Ripristinata vecchia logica popup)
+  const handleOpenDisplay = () => {
+    const width = 1280; 
+    const height = 720; 
+    const left = (window.screen.width - width) / 2; 
+    const top = (window.screen.height - height) / 2;
+    window.open(`/display/${pubCode}`, 'NeonPubDisplay', `popup=yes,width=${width},height=${height},top=${top},left=${left},toolbar=no,menubar=no,scrollbars=no,status=no`);
   };
 
-  const searchYouTube = async () => {
-    if (!youtubeSearchQuery.trim()) return;
+  // 2. YOUTUBE AUTOMATICO
+  const handleStartLivePre = (req) => {
+    setSelectedRequest(req);
+    setYoutubeSearchResults([]);
+    setYoutubeUrl(req.youtube_url || "");
+    
+    // Se c'è già un URL, bene. Se no, cerchiamo in automatico.
+    if(req.youtube_url) {
+        setShowYoutubeModal(true);
+    } else {
+        const query = `${req.title} ${req.artist} karaoke`;
+        setYoutubeSearchQuery(query);
+        setShowYoutubeModal(true);
+        // Avvia ricerca automatica dopo breve timeout per permettere al modal di aprirsi
+        setTimeout(() => searchYouTube(query), 100);
+    }
+  };
+
+  const searchYouTube = async (manualQuery = null) => {
+    const q = manualQuery || youtubeSearchQuery;
+    if (!q.trim()) return;
+    
     setSearchingYoutube(true);
     try {
-      const apiKey = process.env.REACT_APP_YOUTUBE_API_KEY;
-      const response = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(youtubeSearchQuery)}&type=video&maxResults=5&key=${apiKey}`);
+      const apiKey = process.env.REACT_APP_YOUTUBE_API_KEY; 
+      if(!apiKey) throw new Error("Manca API Key");
+
+      const response = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(q)}&type=video&maxResults=5&key=${apiKey}`);
       const data = await response.json();
       setYoutubeSearchResults(data.items || []);
-    } catch (error) { toast.error("Errore YouTube API"); } finally { setSearchingYoutube(false); }
+    } catch (error) { 
+        console.error(error);
+        toast.error("Errore ricerca automatica YouTube. Inserisci URL manuale."); 
+    } finally { setSearchingYoutube(false); }
   };
 
   const startPerformance = async () => {
     if (!selectedRequest || !youtubeUrl) return toast.error("Manca URL");
     try {
         await api.startPerformance(selectedRequest.id, youtubeUrl);
-        // setEventModule viene chiamato automaticamente dentro startPerformance in api.js o lo forziamo qui
-        // In api.js ho messo che startPerformance forza active_module='karaoke'
         setShowYoutubeModal(false);
         toast.success("Karaoke Avviato!");
         loadData();
-    } catch(e) { toast.error("Errore avvio"); }
+    } catch(e) { toast.error("Errore avvio: " + e.message); }
   };
 
-  // CONTROLLI PERFORMANCE
+  // 3. MESSAGGI REGIA FIX
+  const handleBroadcastMessage = async () => {
+      if(!adminMessage.trim()) return;
+      try {
+          // Usa api.sendMessage gestendo il caso Admin
+          await api.sendMessage({ text: adminMessage, status: 'approved' });
+          setShowMessageModal(false);
+          setAdminMessage("");
+          toast.success("Messaggio inviato!");
+          loadData(); // Aggiorna per vederlo nella lista se necessario
+      } catch (error) {
+          toast.error("Errore invio messaggio: " + error.message);
+      }
+  };
+
+  // 4. CONTROLLI MEDIA
   const ctrlPerf = async (action) => {
       if(!currentPerformance) return;
       try {
@@ -263,13 +248,13 @@ export default function AdminDashboard() {
         if(action==='resume') await api.resumePerformance(currentPerformance.id);
         if(action==='restart') await api.restartPerformance(currentPerformance.id);
         if(action==='skip') await api.skipPerformance(currentPerformance.id);
-        if(action==='end') await api.endPerformance(currentPerformance.id); // Goes to voting
+        if(action==='end') await api.endPerformance(currentPerformance.id);
         if(action==='close_vote') await api.closeVoting(currentPerformance.id);
         loadData();
       } catch(e) { toast.error("Errore comando"); }
   };
 
-  // QUIZ
+  // 5. QUIZ
   const launchCatalogQuiz = async (item) => {
       if(window.confirm(`Lanciare: ${item.question}?`)) {
           await api.setEventModule('quiz', item.id);
@@ -281,7 +266,7 @@ export default function AdminDashboard() {
   const launchCustomQuiz = async (e) => {
       e.preventDefault();
       try {
-          const { data } = await api.startQuiz({
+          await api.startQuiz({
               category: "custom",
               question: quizQuestion,
               options: quizOptions,
@@ -291,7 +276,7 @@ export default function AdminDashboard() {
           setShowCustomQuizModal(false);
           toast.success("Quiz Custom Lanciato!");
           loadData();
-      } catch(e) { toast.error("Errore creazione quiz"); }
+      } catch(e) { toast.error("Errore quiz custom"); }
   };
 
   const ctrlQuiz = async (action) => {
@@ -301,68 +286,25 @@ export default function AdminDashboard() {
           if(action==='show_results') await api.showQuizResults(activeQuizId);
           if(action==='end') {
               await api.endQuiz(activeQuizId);
-              await api.setEventModule('karaoke'); // Return to default
+              await api.setEventModule('karaoke'); 
               toast.info("Tornati al Karaoke");
           }
           loadData();
-      } catch(e) { toast.error("Errore quiz cmd"); }
+      } catch(e) { toast.error("Errore comando quiz"); }
   };
 
-  // MESSAGGI
-  const handleApproveMessage = async (id) => { await api.approveMessage(id); loadData(); };
-  const handleRejectMessage = async (id) => { await api.rejectMessage(id); loadData(); };
-  const handleBroadcastMessage = async () => {
-      if(!adminMessage) return;
-      await api.sendMessage({ text: adminMessage, status: 'approved' });
-      setShowMessageModal(false);
-      setAdminMessage("");
-      toast.success("Messaggio inviato!");
-  };
 
-  // --- RENDER CONDITIONALE ---
+  // --- RENDER ---
+  if (appState === 'loading') return <div className="bg-black h-screen text-white flex items-center justify-center">Caricamento...</div>;
 
-  if (appState === 'loading') return <div className="min-h-screen bg-black text-white flex items-center justify-center">Caricamento...</div>;
-
-  // --- VISTA 1: SUPER ADMIN ---
-  if (appState === 'super_admin') {
-    return (
-        <div className="min-h-screen bg-zinc-950 text-white p-6">
-            <div className="max-w-4xl mx-auto">
-                <div className="flex justify-between mb-8"><h1 className="text-2xl font-bold">Super Admin</h1><Button onClick={handleLogout}>Esci</Button></div>
-                <div className="grid gap-6">
-                    <Card className="bg-zinc-900 border-zinc-800"><CardHeader><CardTitle className="text-white">Operatori</CardTitle></CardHeader>
-                        <CardContent>
-                            {operators.map(op => (
-                                <div key={op.id} className="flex justify-between mb-2 p-2 bg-zinc-800 rounded">
-                                    <span>{op.email} (Cr: {op.credits})</span>
-                                    <div><Button size="sm" onClick={()=>addCredits(op.id, op.credits, 5)}>+5</Button></div>
-                                </div>
-                            ))}
-                        </CardContent>
-                    </Card>
-                    <Card className="bg-zinc-900 border-zinc-800"><CardHeader><CardTitle className="text-white">Nuovo Operatore</CardTitle></CardHeader>
-                         <CardContent className="flex gap-2">
-                             <Input placeholder="Email" value={newOperatorEmail} onChange={e=>setNewOperatorEmail(e.target.value)} className="bg-zinc-800" />
-                             <Input type="password" placeholder="Pass" value={newOperatorPassword} onChange={e=>setNewOperatorPassword(e.target.value)} className="bg-zinc-800" />
-                             <Button onClick={handleCreateOperator}>Crea</Button>
-                         </CardContent>
-                    </Card>
-                </div>
-            </div>
-        </div>
-    );
-  }
-
-  // --- VISTA 2: SETUP ---
   if (appState === 'setup') {
       return (
         <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center p-4">
             <Card className="w-full max-w-md bg-zinc-900 border-zinc-800">
                 <CardHeader><CardTitle className="text-center text-white">Nuovo Evento</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
-                    <div className="text-center bg-yellow-900/20 text-yellow-500 p-2 rounded">Crediti: {profile?.credits}</div>
                     <Input placeholder="Nome Evento" value={newEventName} onChange={e=>setNewEventName(e.target.value)} className="bg-zinc-950 text-center text-lg" />
-                    <Button onClick={handleStartEvent} disabled={creatingEvent || profile?.credits < 1} className="w-full bg-fuchsia-600 h-12">LANCIA EVENTO (-1 Credito)</Button>
+                    <Button onClick={handleStartEvent} disabled={creatingEvent} className="w-full bg-fuchsia-600 h-12">LANCIA EVENTO</Button>
                     <Button variant="ghost" onClick={handleLogout} className="w-full text-zinc-500">Esci</Button>
                 </CardContent>
             </Card>
@@ -370,7 +312,7 @@ export default function AdminDashboard() {
       );
   }
 
-  // --- VISTA 3: MAIN DASHBOARD (NEW LAYOUT) ---
+  // DASHBOARD REALE
   const pendingReqs = queue.filter(r => r.status === 'pending');
   const queuedReqs = queue.filter(r => r.status === 'queued');
 
@@ -384,56 +326,56 @@ export default function AdminDashboard() {
             <span className="text-xs px-2 py-1 bg-zinc-800 rounded font-mono text-zinc-400">{pubCode}</span>
          </div>
          <div className="flex items-center gap-2">
-             <Button variant="outline" size="sm" onClick={() => window.open(`/display/${pubCode}`, '_blank')}><Tv className="w-4 h-4 mr-2" /> Display</Button>
+             <Button variant="outline" size="sm" onClick={handleOpenDisplay} className="bg-cyan-900/20 text-cyan-400 border-cyan-800 hover:bg-cyan-900/40"><Tv className="w-4 h-4 mr-2" /> APRI DISPLAY</Button>
              <Button variant="ghost" size="sm" onClick={() => { if(confirm("Chiudere evento?")) { localStorage.removeItem("neonpub_pub_code"); setPubCode(null); setAppState("setup"); } }}><ArrowLeft className="w-4 h-4" /> Chiudi</Button>
          </div>
       </header>
 
-      {/* MAIN GRID */}
+      {/* GRID */}
       <div className="flex-1 grid grid-cols-12 gap-0 overflow-hidden">
          
-         {/* LEFT: LIBRARY */}
+         {/* SINISTRA: LIBRARY */}
          <aside className="col-span-4 border-r border-white/10 bg-zinc-900/50 flex flex-col">
             <div className="p-2 border-b border-white/5">
                <Tabs value={libraryTab} onValueChange={setLibraryTab} className="w-full">
-                  <TabsList className="grid w-full grid-cols-3 bg-zinc-950">
-                     <TabsTrigger value="karaoke"><ListMusic className="w-4 h-4 mr-2" />Coda</TabsTrigger>
-                     <TabsTrigger value="quiz"><BrainCircuit className="w-4 h-4 mr-2" />Quiz</TabsTrigger>
-                     <TabsTrigger value="messages"><MessageSquare className="w-4 h-4 mr-2" />Msg</TabsTrigger>
+                  <TabsList className="grid w-full grid-cols-4 bg-zinc-950 p-1">
+                     <TabsTrigger value="karaoke" className="text-xs"><ListMusic className="w-3 h-3 mr-1" />Coda</TabsTrigger>
+                     <TabsTrigger value="quiz" className="text-xs"><BrainCircuit className="w-3 h-3 mr-1" />Quiz</TabsTrigger>
+                     <TabsTrigger value="challenges" className="text-xs"><Swords className="w-3 h-3 mr-1" />Sfide</TabsTrigger>
+                     <TabsTrigger value="messages" className="text-xs"><MessageSquare className="w-3 h-3 mr-1" />Msg</TabsTrigger>
                   </TabsList>
                </Tabs>
             </div>
             
             <ScrollArea className="flex-1 p-3">
-               {/* KARAOKE LIST */}
+               {/* 1. KARAOKE */}
                {libraryTab === 'karaoke' && (
                   <div className="space-y-4">
-                     {/* Pending */}
+                     {/* PENDING */}
                      {pendingReqs.length > 0 && (
                         <div className="space-y-2">
                             <h3 className="text-xs font-bold text-yellow-500 uppercase">Da Approvare ({pendingReqs.length})</h3>
                             {pendingReqs.map(req => (
                                 <div key={req.id} className="p-2 bg-yellow-900/10 border border-yellow-900/30 rounded flex justify-between items-center">
-                                    <div className="truncate"><div className="font-bold text-sm truncate">{req.title}</div><div className="text-xs text-zinc-400">{req.user_nickname}</div></div>
+                                    <div className="truncate w-2/3"><div className="font-bold text-sm truncate">{req.title}</div><div className="text-xs text-zinc-400">{req.user_nickname}</div></div>
                                     <div className="flex gap-1">
-                                        <Button size="icon" variant="ghost" className="h-6 w-6 text-green-500" onClick={()=>api.approveRequest(req.id)}><Check className="w-4 h-4"/></Button>
-                                        <Button size="icon" variant="ghost" className="h-6 w-6 text-red-500" onClick={()=>api.rejectRequest(req.id)}><X className="w-4 h-4"/></Button>
+                                        <Button size="icon" variant="ghost" className="h-6 w-6 text-green-500 hover:bg-green-500/20" onClick={()=>api.approveRequest(req.id)}><Check className="w-4 h-4"/></Button>
+                                        <Button size="icon" variant="ghost" className="h-6 w-6 text-red-500 hover:bg-red-500/20" onClick={()=>api.rejectRequest(req.id)}><X className="w-4 h-4"/></Button>
                                     </div>
                                 </div>
                             ))}
                         </div>
                      )}
-                     
-                     {/* Queued */}
+                     {/* QUEUE */}
                      <div className="space-y-2">
                         <h3 className="text-xs font-bold text-zinc-500 uppercase">In Scaletta ({queuedReqs.length})</h3>
                         {queuedReqs.map((req, i) => (
                            <div key={req.id} className="p-3 bg-zinc-800 rounded flex justify-between items-center group hover:bg-zinc-700 transition">
-                              <div className="flex items-center gap-3 overflow-hidden">
+                              <div className="flex items-center gap-3 overflow-hidden w-2/3">
                                   <span className="text-zinc-500 font-mono text-sm">{i+1}</span>
                                   <div className="truncate">
                                       <div className="font-bold text-sm truncate">{req.title}</div>
-                                      <div className="text-xs text-zinc-400">{req.artist} • {req.user_nickname}</div>
+                                      <div className="text-xs text-zinc-400 truncate">{req.artist} • {req.user_nickname}</div>
                                   </div>
                               </div>
                               <Button size="sm" className="bg-fuchsia-600 h-7 opacity-0 group-hover:opacity-100 transition" onClick={() => handleStartLivePre(req)}>
@@ -441,18 +383,19 @@ export default function AdminDashboard() {
                               </Button>
                            </div>
                         ))}
+                        {queuedReqs.length === 0 && <p className="text-center text-zinc-600 text-xs py-4">Nessuna canzone in coda.</p>}
                      </div>
                   </div>
                )}
 
-               {/* QUIZ LIBRARY */}
+               {/* 2. QUIZ */}
                {libraryTab === 'quiz' && (
                   <div className="space-y-3">
                      <Button className="w-full bg-zinc-800 hover:bg-zinc-700 border border-white/10" onClick={()=>setShowCustomQuizModal(true)}>
                         <Plus className="w-4 h-4 mr-2"/> Crea Quiz Manuale
                      </Button>
                      <h3 className="text-xs font-bold text-zinc-500 uppercase mt-4">Catalogo ({quizCatalog.length})</h3>
-                     {quizCatalog.map((item) => (
+                     {quizCatalog.length === 0 ? <p className="text-xs text-zinc-600">Catalogo vuoto nel DB.</p> : quizCatalog.map((item) => (
                         <div key={item.id} className="p-3 bg-zinc-800 rounded border-l-2 border-transparent hover:border-yellow-500 cursor-pointer" onClick={() => launchCatalogQuiz(item)}>
                            <div className="text-xs text-yellow-500 font-bold mb-1">{item.category}</div>
                            <div className="text-sm font-medium">{item.question}</div>
@@ -460,8 +403,22 @@ export default function AdminDashboard() {
                      ))}
                   </div>
                )}
+
+               {/* 3. SFIDE (RIPRISTINATO) */}
+               {libraryTab === 'challenges' && (
+                   <div className="space-y-3">
+                       <h3 className="text-xs font-bold text-zinc-500 uppercase">Sfide Pronte</h3>
+                       {challenges.map(c => (
+                           <div key={c.id} className="p-3 bg-zinc-800 rounded flex justify-between items-center hover:bg-zinc-700 cursor-pointer" onClick={() => toast.info("Modulo Sfide in arrivo...")}>
+                               <span className="font-bold text-sm">{c.title}</span>
+                               <Swords className="w-4 h-4 text-zinc-500" />
+                           </div>
+                       ))}
+                       <p className="text-xs text-zinc-500 mt-4 text-center">Modulo Sfide: In sviluppo. Sarà attivato col prossimo update DB.</p>
+                   </div>
+               )}
                
-               {/* MESSAGES LIBRARY */}
+               {/* 4. MESSAGGI */}
                {libraryTab === 'messages' && (
                    <div className="space-y-3">
                        <Button className="w-full bg-cyan-900/30 hover:bg-cyan-900/50 text-cyan-400 border border-cyan-500/30" onClick={()=>setShowMessageModal(true)}>
@@ -470,11 +427,11 @@ export default function AdminDashboard() {
                        <h3 className="text-xs font-bold text-zinc-500 uppercase mt-4">In Attesa ({pendingMessages.length})</h3>
                        {pendingMessages.map(msg => (
                            <div key={msg.id} className="p-3 bg-zinc-800 rounded">
-                               <p className="text-sm mb-2">"{msg.text}"</p>
+                               <p className="text-sm mb-2 text-white">"{msg.text}"</p>
                                <p className="text-xs text-zinc-500 mb-2">da {msg.user_nickname}</p>
                                <div className="flex gap-2">
-                                   <Button size="sm" className="flex-1 bg-green-600 h-7" onClick={()=>handleApproveMessage(msg.id)}>Approva</Button>
-                                   <Button size="sm" variant="destructive" className="flex-1 h-7" onClick={()=>handleRejectMessage(msg.id)}>Rifiuta</Button>
+                                   <Button size="sm" className="flex-1 bg-green-600 h-7 text-xs" onClick={()=>api.approveMessage(msg.id)}>Approva</Button>
+                                   <Button size="sm" variant="destructive" className="flex-1 h-7 text-xs" onClick={()=>api.rejectMessage(msg.id)}>Rifiuta</Button>
                                </div>
                            </div>
                        ))}
@@ -483,7 +440,7 @@ export default function AdminDashboard() {
             </ScrollArea>
          </aside>
 
-         {/* RIGHT: LIVE DECK */}
+         {/* DESTRA: LIVE DECK */}
          <main className="col-span-8 bg-black relative flex flex-col">
             
             {/* Live Status Bar */}
@@ -502,18 +459,17 @@ export default function AdminDashboard() {
                {eventState.active_module === 'karaoke' && (
                   <div className="w-full max-w-3xl text-center">
                      {!currentPerformance ? (
-                        <div className="text-zinc-600 flex flex-col items-center">
-                           <Mic2 className="w-24 h-24 mb-4 opacity-10" />
+                        <div className="text-zinc-600 flex flex-col items-center opacity-50">
+                           <ListMusic className="w-24 h-24 mb-4" />
                            <h2 className="text-2xl font-bold mb-2">Deck Karaoke Libero</h2>
                            <p>Scegli una canzone dalla libreria per andare in onda.</p>
                         </div>
                      ) : (
                         <div className="bg-zinc-900/80 backdrop-blur border border-white/10 p-8 rounded-2xl shadow-2xl relative overflow-hidden">
-                           {/* Info */}
                            <div className="mb-8">
                                <h2 className="text-4xl font-black text-white mb-2 leading-tight">{currentPerformance.song_title}</h2>
                                <p className="text-2xl text-fuchsia-400">{currentPerformance.song_artist}</p>
-                               <div className="mt-4 inline-block bg-white/10 px-4 py-1 rounded-full text-sm">🎤 {currentPerformance.user_nickname}</div>
+                               <div className="mt-4 inline-block bg-white/10 px-4 py-1 rounded-full text-sm text-zinc-300">🎤 {currentPerformance.user_nickname}</div>
                            </div>
 
                            {/* Controls */}
@@ -524,13 +480,13 @@ export default function AdminDashboard() {
                                        <Star className="w-8 h-8 text-yellow-500 fill-yellow-500"/>
                                        <span className="text-4xl font-bold text-white">{(currentPerformance.average_score || 0).toFixed(1)}</span>
                                    </div>
-                                   <Button size="lg" className="w-full bg-yellow-500 text-black hover:bg-yellow-400" onClick={()=>ctrlPerf('close_vote')}>CHIUDI VOTAZIONE</Button>
+                                   <Button size="lg" className="w-full bg-yellow-500 text-black hover:bg-yellow-400 font-bold" onClick={()=>ctrlPerf('close_vote')}>CHIUDI VOTAZIONE</Button>
                                </div>
                            ) : (
                                <div className="flex justify-center gap-4">
-                                   {currentPerformance.status === 'live' && <Button size="lg" variant="outline" className="h-16 w-16 rounded-full" onClick={()=>ctrlPerf('pause')}><Pause className="w-6 h-6" /></Button>}
-                                   {currentPerformance.status === 'paused' && <Button size="lg" className="h-16 w-16 rounded-full bg-green-500 hover:bg-green-400" onClick={()=>ctrlPerf('resume')}><Play className="w-6 h-6" /></Button>}
-                                   <Button size="lg" variant="secondary" className="h-16 w-16 rounded-full" onClick={()=>ctrlPerf('restart')}><RotateCcw className="w-6 h-6" /></Button>
+                                   {currentPerformance.status === 'live' && <Button size="lg" variant="outline" className="h-16 w-16 rounded-full border-zinc-700 hover:bg-zinc-800" onClick={()=>ctrlPerf('pause')}><Pause className="w-6 h-6" /></Button>}
+                                   {currentPerformance.status === 'paused' && <Button size="lg" className="h-16 w-16 rounded-full bg-green-500 hover:bg-green-400 text-black" onClick={()=>ctrlPerf('resume')}><Play className="w-6 h-6" /></Button>}
+                                   <Button size="lg" variant="secondary" className="h-16 w-16 rounded-full bg-zinc-800 hover:bg-zinc-700" onClick={()=>ctrlPerf('restart')}><RotateCcw className="w-6 h-6" /></Button>
                                    <Button size="lg" variant="destructive" className="h-16 w-auto px-8 rounded-full" onClick={()=>ctrlPerf('end')}><Square className="w-6 h-6 mr-2" /> STOP & VOTA</Button>
                                </div>
                            )}
@@ -545,26 +501,27 @@ export default function AdminDashboard() {
                      <div className="bg-yellow-950/30 border-2 border-yellow-600/50 p-8 rounded-2xl text-center shadow-[0_0_50px_rgba(234,179,8,0.2)]">
                         <div className="flex justify-center mb-6"><BrainCircuit className="w-16 h-16 text-yellow-500" /></div>
                         
-                        <h2 className="text-3xl font-bold text-white mb-8 bg-black/50 p-4 rounded-xl border border-white/10">
-                           {activeQuizId ? "Domanda in corso..." : "Caricamento..."}
+                        <h2 className="text-3xl font-bold text-white mb-8 bg-black/50 p-4 rounded-xl border border-white/10 min-h-[100px] flex items-center justify-center">
+                           {activeQuizId ? "Domanda attiva sugli schermi" : "Nessun Quiz Attivo"}
                         </h2>
 
                         {activeQuizId && (
                            <div className="grid grid-cols-2 gap-4">
-                              <Button disabled={quizStatus !== 'active'} className="h-16 text-lg bg-red-600 hover:bg-red-500" onClick={()=>ctrlQuiz('close_vote')}>
+                              <Button disabled={quizStatus !== 'active'} className="h-16 text-lg bg-red-600 hover:bg-red-500 font-bold" onClick={()=>ctrlQuiz('close_vote')}>
                                  🛑 STOP VOTO
                               </Button>
-                              <Button disabled={quizStatus !== 'closed'} className="h-16 text-lg bg-blue-600 hover:bg-blue-500" onClick={()=>ctrlQuiz('show_results')}>
+                              <Button disabled={quizStatus !== 'closed'} className="h-16 text-lg bg-blue-600 hover:bg-blue-500 font-bold" onClick={()=>ctrlQuiz('show_results')}>
                                  🏆 RISULTATI
                               </Button>
-                              <Button className="h-16 col-span-2 text-lg bg-zinc-700 hover:bg-zinc-600" onClick={()=>ctrlQuiz('end')}>
-                                 🚪 CHIUDI QUIZ
+                              <Button className="h-16 col-span-2 text-lg bg-zinc-700 hover:bg-zinc-600 font-bold" onClick={()=>ctrlQuiz('end')}>
+                                 🚪 CHIUDI & ESCI
                               </Button>
                            </div>
                         )}
 
                         {quizResults && (
                             <div className="mt-6 p-4 bg-green-900/20 rounded border border-green-500/30 text-green-400">
+                                <div className="text-xl font-bold mb-2">Statistiche</div>
                                 <div>Risposte Totali: {quizResults.total_answers}</div>
                                 <div>Corrette: {quizResults.correct_count}</div>
                             </div>
@@ -582,32 +539,29 @@ export default function AdminDashboard() {
       {/* YOUTUBE MODAL */}
       <Dialog open={showYoutubeModal} onOpenChange={setShowYoutubeModal}>
         <DialogContent className="bg-zinc-900 border-zinc-800 max-w-3xl">
-          <DialogHeader><DialogTitle>Scegli Video per {selectedRequest?.title}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Video per: {selectedRequest?.title}</DialogTitle></DialogHeader>
           <div className="space-y-4 pt-4">
-              <Tabs defaultValue="search" className="w-full">
-                  <TabsList className="grid w-full grid-cols-2 bg-zinc-800">
-                      <TabsTrigger value="search">Ricerca</TabsTrigger><TabsTrigger value="manual">URL</TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="search" className="space-y-4 mt-4">
-                      <div className="flex gap-2">
-                          <Input value={youtubeSearchQuery} onChange={e=>setYoutubeSearchQuery(e.target.value)} className="bg-zinc-800" onKeyDown={e=>e.key==='Enter'&&searchYouTube()}/>
-                          <Button onClick={searchYouTube} disabled={searchingYoutube}>{searchingYoutube?'...':'Cerca'}</Button>
+              <div className="flex gap-2">
+                  <Input value={youtubeSearchQuery} onChange={e=>setYoutubeSearchQuery(e.target.value)} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Cerca su YouTube..." onKeyDown={e=>e.key==='Enter'&&searchYouTube(youtubeSearchQuery)}/>
+                  <Button onClick={() => searchYouTube(youtubeSearchQuery)} disabled={searchingYoutube} className="bg-zinc-700 hover:bg-zinc-600">{searchingYoutube?'...':'Cerca'}</Button>
+              </div>
+              
+              <div className="max-h-60 overflow-y-auto space-y-2 custom-scrollbar">
+                  {youtubeSearchResults.length === 0 && !searchingYoutube && <p className="text-center text-zinc-500 py-4">Nessun risultato. Prova a cambiare ricerca.</p>}
+                  {youtubeSearchResults.map(vid => (
+                      <div key={vid.id.videoId} className="flex gap-3 p-2 hover:bg-white/5 cursor-pointer rounded transition" onClick={()=>{setYoutubeUrl(`https://www.youtube.com/watch?v=${vid.id.videoId}`); setYoutubeSearchResults([]);}}>
+                          <img src={vid.snippet.thumbnails.default.url} className="w-24 h-16 object-cover rounded" alt="thumb"/>
+                          <div className="flex-1"><div className="font-bold text-sm text-white">{vid.snippet.title}</div><div className="text-xs text-zinc-500">{vid.snippet.channelTitle}</div></div>
+                          <Button size="sm" variant="ghost" className="text-fuchsia-500">Seleziona</Button>
                       </div>
-                      <div className="max-h-60 overflow-y-auto space-y-2">
-                          {youtubeSearchResults.map(vid => (
-                              <div key={vid.id.videoId} className="flex gap-3 p-2 hover:bg-white/5 cursor-pointer rounded" onClick={()=>{setYoutubeUrl(`https://www.youtube.com/watch?v=${vid.id.videoId}`); setYoutubeSearchResults([]);}}>
-                                  <img src={vid.snippet.thumbnails.default.url} className="w-24 h-16 object-cover rounded"/>
-                                  <div className="flex-1"><div className="font-bold text-sm">{vid.snippet.title}</div><div className="text-xs text-zinc-500">{vid.snippet.channelTitle}</div></div>
-                              </div>
-                          ))}
-                      </div>
-                  </TabsContent>
-                  <TabsContent value="manual" className="mt-4">
-                      <Input placeholder="https://youtube.com..." value={youtubeUrl} onChange={e=>setYoutubeUrl(e.target.value)} className="bg-zinc-800"/>
-                  </TabsContent>
-              </Tabs>
-              <div className="p-4 bg-zinc-950 rounded border border-zinc-800 break-all text-xs text-zinc-500">{youtubeUrl || "Nessun video selezionato"}</div>
-              <Button className="w-full bg-green-600 h-12 text-lg" disabled={!youtubeUrl} onClick={startPerformance}>CONFERMA E MANDA IN ONDA</Button>
+                  ))}
+              </div>
+
+              <div className="pt-4 border-t border-white/10">
+                  <p className="text-xs text-zinc-500 mb-2">URL Selezionato:</p>
+                  <Input value={youtubeUrl} onChange={e=>setYoutubeUrl(e.target.value)} className="bg-zinc-950 border-zinc-800 font-mono text-xs mb-4" placeholder="https://youtube.com..."/>
+                  <Button className="w-full bg-green-600 hover:bg-green-500 h-12 text-lg font-bold" disabled={!youtubeUrl} onClick={startPerformance}><Play className="w-5 h-5 mr-2"/> MANDA IN ONDA</Button>
+              </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -617,28 +571,28 @@ export default function AdminDashboard() {
           <DialogContent className="bg-zinc-900 border-zinc-800">
               <DialogHeader><DialogTitle>Crea Quiz al Volo</DialogTitle></DialogHeader>
               <div className="space-y-4 pt-4">
-                  <div><label className="text-xs text-zinc-500">Domanda</label><Textarea value={quizQuestion} onChange={e=>setQuizQuestion(e.target.value)} className="bg-zinc-800"/></div>
+                  <div><label className="text-xs text-zinc-500 mb-1 block">Domanda</label><Textarea value={quizQuestion} onChange={e=>setQuizQuestion(e.target.value)} className="bg-zinc-800 border-zinc-700" placeholder="Scrivi la domanda..."/></div>
                   <div className="space-y-2">
-                      <label className="text-xs text-zinc-500">Opzioni (Spunta la corretta)</label>
+                      <label className="text-xs text-zinc-500 mb-1 block">Opzioni (Spunta la corretta)</label>
                       {quizOptions.map((opt, i) => (
                           <div key={i} className="flex gap-2">
-                              <Input value={opt} onChange={e=>{const n=[...quizOptions]; n[i]=e.target.value; setQuizOptions(n)}} className="bg-zinc-800" placeholder={`Opzione ${i+1}`}/>
-                              <Button size="icon" variant={quizCorrectIndex===i?'default':'outline'} className={quizCorrectIndex===i?'bg-green-600':''} onClick={()=>setQuizCorrectIndex(i)}><Check className="w-4 h-4"/></Button>
+                              <Input value={opt} onChange={e=>{const n=[...quizOptions]; n[i]=e.target.value; setQuizOptions(n)}} className="bg-zinc-800 border-zinc-700" placeholder={`Opzione ${String.fromCharCode(65+i)}`}/>
+                              <Button size="icon" variant={quizCorrectIndex===i?'default':'outline'} className={quizCorrectIndex===i?'bg-green-600 hover:bg-green-500 border-none':''} onClick={()=>setQuizCorrectIndex(i)}><Check className="w-4 h-4"/></Button>
                           </div>
                       ))}
                   </div>
-                  <Button className="w-full bg-fuchsia-600 mt-4" onClick={launchCustomQuiz}>LANCIA SUBITO</Button>
+                  <Button className="w-full bg-fuchsia-600 hover:bg-fuchsia-500 mt-4 h-12 text-lg font-bold" onClick={launchCustomQuiz}>LANCIA QUIZ</Button>
               </div>
           </DialogContent>
       </Dialog>
 
-      {/* BROADCAST MSG MODAL */}
+      {/* MESSAGGI REGIA MODAL */}
       <Dialog open={showMessageModal} onOpenChange={setShowMessageModal}>
           <DialogContent className="bg-zinc-900 border-zinc-800">
               <DialogHeader><DialogTitle>Messaggio Regia</DialogTitle></DialogHeader>
               <div className="space-y-4 pt-4">
-                  <Textarea value={adminMessage} onChange={e=>setAdminMessage(e.target.value)} placeholder="Scrivi avviso..." className="bg-zinc-800 h-32 text-lg"/>
-                  <Button className="w-full bg-cyan-600" onClick={handleBroadcastMessage}><Send className="w-4 h-4 mr-2"/> INVIA AGLI SCHERMI</Button>
+                  <Textarea value={adminMessage} onChange={e=>setAdminMessage(e.target.value)} placeholder="Scrivi avviso per gli schermi..." className="bg-zinc-800 border-zinc-700 h-32 text-lg"/>
+                  <Button className="w-full bg-cyan-600 hover:bg-cyan-500 h-12 font-bold" onClick={handleBroadcastMessage}><Send className="w-4 h-4 mr-2"/> INVIA AGLI SCHERMI</Button>
               </div>
           </DialogContent>
       </Dialog>

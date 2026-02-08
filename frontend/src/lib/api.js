@@ -285,6 +285,7 @@ export const getAdminCurrentPerformance = async () => {
 }
 
 // ============================================
+// ============================================
 // VOTING & MESSAGES
 // ============================================
 
@@ -314,32 +315,34 @@ export const sendReaction = async (data) => {
 export const sendMessage = async (data) => {
   let participantId = null;
   let eventId = null;
-  let status = 'pending';
+  // Se invia l'admin, il messaggio è già approvato, altrimenti è pending
+  let status = data.status || 'pending';
 
-  // Supporto per invio sia da admin (senza token part) che da user
   try {
+     // CASO 1: Utente con telefono (Token presente)
      const p = getParticipantFromToken();
      participantId = p.participant_id;
      eventId = p.event_id;
   } catch (e) {
+     // CASO 2: Regia/Admin (Nessun token partecipante, usiamo il codice locale)
      const pubCode = localStorage.getItem('neonpub_pub_code');
      if(pubCode) {
         const { data: event } = await supabase.from('events').select('id').eq('code', pubCode).single();
         if(event) {
            eventId = event.id;
-           status = data.status || 'pending';
         }
      }
   }
 
-  if (!eventId) throw new Error("Errore contesto evento: ricarica la pagina");
+  if (!eventId) throw new Error("Impossibile inviare il messaggio: evento non trovato.");
+
   const text = typeof data === 'string' ? data : (data.text || data.message);
   
   const { data: message, error } = await supabase
     .from('messages')
     .insert({
       event_id: eventId,
-      participant_id: participantId,
+      participant_id: participantId, // Se null, il sistema capisce che è "Regia"
       text: text,
       status: status
     }).select().single()
@@ -352,7 +355,7 @@ export const getAdminPendingMessages = async () => {
   const event = await getAdminEvent()
   const { data, error } = await supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'pending')
   if (error) throw error
-  return { data: data.map(m => ({...m, user_nickname: m.participants?.nickname})) }
+  return { data: data.map(m => ({...m, user_nickname: m.participants?.nickname || 'Anonimo'})) }
 }
 
 export const approveMessage = async (id) => {
