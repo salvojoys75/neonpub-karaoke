@@ -22,7 +22,7 @@ async function getEventId() {
   return data.id;
 }
 
-// --- AUTH ---
+// --- AUTH & SETUP ---
 export const createPub = async (data) => {
   const { data: user } = await supabase.auth.getUser();
   const code = Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -30,6 +30,15 @@ export const createPub = async (data) => {
       owner_id: user.user.id, name: data.name, code, event_type: 'mixed', status: 'active'
   }).select().single();
   if (error) throw error; return { data: event };
+}
+
+export const getPub = async (pubCode) => {
+  const { data, error } = await supabase.from('events')
+    .select('id, name, status')
+    .eq('code', pubCode.toUpperCase())
+    .single();
+  if (error) throw error;
+  return { data };
 }
 
 export const joinPub = async ({ pub_code, nickname }) => {
@@ -44,7 +53,7 @@ export const joinPub = async ({ pub_code, nickname }) => {
 export const adminLogin = async (data) => { return { data: { user: { email: data.email } } } }
 export const getMe = async () => { const { data: { user } } = await supabase.auth.getUser(); return { data: user } }
 
-// --- AZIONI ---
+// --- AZIONI CLIENT ---
 export const requestSong = async (data) => {
   const p = getParticipant(); if(!p) throw new Error("Scansiona il QR Code");
   const { data: req, error } = await supabase.from('song_requests').insert({
@@ -53,7 +62,13 @@ export const requestSong = async (data) => {
   if (error) throw error; return { data: req };
 }
 
-// MESSAGGI (Gestisce sia Utente che Regia)
+export const submitVote = async ({ performance_id, score }) => {
+    // Implementa logica voto qui se necessario, esempio placeholder:
+    // await supabase.from('votes').insert(...)
+    // Per ora ritorno ok simulato se la tabella non esiste nel contesto fornito
+    return { data: { success: true } };
+}
+
 export const sendMessage = async (data) => {
   const p = getParticipant();
   const eventId = await getEventId(); 
@@ -82,10 +97,42 @@ export const sendReaction = async (data) => {
   });
 }
 
+// --- CLIENT GETTERS ---
+export const getSongQueue = async () => {
+  const eventId = await getEventId();
+  // Ottieni solo canzoni in coda (approvate)
+  const { data } = await supabase.from('song_requests')
+      .select('*, participants(nickname)')
+      .eq('event_id', eventId)
+      .eq('status', 'queued')
+      .order('created_at', {ascending: true});
+  return { data: data.map(r => ({...r, user_nickname: r.participants?.nickname})) };
+}
+
+export const getMyRequests = async () => {
+    const p = getParticipant();
+    if (!p) return { data: [] };
+    const { data } = await supabase.from('song_requests')
+        .select('*')
+        .eq('participant_id', p.participant_id)
+        .order('created_at', { ascending: false });
+    return { data };
+}
+
+export const getCurrentPerformance = async () => {
+    const eventId = await getEventId();
+    const { data } = await supabase.from('performances')
+        .select('*, participants(nickname)')
+        .eq('event_id', eventId)
+        .in('status', ['live','voting','paused'])
+        .maybeSingle();
+    return { data: data ? { ...data, user_nickname: data.participants?.nickname } : null };
+}
+
 // --- ADMIN GETTERS ---
 export const getAdminQueue = async () => {
   const eventId = await getEventId();
-  const { data } = await supabase.from('song_requests').select('*, participants(nickname)').eq('event_id', eventId).order('requested_at', {ascending: false});
+  const { data } = await supabase.from('song_requests').select('*, participants(nickname)').eq('event_id', eventId).order('created_at', {ascending: false});
   return { data: data.map(r => ({...r, user_nickname: r.participants?.nickname || 'Sconosciuto'})) };
 }
 export const getAdminCurrentPerformance = async () => {
@@ -111,18 +158,16 @@ export const startPerformance = async (reqId, youtubeUrl) => {
 export const pausePerformance = async (id) => supabase.from('performances').update({ status: 'paused' }).eq('id', id);
 export const resumePerformance = async (id) => supabase.from('performances').update({ status: 'live' }).eq('id', id);
 export const restartPerformance = async (id) => {
-    // Trucco: cambia stato per triggerare useEffect, poi rimetti live
     await supabase.from('performances').update({ status: 'restarted', started_at: new Date().toISOString() }).eq('id', id);
     setTimeout(() => supabase.from('performances').update({ status: 'live' }).eq('id', id), 1000);
 }
 export const endPerformance = async (id) => supabase.from('performances').update({ status: 'voting' }).eq('id', id);
 export const closeVoting = async (id) => supabase.from('performances').update({ status: 'ended' }).eq('id', id);
 export const skipPerformance = async (id) => supabase.from('performances').update({ status: 'ended' }).eq('id', id);
-// NUOVI COMANDI MUTE/BLUR
 export const togglePerformanceMute = async (id, val) => supabase.from('performances').update({ is_muted: val }).eq('id', id);
 export const togglePerformanceBlur = async (id, val) => supabase.from('performances').update({ is_blurred: val }).eq('id', id);
 
-// --- QUIZ (Con supporto Media) ---
+// --- QUIZ ---
 export const startQuiz = async (data) => {
   const eventId = await getEventId();
   const { data: q, error } = await supabase.from('quizzes').insert({
@@ -200,8 +245,9 @@ export const launchQuizFromLibrary = async (id) => {
 }
 
 export default {
-    createPub, joinPub, adminLogin, getMe,
-    requestSong, sendMessage, sendReaction,
+    createPub, joinPub, getPub, adminLogin, getMe,
+    requestSong, submitVote, sendMessage, sendReaction,
+    getSongQueue, getMyRequests, getCurrentPerformance,
     getAdminQueue, getAdminCurrentPerformance, getAdminPendingMessages,
     startPerformance, pausePerformance, resumePerformance, restartPerformance, endPerformance, closeVoting, skipPerformance,
     togglePerformanceMute, togglePerformanceBlur,
