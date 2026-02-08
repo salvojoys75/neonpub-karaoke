@@ -4,10 +4,9 @@
     "type": "audio",
     "title": "Indovina l'intro",
     "question": "Ascolta e indovina la canzone",
-    "media_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", // Rick Roll example; start at 0, play 5s
+    "media_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     "options": ["Never Gonna Give You Up", "Billie Jean", "Stairway to Heaven", "Smells Like Teen Spirit"],
     "correct_index": 0,
     "points": 20
   }
-  // Aggiungi altri...
 ]
