@@ -337,37 +337,40 @@ export const getLibraryQuizzes = async (category = null) => {
 export const launchQuizFromLibrary = async (libraryId) => {
   const event = await getAdminEvent();
   
-  // Prendi template dalla libreria
-  const { data: template } = await supabase
+  // 1. Recupera Template
+  const { data: template, error: fetchError } = await supabase
     .from('quiz_library')
     .select('*')
     .eq('id', libraryId)
     .single();
     
-  if (!template) throw new Error("Quiz non trovato in libreria");
+  if (fetchError || !template) throw new Error("Quiz non trovato");
 
-  // --- FIX SICUREZZA DATI ---
-  // Assicuriamoci che options sia un Array reale e non una stringa
-  let cleanOptions = template.options;
-  if (typeof cleanOptions === 'string') {
-    try {
-      cleanOptions = JSON.parse(cleanOptions);
-    } catch (e) {
-      console.error("Errore parsing opzioni:", e);
-      // Fallback: proviamo a splittare se è una stringa separata da virgole, o array vuoto
-      cleanOptions = cleanOptions.includes(',') ? cleanOptions.split(',') : ["Sì", "No"];
-    }
+  // 2. Normalizza Opzioni (Assicura che sia un Array)
+  let safeOptions = template.options;
+  
+  // Se per qualche motivo arriva come stringa, prova a parsarla
+  if (typeof safeOptions === 'string') {
+     try {
+        safeOptions = JSON.parse(safeOptions);
+     } catch (e) {
+        // Fallback estremo: splitta per virgola o usa default
+        safeOptions = safeOptions.includes(',') ? safeOptions.split(',') : ["A", "B", "C", "D"];
+     }
   }
-  // --------------------------
 
-  // Crea quiz attivo usando le opzioni pulite
+  // Se non è array nemmeno ora, forza un array di default
+  if (!Array.isArray(safeOptions)) {
+     safeOptions = ["Opzione 1", "Opzione 2", "Opzione 3", "Opzione 4"];
+  }
+
+  // 3. Crea Quiz Attivo
   const { data: activeQuiz, error } = await supabase.from('quizzes').insert({
       event_id: event.id,
       category: template.category,
       question: template.question,
-      options: cleanOptions, // Usiamo la versione sicura
+      options: safeOptions, // Usa le opzioni pulite
       correct_index: template.correct_index,
-      media_url: template.media_url, 
       points: template.points,
       status: 'active'
     }).select().single();
