@@ -4,17 +4,17 @@ import { toast } from "sonner";
 import {
   Music, Play, Square, Trophy, Tv, Star, HelpCircle,
   Check, X, MessageSquare, LogOut, SkipForward, Pause,
-  RotateCcw, Mic2, Search, Send, Coins, Users, Plus, ArrowLeft
+  RotateCcw, Mic2, Search, Send, Coins, ArrowLeft
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"; // Aggiunto per la UI Admin
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"; 
 import { useAuth } from "@/context/AuthContext";
-import { supabase } from "@/lib/supabase"; // Aggiunto per gestione crediti
-import api, { createPub } from "@/lib/api"; // Aggiunto createPub
+import { supabase } from "@/lib/supabase"; 
+import api, { createPub } from "@/lib/api"; 
 
 const QUIZ_CATEGORIES = [
   { id: "music_general", name: "Musica Generale" },
@@ -29,7 +29,7 @@ const QUIZ_CATEGORIES = [
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
-  const { isAuthenticated, logout, user } = useAuth(); // Ho rimosso isAdmin da qui perché lo gestiamo col DB
+  const { isAuthenticated, logout } = useAuth();
  
   // --- NUOVI STATI PER GESTIONE CREDITI E RUOLI ---
   const [appState, setAppState] = useState("loading"); // 'loading', 'super_admin', 'setup', 'dashboard'
@@ -43,9 +43,8 @@ export default function AdminDashboard() {
   // Stati Setup Evento
   const [newEventName, setNewEventName] = useState("");
   const [creatingEvent, setCreatingEvent] = useState(false);
-  // ------------------------------------------------
 
-  // --- STATI TUA DASHBOARD ORIGINALE ---
+  // --- STATI DASHBOARD ---
   const [queue, setQueue] = useState([]);
   const [currentPerformance, setCurrentPerformance] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
@@ -84,10 +83,9 @@ export default function AdminDashboard() {
   }, [isAuthenticated]);
 
   const checkUserProfile = async () => {
-    if (!isAuthenticated) return; // Lasciamo gestire il redirect al AuthContext o useEffect sotto
+    if (!isAuthenticated) return; 
     
     try {
-      // 1. Prendi il profilo dal DB (per vedere crediti e ruolo)
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
@@ -109,7 +107,6 @@ export default function AdminDashboard() {
 
       setProfile(userProfile);
 
-      // 2. Decidi cosa mostrare
       if (userProfile.role === 'super_admin') {
         setAppState("super_admin");
         fetchOperators();
@@ -118,14 +115,16 @@ export default function AdminDashboard() {
         const storedCode = localStorage.getItem("neonpub_pub_code");
         if (storedCode) {
           setPubCode(storedCode);
-          setAppState("dashboard"); // Ha già un evento attivo, mostra la TUA dashboard
+          setAppState("dashboard");
         } else {
-          setAppState("setup"); // Deve creare l'evento
+          setAppState("setup");
         }
       }
     } catch (error) {
       console.error("Errore check profile:", error);
-      toast.error("Errore caricamento profilo");
+      // Non blocchiamo, proviamo a caricare dashboard se c'è codice
+      if (localStorage.getItem("neonpub_pub_code")) setAppState("dashboard");
+      else setAppState("setup");
     }
   };
 
@@ -135,55 +134,35 @@ export default function AdminDashboard() {
     navigate("/");
   };
 
-  // --- LOGICA SUPER ADMIN (Nuova) ---
+  // --- LOGICA SUPER ADMIN ---
   const fetchOperators = async () => {
     const { data } = await supabase.from('profiles').select('*').neq('role', 'super_admin');
     setOperators(data || []);
   };
 
-const handleCreateOperator = async (e) => {
+  const handleCreateOperator = async (e) => {
     e.preventDefault();
     if(!newOperatorEmail || !newOperatorPassword) return;
     
-    // Avviso l'admin che verra scollegato
     const confirm = window.confirm("ATTENZIONE: Creando un nuovo utente verrai scollegato dall'Admin e loggato come il nuovo utente. Vuoi procedere?");
     if (!confirm) return;
 
     try {
-      // 1. Crea l'utente nell'autenticazione (Questo provoca il cambio sessione immediato)
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: newOperatorEmail,
         password: newOperatorPassword,
-        options: {
-          data: {
-            role: 'operator', // Salviamo il ruolo anche nei metadati
-          }
-        }
+        options: { data: { role: 'operator' } }
       });
 
       if (authError) throw authError;
 
-      // 2. Aggiungi il profilo nel database (Se non lo fa il trigger automatico)
       if (authData.user) {
-          // Nota: Spesso supabase crea il profilo in automatico se c'è un trigger, 
-          // ma per sicurezza proviamo a inserirlo o aggiornarlo.
           const { error: profileError } = await supabase
             .from('profiles')
-            .upsert([
-                { 
-                    id: authData.user.id, 
-                    email: newOperatorEmail, 
-                    role: 'operator', 
-                    credits: 5 // Regaliamo 5 crediti di benvenuto
-                }
-            ]);
-            
+            .upsert([{ id: authData.user.id, email: newOperatorEmail, role: 'operator', credits: 5 }]); 
           if (profileError) console.error("Errore profilo:", profileError);
       }
-
       toast.success("Operatore creato! Ora sei loggato con il nuovo account.");
-      // Qui la pagina si ricaricherà da sola perché l'utente è cambiato
-
     } catch (error) {
       toast.error("Errore creazione: " + error.message);
     }
@@ -202,18 +181,16 @@ const handleCreateOperator = async (e) => {
     }
   };
 
-  // --- LOGICA SETUP EVENTO (Operatore) ---
+  // --- LOGICA SETUP EVENTO ---
   const handleStartEvent = async (e) => {
     e.preventDefault();
     if (!newEventName) return toast.error("Inserisci nome evento");
-    if (profile.credits < 1) return toast.error("Crediti insufficienti! Contatta l'amministrazione.");
+    if (profile?.credits < 1) return toast.error("Crediti insufficienti! Contatta l'amministrazione.");
 
     setCreatingEvent(true);
     try {
-        // 1. Crea il Pub
         const { data: pubData } = await createPub({ name: newEventName });
         
-        // 2. Scala i crediti
         const { error: creditError } = await supabase
             .from('profiles')
             .update({ credits: profile.credits - 1 })
@@ -221,13 +198,12 @@ const handleCreateOperator = async (e) => {
 
         if(creditError) console.error("Errore scalo crediti", creditError);
 
-        // Aggiorna stato locale
         setProfile(prev => ({ ...prev, credits: prev.credits - 1 }));
         localStorage.setItem("neonpub_pub_code", pubData.code);
         setPubCode(pubData.code);
         
         toast.success("Evento Iniziato!");
-        setAppState("dashboard"); // Passa alla dashboard vera e propria
+        setAppState("dashboard");
     } catch (error) {
         toast.error("Errore avvio evento: " + error.message);
     } finally {
@@ -235,8 +211,7 @@ const handleCreateOperator = async (e) => {
     }
   };
 
-  // --- LOGICA TUA DASHBOARD (Load Data, Polling, etc.) ---
-  
+  // --- LOGICA DASHBOARD (Polling) ---
   const loadData = useCallback(async () => {
     if (!pubCode || appState !== 'dashboard') return;
     try {
@@ -252,7 +227,6 @@ const handleCreateOperator = async (e) => {
       setPendingMessages(messagesRes.data || []);
     } catch (error) {
       console.error("Error loading data:", error);
-      // Se da 401 o 404 forse l'evento è scaduto
     }
   }, [pubCode, appState]);
 
@@ -264,7 +238,7 @@ const handleCreateOperator = async (e) => {
     }
   }, [isAuthenticated, appState, pubCode, loadData]);
 
-  // ... (Tutte le tue funzioni esistenti rimangono uguali) ...
+  // Funzioni Dashboard
   const searchYouTube = async () => {
     if (!youtubeSearchQuery.trim()) { toast.error("Inserisci una ricerca"); return; }
     setSearchingYoutube(true);
@@ -282,10 +256,7 @@ const handleCreateOperator = async (e) => {
     } finally { setSearchingYoutube(false); }
   };
 
-  const selectYouTubeVideo = (videoId) => {
-    setYoutubeUrl(`https://www.youtube.com/watch?v=${videoId}`);
-    setYoutubeSearchResults([]);
-  };
+  const selectYouTubeVideo = (videoId) => { setYoutubeUrl(`https://www.youtube.com/watch?v=${videoId}`); setYoutubeSearchResults([]); };
   const handleApprove = async (id) => { try { await api.approveRequest(id); toast.success("Richiesta approvata!"); loadData(); } catch (error) { toast.error("Errore approvazione"); } };
   const handleReject = async (id) => { try { await api.rejectRequest(id); toast.success("Richiesta rifiutata"); loadData(); } catch (error) { toast.error("Errore rifiuto"); } };
   const handleStartLive = (request) => { setSelectedRequest(request); setYoutubeUrl(request.youtube_url || ""); setYoutubeSearchQuery(`${request.title} ${request.artist} karaoke`); setYoutubeSearchResults([]); setShowYoutubeModal(true); };
@@ -300,11 +271,10 @@ const handleCreateOperator = async (e) => {
   const handleRejectMessage = async (messageId) => { try { await api.rejectMessage(messageId); toast.success("Messaggio rifiutato"); loadData(); } catch (error) { toast.error("Errore rifiuto messaggio"); } };
   const handleBroadcastMessage = async () => { if (!adminMessage.trim()) return; try { await api.sendMessage({ text: adminMessage, status: 'approved' }); toast.success("Messaggio inviato agli schermi!"); setShowMessageModal(false); setAdminMessage(""); } catch (error) { toast.error("Errore invio messaggio"); } };
   
-  // Quiz Logic
+  // Quiz
   const handleStartQuiz = async (e) => { e.preventDefault(); if (quizTab === "custom") { if (!quizQuestion.trim() || quizOptions.some(o => !o.trim())) { toast.error("Compila tutti i campi"); return; } try { const { data } = await api.startQuiz({ category: "custom", question: quizQuestion, options: quizOptions, correct_index: quizCorrectIndex, points: 10 }); setActiveQuizId(data.id); setQuizStatus('active'); setQuizResults(null); toast.success("Quiz lanciato! Aspetta le risposte..."); setShowQuizModal(false); } catch (error) { toast.error("Errore lancio quiz"); } } else { toast.info(`Quiz categoria "${quizCategory}" - funzione da implementare`); } };
   const handleShowResults = async () => { if (!activeQuizId) return; try { await api.showQuizResults(activeQuizId); const { data } = await api.getQuizResults(activeQuizId); setQuizResults(data); setQuizStatus('showing_results'); toast.success("Risultati mostrati!"); } catch (error) { toast.error("Errore mostra risultati"); } };
-  const handleNextQuestion = () => { setActiveQuizId(null); setQuizStatus(null); setQuizResults(null); setQuizQuestion(""); setQuizOptions(["", "", "", ""]); setQuizCorrectIndex(0); setShowQuizModal(true); toast.info("Prepara la prossima domanda"); };
-  const handleEndQuiz = async () => { if (!activeQuizId) return; try { await api.endQuiz(activeQuizId); const { data } = await api.getQuizLeaderboard(); setLeaderboard(data); toast.success("Quiz terminato! Classifica finale aggiornata"); setActiveQuizId(null); setQuizStatus(null); setQuizResults(null); setQuizQuestion(""); setQuizOptions(["", "", "", ""]); setQuizCorrectIndex(0); loadData(); } catch (error) { toast.error("Errore fine quiz"); } };
+  const handleEndQuiz = async () => { if (!activeQuizId) return; try { await api.endQuiz(activeQuizId); const { data } = await api.getQuizLeaderboard(); setLeaderboard(data); toast.success("Quiz terminato!"); setActiveQuizId(null); setQuizStatus(null); setQuizResults(null); setQuizQuestion(""); setQuizOptions(["", "", "", ""]); setQuizCorrectIndex(0); loadData(); } catch (error) { toast.error("Errore fine quiz"); } };
   
   const handleOpenDisplay = () => {
     const width = 1280; const height = 720; const left = (window.screen.width - width) / 2; const top = (window.screen.height - height) / 2;
@@ -314,11 +284,10 @@ const handleCreateOperator = async (e) => {
   const pendingRequests = queue.filter(r => r.status === "pending");
   const queuedRequests = queue.filter(r => r.status === "queued");
 
-  // --- RENDER CONDITIONALE ---
-
+  // --- RENDER ---
   if (appState === 'loading') return <div className="min-h-screen bg-black text-white flex items-center justify-center">Caricamento...</div>;
 
-  // --- VISTA 1: SUPER ADMIN DASHBOARD ---
+  // SUPER ADMIN UI
   if (appState === 'super_admin') {
     return (
         <div className="min-h-screen bg-zinc-950 text-white p-6">
@@ -360,7 +329,7 @@ const handleCreateOperator = async (e) => {
     );
   }
 
-  // --- VISTA 2: OPERATORE SETUP (LOBBY) ---
+  // SETUP EVENTO UI
   if (appState === 'setup') {
       return (
         <div className="min-h-screen bg-zinc-950 text-white p-6 flex items-center justify-center">
@@ -398,7 +367,7 @@ const handleCreateOperator = async (e) => {
       );
   }
 
-  // --- VISTA 3: LA TUA DASHBOARD ORIGINALE (Regia) ---
+  // DASHBOARD UI (TUA ORIGINALE)
   return (
     <div className="min-h-screen bg-[#050505] flex text-white">
       {/* Sidebar */}
@@ -441,7 +410,6 @@ const handleCreateOperator = async (e) => {
             <MessageSquare className="w-4 h-4 mr-2" /> Messaggi Regia
           </Button>
           <Button onClick={() => {
-              // Permette di chiudere l'evento e tornare alla "Lobby" operatori
               if(window.confirm("Vuoi chiudere l'evento corrente?")) {
                   localStorage.removeItem("neonpub_pub_code");
                   setPubCode(null);
@@ -456,7 +424,7 @@ const handleCreateOperator = async (e) => {
         </div>
       </aside>
 
-      {/* Main Content (Tutto il codice tuo originale) */}
+      {/* Main Content */}
       <main className="flex-1 p-8 overflow-y-auto">
         {currentPerformance && (
           <div className="glass rounded-2xl p-6 mb-8 bg-zinc-900 border border-zinc-800">
@@ -504,7 +472,7 @@ const handleCreateOperator = async (e) => {
           </div>
         )}
 
-        {/* Sections */}
+        {/* ... (SEZIONI QUEUE, MESSAGES, QUIZ, LEADERBOARD RIMANGONO UGUALI) ... */}
         {activeSection === "queue" && (
           <div className="space-y-8">
             <div>
@@ -513,11 +481,7 @@ const handleCreateOperator = async (e) => {
                 <div className="space-y-3">
                   {pendingRequests.map((req) => (
                     <div key={req.id} className="glass rounded-xl p-5 flex items-center gap-4 bg-zinc-900 border border-zinc-800">
-                      <div className="flex-1">
-                        <p className="font-bold text-lg">{req.title}</p>
-                        <p className="text-zinc-400">{req.artist}</p>
-                        <p className="text-cyan-400 text-sm mt-1">🎤 {req.user_nickname}</p>
-                      </div>
+                      <div className="flex-1"><p className="font-bold text-lg">{req.title}</p><p className="text-zinc-400">{req.artist}</p><p className="text-cyan-400 text-sm mt-1">🎤 {req.user_nickname}</p></div>
                       <div className="flex gap-2">
                         <Button onClick={() => handleApprove(req.id)} size="sm" className="bg-green-500/20 text-green-400 hover:bg-green-500/30"><Check className="w-4 h-4" /></Button>
                         <Button onClick={() => handleStartLive(req)} size="sm" className="bg-fuchsia-500 hover:bg-fuchsia-600"><Play className="w-4 h-4" /></Button>
@@ -528,7 +492,6 @@ const handleCreateOperator = async (e) => {
                 </div>
               )}
             </div>
-
             <div>
               <h2 className="text-2xl font-bold mb-4 text-white">In Coda ({queuedRequests.length})</h2>
               {queuedRequests.length === 0 ? <p className="text-zinc-500 py-8 text-center">Nessuna canzone in coda</p> : (
@@ -536,11 +499,7 @@ const handleCreateOperator = async (e) => {
                   {queuedRequests.map((req, idx) => (
                     <div key={req.id} className="glass rounded-xl p-5 flex items-center gap-4 bg-zinc-900 border border-zinc-800">
                       <span className="text-3xl font-bold text-fuchsia-400 w-12">{idx + 1}</span>
-                      <div className="flex-1">
-                        <p className="font-bold text-lg">{req.title}</p>
-                        <p className="text-zinc-400">{req.artist}</p>
-                        <p className="text-cyan-400 text-sm mt-1">🎤 {req.user_nickname}</p>
-                      </div>
+                      <div className="flex-1"><p className="font-bold text-lg">{req.title}</p><p className="text-zinc-400">{req.artist}</p><p className="text-cyan-400 text-sm mt-1">🎤 {req.user_nickname}</p></div>
                       {!currentPerformance && <Button onClick={() => handleStartLive(req)} className="bg-fuchsia-500 hover:bg-fuchsia-600"><Play className="w-5 h-5 mr-2" /> Avvia</Button>}
                     </div>
                   ))}
@@ -550,7 +509,6 @@ const handleCreateOperator = async (e) => {
           </div>
         )}
 
-        {/* MESSAGES */}
         {activeSection === "messages" && (
           <div>
             <h2 className="text-2xl font-bold mb-6 text-white">Messaggi da Approvare</h2>
@@ -558,14 +516,8 @@ const handleCreateOperator = async (e) => {
               <div className="space-y-3">
                 {pendingMessages.map((msg) => (
                   <div key={msg.id} className="glass rounded-xl p-5 bg-zinc-900 border border-zinc-800">
-                    <div className="mb-4">
-                      <p className="text-xs text-zinc-500 mb-1">Da: {msg.user_nickname}</p>
-                      <p className="text-lg">{msg.text}</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button onClick={() => handleApproveMessage(msg.id)} className="flex-1 bg-green-500 hover:bg-green-600"><Check className="w-4 h-4 mr-2" /> Approva e Mostra</Button>
-                      <Button onClick={() => handleRejectMessage(msg.id)} variant="destructive" className="flex-1"><X className="w-4 h-4 mr-2" /> Rifiuta</Button>
-                    </div>
+                    <div className="mb-4"><p className="text-xs text-zinc-500 mb-1">Da: {msg.user_nickname}</p><p className="text-lg">{msg.text}</p></div>
+                    <div className="flex gap-2"><Button onClick={() => handleApproveMessage(msg.id)} className="flex-1 bg-green-500 hover:bg-green-600"><Check className="w-4 h-4 mr-2" /> Approva e Mostra</Button><Button onClick={() => handleRejectMessage(msg.id)} variant="destructive" className="flex-1"><X className="w-4 h-4 mr-2" /> Rifiuta</Button></div>
                   </div>
                 ))}
               </div>
@@ -573,8 +525,7 @@ const handleCreateOperator = async (e) => {
           </div>
         )}
 
-       {/* QUIZ */}
-        {activeSection === "quiz" && (
+       {activeSection === "quiz" && (
           <div>
             <h2 className="text-2xl font-bold mb-6 text-white">Gestione Quiz Live</h2>
             {!activeQuizId ? (
@@ -596,27 +547,9 @@ const handleCreateOperator = async (e) => {
                   </div>
                   <p className="text-2xl font-medium mb-8 text-center bg-black/30 p-4 rounded-xl">{quizQuestion}</p>
                   <div className="grid grid-cols-4 gap-4 mb-8">
-                     <Button 
-                        onClick={async () => {
-                           try { await api.closeQuizVoting(activeQuizId); setQuizStatus('closed'); toast.success("Televoto chiuso! Telefoni bloccati."); } catch(e) { toast.error("Errore chiusura"); }
-                        }}
-                        disabled={quizStatus !== 'active'}
-                        className="h-16 text-lg bg-red-600 hover:bg-red-700 disabled:opacity-20"
-                     >🛑 1. STOP VOTO</Button>
-
-                     <Button 
-                        onClick={handleShowResults}
-                        disabled={quizStatus !== 'closed'}
-                        className="h-16 text-lg bg-yellow-500 hover:bg-yellow-600 text-black disabled:opacity-20"
-                     >🏆 2. MOSTRA RISULTATI</Button>
-
-                     <Button 
-                        onClick={async () => {
-                           try { const { data } = await api.getQuizLeaderboard(); setLeaderboard(data); toast.success("Classifica aggiornata"); } catch(e) { toast.error("Errore classifica"); }
-                        }}
-                        className="h-16 text-lg bg-blue-600 hover:bg-blue-700"
-                     >📊 3. AGGIORNA CLASSIFICA</Button>
-
+                     <Button onClick={async () => { try { await api.closeQuizVoting(activeQuizId); setQuizStatus('closed'); toast.success("Televoto chiuso!"); } catch(e) { toast.error("Errore chiusura"); } }} disabled={quizStatus !== 'active'} className="h-16 text-lg bg-red-600 hover:bg-red-700 disabled:opacity-20">🛑 1. STOP VOTO</Button>
+                     <Button onClick={handleShowResults} disabled={quizStatus !== 'closed'} className="h-16 text-lg bg-yellow-500 hover:bg-yellow-600 text-black disabled:opacity-20">🏆 2. MOSTRA RISULTATI</Button>
+                     <Button onClick={async () => { try { const { data } = await api.getQuizLeaderboard(); setLeaderboard(data); toast.success("Classifica aggiornata"); } catch(e) { toast.error("Errore classifica"); } }} className="h-16 text-lg bg-blue-600 hover:bg-blue-700">📊 3. AGGIORNA CLASSIFICA</Button>
                      <Button onClick={handleEndQuiz} className="h-16 text-lg bg-zinc-700 hover:bg-zinc-600">🏁 4. FINE / PROSSIMA</Button>
                   </div>
                   {quizResults && (
@@ -632,7 +565,6 @@ const handleCreateOperator = async (e) => {
           </div>
         )}
 
-        {/* LEADERBOARD */}
         {activeSection === "leaderboard" && (
           <div>
             <h2 className="text-2xl font-bold mb-6 text-white">Classifica</h2>
@@ -650,49 +582,6 @@ const handleCreateOperator = async (e) => {
           </div>
         )}
       </main>
-
-      {/* Quiz Floating Button */}
-      {!activeQuizId && (
-        <div className="fixed bottom-8 right-8">
-          <Button onClick={() => setShowQuizModal(true)} className="bg-fuchsia-500 hover:bg-fuchsia-600 rounded-full shadow-2xl" size="lg"><HelpCircle className="w-5 h-5 mr-2" /> Lancia Quiz</Button>
-        </div>
-      )}
-
-      {/* YouTube Modal */}
-      <Dialog open={showYoutubeModal} onOpenChange={setShowYoutubeModal}>
-        <DialogContent className="bg-zinc-900 border-zinc-800 max-w-3xl">
-          <DialogHeader><DialogTitle>Scegli Video YouTube</DialogTitle></DialogHeader>
-          <div className="space-y-4 mt-4">
-            <div><p className="text-lg font-bold mb-1">{selectedRequest?.title}</p><p className="text-zinc-400">{selectedRequest?.artist}</p></div>
-            <Tabs defaultValue="search" className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="search">Ricerca Auto</TabsTrigger>
-                <TabsTrigger value="manual">URL Manuale</TabsTrigger>
-              </TabsList>
-              <TabsContent value="search" className="space-y-4">
-                <div className="flex gap-2">
-                  <Input value={youtubeSearchQuery} onChange={(e) => setYoutubeSearchQuery(e.target.value)} placeholder="Cerca video karaoke..." className="bg-zinc-800 border-zinc-700" onKeyPress={(e) => e.key === 'Enter' && searchYouTube()} />
-                  <Button onClick={searchYouTube} disabled={searchingYoutube}><Search className="w-4 h-4" /></Button>
-                </div>
-                {youtubeSearchResults.length > 0 && (
-                  <div className="space-y-2 max-h-96 overflow-y-auto">
-                    {youtubeSearchResults.map(video => (
-                      <div key={video.id.videoId} onClick={() => selectYouTubeVideo(video.id.videoId)} className="glass rounded-lg p-3 flex gap-3 cursor-pointer hover:bg-white/10 transition bg-zinc-800">
-                        <img src={video.snippet.thumbnails.default.url} alt={video.snippet.title} className="w-24 h-18 rounded object-cover" />
-                        <div className="flex-1 min-w-0"><p className="font-medium truncate">{video.snippet.title}</p><p className="text-sm text-zinc-500">{video.snippet.channelTitle}</p></div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </TabsContent>
-              <TabsContent value="manual">
-                <Input value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=..." className="bg-zinc-800 border-zinc-700" />
-              </TabsContent>
-            </Tabs>
-            <Button onClick={startPerformance} disabled={!youtubeUrl.trim()} className="w-full bg-green-500 hover:bg-green-600" size="lg"><Play className="w-5 h-5 mr-2" /> Avvia Esibizione</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Quiz Modal */}
       <Dialog open={showQuizModal} onOpenChange={setShowQuizModal}>
@@ -726,28 +615,38 @@ const handleCreateOperator = async (e) => {
         </DialogContent>
       </Dialog>
 
+      {/* YouTube Modal */}
+      <Dialog open={showYoutubeModal} onOpenChange={setShowYoutubeModal}>
+        <DialogContent className="bg-zinc-900 border-zinc-800 max-w-3xl">
+          <DialogHeader><DialogTitle>Scegli Video YouTube</DialogTitle></DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div><p className="text-lg font-bold mb-1">{selectedRequest?.title}</p><p className="text-zinc-400">{selectedRequest?.artist}</p></div>
+            <Tabs defaultValue="search" className="w-full">
+              <TabsList className="grid w-full grid-cols-2"><TabsTrigger value="search">Ricerca Auto</TabsTrigger><TabsTrigger value="manual">URL Manuale</TabsTrigger></TabsList>
+              <TabsContent value="search" className="space-y-4">
+                <div className="flex gap-2"><Input value={youtubeSearchQuery} onChange={(e) => setYoutubeSearchQuery(e.target.value)} placeholder="Cerca video karaoke..." className="bg-zinc-800 border-zinc-700" onKeyPress={(e) => e.key === 'Enter' && searchYouTube()} /><Button onClick={searchYouTube} disabled={searchingYoutube}><Search className="w-4 h-4" /></Button></div>
+                {youtubeSearchResults.length > 0 && <div className="space-y-2 max-h-96 overflow-y-auto">{youtubeSearchResults.map(video => <div key={video.id.videoId} onClick={() => selectYouTubeVideo(video.id.videoId)} className="glass rounded-lg p-3 flex gap-3 cursor-pointer hover:bg-white/10 transition bg-zinc-800"><img src={video.snippet.thumbnails.default.url} alt={video.snippet.title} className="w-24 h-18 rounded object-cover" /><div className="flex-1 min-w-0"><p className="font-medium truncate">{video.snippet.title}</p><p className="text-sm text-zinc-500">{video.snippet.channelTitle}</p></div></div>)}</div>}
+              </TabsContent>
+              <TabsContent value="manual"><Input value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=..." className="bg-zinc-800 border-zinc-700" /></TabsContent>
+            </Tabs>
+            <Button onClick={startPerformance} disabled={!youtubeUrl.trim()} className="w-full bg-green-500 hover:bg-green-600" size="lg"><Play className="w-5 h-5 mr-2" /> Avvia Esibizione</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Messages Regia Modal */}
       <Dialog open={showMessageModal} onOpenChange={setShowMessageModal}>
         <DialogContent className="bg-zinc-900 border-zinc-800">
-          <DialogHeader>
-            <DialogTitle>Invia Messaggio a Schermo</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Invia Messaggio a Schermo</DialogTitle></DialogHeader>
           <div className="space-y-4 mt-4">
-            <Textarea 
-              value={adminMessage}
-              onChange={(e) => setAdminMessage(e.target.value)}
-              placeholder="Scrivi un avviso per il pubblico..."
-              className="bg-zinc-800 border-zinc-700 min-h-[100px]"
-            />
+            <Textarea value={adminMessage} onChange={(e) => setAdminMessage(e.target.value)} placeholder="Scrivi un avviso per il pubblico..." className="bg-zinc-800 border-zinc-700 min-h-[100px]" />
             <div className="grid grid-cols-2 gap-2">
               <Button onClick={() => setAdminMessage("🎉 Benvenuti al Karaoke! 🎉")} variant="outline" className="text-xs">Benvenuti</Button>
               <Button onClick={() => setAdminMessage("🍺 Happy Hour al Bar! 🍺")} variant="outline" className="text-xs">Happy Hour</Button>
               <Button onClick={() => setAdminMessage("👏 Applausi per il cantante! 👏")} variant="outline" className="text-xs">Applausi</Button>
               <Button onClick={() => setAdminMessage("🤫 Silenzio in sala per favore")} variant="outline" className="text-xs">Silenzio</Button>
             </div>
-            <Button onClick={handleBroadcastMessage} className="w-full bg-cyan-600 hover:bg-cyan-700">
-              <Send className="w-4 h-4 mr-2" /> Invia a Tutti
-            </Button>
+            <Button onClick={handleBroadcastMessage} className="w-full bg-cyan-600 hover:bg-cyan-700"><Send className="w-4 h-4 mr-2" /> Invia a Tutti</Button>
           </div>
         </DialogContent>
       </Dialog>

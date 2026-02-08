@@ -1,3 +1,4 @@
+// src/lib/api.js - VERSIONE COMPLETA CON LIBRERIA E SFIDE
 import { supabase } from './supabase'
 
 // ============================================
@@ -156,7 +157,7 @@ export const rejectRequest = async (requestId) => {
 }
 
 // ============================================
-// PERFORMANCES
+// PERFORMANCES & CHALLENGES CONTROL
 // ============================================
 
 export const startPerformance = async (requestId, youtubeUrl) => {
@@ -206,6 +207,17 @@ export const restartPerformance = async (performanceId) => {
 
 export const skipPerformance = async (performanceId) => {
   const { data, error } = await supabase.from('performances').update({ status: 'ended' }).eq('id', performanceId).select()
+  if (error) throw error; return { data };
+}
+
+// --- NUOVI COMANDI SFIDE (Mute / Blur) ---
+export const togglePerformanceMute = async (performanceId, isMuted) => {
+  const { data, error } = await supabase.from('performances').update({ is_muted: isMuted }).eq('id', performanceId).select();
+  if (error) throw error; return { data };
+}
+
+export const togglePerformanceBlur = async (performanceId, isBlurred) => {
+  const { data, error } = await supabase.from('performances').update({ is_blurred: isBlurred }).eq('id', performanceId).select();
   if (error) throw error; return { data };
 }
 
@@ -304,9 +316,46 @@ export const rejectMessage = async (id) => {
 }
 
 // ============================================
-// QUIZ (LOGICA CORRETTA PUNTEGGI)
+// QUIZ LIBRARY & LIVE (NUOVO)
 // ============================================
 
+// 1. Importazione massiva (ChatGPT -> DB)
+export const importQuizBatch = async (jsonData) => {
+  const { data, error } = await supabase.from('quiz_library').insert(jsonData).select();
+  if (error) throw error; return { data };
+}
+
+// 2. Lettura libreria
+export const getLibraryQuizzes = async (category = null) => {
+  let query = supabase.from('quiz_library').select('*');
+  if (category) query = query.eq('category', category);
+  const { data, error } = await query.limit(50);
+  if (error) throw error; return { data };
+}
+
+// 3. Lancio quiz dalla libreria
+export const launchQuizFromLibrary = async (libraryId) => {
+  const event = await getAdminEvent();
+  
+  // Prendi template
+  const { data: template } = await supabase.from('quiz_library').select('*').eq('id', libraryId).single();
+    
+  // Crea quiz attivo
+  const { data: activeQuiz, error } = await supabase.from('quizzes').insert({
+      event_id: event.id,
+      category: template.category,
+      question: template.question,
+      options: template.options,
+      correct_index: template.correct_index,
+      media_url: template.media_url, // Supporto media
+      points: template.points,
+      status: 'active'
+    }).select().single();
+
+  if (error) throw error; return { data: activeQuiz };
+}
+
+// 4. Lancio quiz manuale (vecchio metodo)
 export const startQuiz = async (data) => {
   const event = await getAdminEvent()
   const { data: quiz, error } = await supabase.from('quizzes').insert({
@@ -322,8 +371,7 @@ export const closeQuizVoting = async (quizId) => {
 
 export const showQuizResults = async (quizId) => {
   const { data, error } = await supabase.from('quizzes').update({ status: 'showing_results' }).eq('id', quizId).select().single()
-  if (error) throw error
-  return { data }
+  if (error) throw error; return { data }
 }
 
 export const endQuiz = async (id) => {
@@ -333,12 +381,9 @@ export const endQuiz = async (id) => {
 
 export const getQuizResults = async (quizId) => {
   const { data: quiz } = await supabase.from('quizzes').select('*').eq('id', quizId).single()
-  // Join con participants per avere i nickname dei vincitori
   const { data: answers, error } = await supabase.from('quiz_answers').select('*, participants(nickname)').eq('quiz_id', quizId)
-  
   if (error) throw error
   const correctAnswers = answers.filter(a => a.is_correct)
-  
   return {
     data: {
       quiz_id: quizId,
@@ -347,29 +392,19 @@ export const getQuizResults = async (quizId) => {
       correct_index: quiz.correct_index,
       total_answers: answers.length,
       correct_count: correctAnswers.length,
-      winners: correctAnswers.map(a => a.participants?.nickname || 'Unknown'), // Fix nickname
+      winners: correctAnswers.map(a => a.participants?.nickname || 'Unknown'),
       points: quiz.points
     }
   }
 }
 
-// *** QUIZ ANSWER CON ASSEGNAZIONE PUNTI ***
 export const answerQuiz = async (data) => {
   const participant = getParticipantFromToken()
+  const { data: quiz } = await supabase.from('quizzes').select('correct_index, points').eq('id', data.quiz_id).single();
   
-  // 1. Recupera il quiz per vedere la risposta corretta
-  const { data: quiz, error: quizError } = await supabase
-    .from('quizzes')
-    .select('correct_index, points')
-    .eq('id', data.quiz_id)
-    .single();
-
-  if (quizError) throw quizError;
-
   const isCorrect = quiz.correct_index === data.answer_index;
   const pointsEarned = isCorrect ? quiz.points : 0;
 
-  // 2. Salva la risposta
   const { data: ans, error } = await supabase.from('quiz_answers').insert({
     quiz_id: data.quiz_id, 
     participant_id: participant.participant_id, 
@@ -377,20 +412,12 @@ export const answerQuiz = async (data) => {
     is_correct: isCorrect
   }).select().single()
 
-  if (error) { 
-      if (error.code==='23505') throw new Error('Già risposto'); 
-      throw error;
-  }
+  if (error) { if (error.code==='23505') throw new Error('Già risposto'); throw error;}
 
-  // 3. Se corretto, AGGIORNA il punteggio del partecipante
   if (isCorrect) {
-      // Recupera punteggio attuale
       const { data: p } = await supabase.from('participants').select('score').eq('id', participant.participant_id).single();
-      if (p) {
-          await supabase.from('participants').update({ score: p.score + pointsEarned }).eq('id', participant.participant_id);
-      }
+      if (p) await supabase.from('participants').update({ score: p.score + pointsEarned }).eq('id', participant.participant_id);
   }
-
   return { data: { ...ans, points_earned: pointsEarned } }
 }
 
@@ -434,11 +461,13 @@ export const getDisplayData = async (pubCode) => {
 export default {
   createPub, getPub, joinPub, adminLogin, getMe,
   requestSong, getSongQueue, getMyRequests, getAdminQueue, approveRequest, rejectRequest,
-  startPerformance, pausePerformance, resumePerformance, endPerformance, closeVoting, skipPerformance, restartPerformance, 
+  startPerformance, pausePerformance, resumePerformance, endPerformance, closeVoting, skipPerformance, restartPerformance,
+  togglePerformanceMute, togglePerformanceBlur, // Added new functions
   getCurrentPerformance, getAdminCurrentPerformance,
-  submitVote, sendReaction,
-  sendMessage, getAdminPendingMessages, approveMessage, rejectMessage,
+  submitVote, sendReaction, sendMessage,
+  getAdminPendingMessages, approveMessage, rejectMessage,
   startQuiz, endQuiz, answerQuiz, getActiveQuiz, closeQuizVoting, showQuizResults,
+  importQuizBatch, getLibraryQuizzes, launchQuizFromLibrary, // Added new functions
   getQuizResults, getQuizLeaderboard,
   getLeaderboard, getAdminLeaderboard,
   getDisplayData
