@@ -102,7 +102,7 @@ export const getSongQueue = async () => {
 const participant = getParticipantFromToken()
 // Filtro rigoroso: solo pending, queued o approved. NON ended o performing.
 const { data, error } = await supabase.from('song_requests')
-.select(*, participants (nickname))
+.select('*, participants (nickname)')
 .eq('event_id', participant.event_id)
 .in('status', ['pending', 'queued', 'approved'])
 .order('position', { ascending: true })
@@ -118,7 +118,7 @@ export const getAdminQueue = async () => {
 const event = await getAdminEvent()
 // Anche lato admin, nascondiamo quelle finite per pulire la scaletta
 const { data, error } = await supabase.from('song_requests')
-.select(*, participants (nickname))
+.select('*, participants (nickname)')
 .eq('event_id', event.id)
 .in('status', ['pending', 'queued', 'approved'])
 .order('requested_at', { ascending: false })
@@ -162,7 +162,6 @@ if (error) throw error; return { data }
 export const stopAndNext = async (performanceId) => {
 const { data, error } = await supabase.from('performances').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', performanceId).select()
 if (error) throw error;
-// Opzionale: update event module to 'idle' if needed, but 'karaoke' keeps the deck ready
 return { data };
 }
 export const pausePerformance = async (performanceId) => {
@@ -180,7 +179,6 @@ await supabase.from('performances').update({ status: 'live' }).eq('id', performa
 return { data };
 }
 export const toggleMute = async (isMuted) => {
-// Usiamo il canale realtime per comandi "volatili"
 const pubCode = localStorage.getItem('neonpub_pub_code');
 const channel = supabase.channel(display_control_${pubCode});
 await channel.send({
@@ -191,13 +189,13 @@ payload: { command: 'mute', value: isMuted }
 }
 export const getCurrentPerformance = async () => {
 const participant = getParticipantFromToken()
-const { data, error } = await supabase.from('performances').select(*, participants (nickname)).eq('event_id', participant.event_id).in('status', ['live', 'voting', 'paused']).order('started_at', { ascending: false }).limit(1).maybeSingle()
+const { data, error } = await supabase.from('performances').select('*, participants (nickname)').eq('event_id', participant.event_id).in('status', ['live', 'voting', 'paused']).order('started_at', { ascending: false }).limit(1).maybeSingle()
 if (error) throw error
 return { data: data ? { ...data, user_nickname: data.participants?.nickname || 'Unknown' } : null }
 }
 export const getAdminCurrentPerformance = async () => {
 const event = await getAdminEvent()
-const { data, error } = await supabase.from('performances').select(*, participants (nickname)).eq('event_id', event.id).in('status', ['live', 'voting', 'paused']).order('started_at', { ascending: false }).limit(1).maybeSingle()
+const { data, error } = await supabase.from('performances').select('*, participants (nickname)').eq('event_id', event.id).in('status', ['live', 'voting', 'paused']).order('started_at', { ascending: false }).limit(1).maybeSingle()
 if (error) throw error
 return { data: data ? { ...data, user_nickname: data.participants?.nickname || 'Unknown' } : null }
 }
@@ -214,8 +212,7 @@ if (error) {
 if (error.code === '23505') throw new Error('Hai già votato');
 throw error;
 }
-// 2. FIX VOTAZIONE: Calcola media manualmente e aggiorna Performance SUBITO
-// Questo bypassa la necessità di trigger DB complessi e risolve il problema dello "0"
+// 2. Calcola media manuale per aggiornamento immediato
 const { data: allVotes } = await supabase.from('votes').select('score').eq('performance_id', data.performance_id);
 if (allVotes && allVotes.length > 0) {
 const total = allVotes.reduce((acc, v) => acc + v.score, 0);
