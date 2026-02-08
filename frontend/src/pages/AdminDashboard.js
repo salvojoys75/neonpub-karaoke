@@ -5,7 +5,7 @@ import {
   Music, Play, Square, Trophy, Tv, Star, HelpCircle,
   Check, X, MessageSquare, LogOut, SkipForward, Pause,
   RotateCcw, Mic2, Search, Send, Coins, Users, Plus, ArrowLeft,
-  Swords, Film // Nuovi icon per sfide e media
+  ListMusic, BrainCircuit, AlertCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,818 +13,636 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAuth } from "@/context/AuthContext";
-import { supabase } from "@/lib/supabase"; // Aggiunto per gestione crediti
-import api, { createPub } from "@/lib/api"; // Aggiunto createPub
-
-// Importa cataloghi (nuovi)
-import quizText from '@/data/quiz_text.json';
-import quizAudio from '@/data/quiz_audio.json';
-import quizVideo from '@/data/quiz_video.json';
-import challenges from '@/data/challenges.json';
+import { supabase } from "@/lib/supabase";
+import api, { createPub } from "@/lib/api";
 
 const QUIZ_CATEGORIES = [
   { id: "music_general", name: "Musica Generale" },
   { id: "rock", name: "Rock" },
   { id: "pop", name: "Pop" },
-  { id: "rap", name: "Rap/Hip-Hop" },
-  { id: "italian", name: "Musica Italiana" },
-  { id: "80s", name: "Anni '80" },
-  { id: "90s", name: "Anni '90" },
-  { id: "2000s", name: "Anni 2000" },
+  { id: "cinema", name: "Cinema" },
 ];
-
-// Nuovi tipi modulo
-const MODULE_TYPES = {
-  KARAOKE: 'karaoke',
-  QUIZ: 'quiz',
-  CHALLENGE: 'challenge',
-  MEDIA: 'media',
-  LEADERBOARD: 'leaderboard'
-};
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
-  const { isAuthenticated, logout, user } = useAuth(); // Ho rimosso isAdmin da qui perché lo gestiamo col DB
+  const { isAuthenticated, logout } = useAuth();
  
-  // --- NUOVI STATI PER GESTIONE CREDITI E RUOLI ---
+  // --- STATI GLOBALI APP ---
   const [appState, setAppState] = useState("loading"); // 'loading', 'super_admin', 'setup', 'dashboard'
   const [profile, setProfile] = useState(null);
+  const [pubCode, setPubCode] = useState(localStorage.getItem("neonpub_pub_code"));
   
-  // Stati Super Admin
+  // --- STATI SUPER ADMIN ---
   const [operators, setOperators] = useState([]);
   const [newOperatorEmail, setNewOperatorEmail] = useState("");
   const [newOperatorPassword, setNewOperatorPassword] = useState("");
   
-  // Stati Setup Evento
+  // --- STATI SETUP EVENTO ---
   const [newEventName, setNewEventName] = useState("");
   const [creatingEvent, setCreatingEvent] = useState(false);
-  // ------------------------------------------------
 
-  // --- STATI TUA DASHBOARD ORIGINALE ---
+  // --- STATI DASHBOARD REGIA ---
+  // Dati
+  const [eventState, setEventState] = useState({ active_module: 'karaoke', active_module_id: null });
   const [queue, setQueue] = useState([]);
   const [currentPerformance, setCurrentPerformance] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
-  const [activeSection, setActiveSection] = useState("queue");
   const [pendingMessages, setPendingMessages] = useState([]);
+  const [quizCatalog, setQuizCatalog] = useState([]);
   
-  // Quiz
-  const [showQuizModal, setShowQuizModal] = useState(false);
-  const [quizTab, setQuizTab] = useState("custom");
-  const [quizCategory, setQuizCategory] = useState("music_general");
-  const [quizQuestion, setQuizQuestion] = useState("");
-  const [quizOptions, setQuizOptions] = useState(["", "", "", ""]);
-  const [quizCorrectIndex, setQuizCorrectIndex] = useState(0);
+  // UI Library Tabs
+  const [libraryTab, setLibraryTab] = useState("karaoke"); // 'karaoke', 'quiz', 'messages'
+
+  // Quiz States (Active & Results)
   const [activeQuizId, setActiveQuizId] = useState(null);
-  const [quizResults, setQuizResults] = useState(null);
   const [quizStatus, setQuizStatus] = useState(null);
-  
-  // YouTube
+  const [quizResults, setQuizResults] = useState(null);
+
+  // Modals States
   const [showYoutubeModal, setShowYoutubeModal] = useState(false);
+  const [showCustomQuizModal, setShowCustomQuizModal] = useState(false);
+  const [showMessageModal, setShowMessageModal] = useState(false);
+
+  // YouTube Logic Variables
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [youtubeSearchQuery, setYoutubeSearchQuery] = useState("");
   const [youtubeSearchResults, setYoutubeSearchResults] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [searchingYoutube, setSearchingYoutube] = useState(false);
-  
-  // Messaggi Regia
-  const [showMessageModal, setShowMessageModal] = useState(false);
+
+  // Custom Quiz Logic Variables
+  const [quizQuestion, setQuizQuestion] = useState("");
+  const [quizOptions, setQuizOptions] = useState(["", "", "", ""]);
+  const [quizCorrectIndex, setQuizCorrectIndex] = useState(0);
+
+  // Message Logic Variables
   const [adminMessage, setAdminMessage] = useState("");
 
-  const [pubCode, setPubCode] = useState(localStorage.getItem("neonpub_pub_code"));
   const pollIntervalRef = useRef(null);
 
-  // Nuovi stati per moduli
-  const [modulesPlaylist, setModulesPlaylist] = useState([]); // Playlist di moduli
-  const [activeModule, setActiveModule] = useState(null); // Modulo corrente
-  const [selectedCatalogItem, setSelectedCatalogItem] = useState(null); // Item da catalogo
-  const [moduleConfig, setModuleConfig] = useState({}); // Config per nuovo modulo (es. points, media)
-  const [showModuleModal, setShowModuleModal] = useState(false); // Modal per creare/lanciare modulo
-  const [participants, setParticipants] = useState([]); // Lista partecipanti (destra)
-
-  // --- 1. CONTROLLO INIZIALE RUOLO E STATO ---
+  // --- 1. INIT & AUTH CHECK ---
   useEffect(() => {
     checkUserProfile();
   }, [isAuthenticated]);
 
   const checkUserProfile = async () => {
-    if (!isAuthenticated) return; // Lasciamo gestire il redirect al AuthContext o useEffect sotto
-    
+    if (!isAuthenticated) return; 
     try {
-      // 1. Prendi il profilo dal DB (per vedere crediti e ruolo)
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      let { data: userProfile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
+      let { data: userProfile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
 
-      // Se non esiste profilo, crealo come operatore standard
       if (!userProfile) {
-         const { data: newProfile } = await supabase
-            .from('profiles')
-            .insert([{ id: user.id, email: user.email, role: 'operator', credits: 0 }])
-            .select()
-            .single();
+         // Fallback profile creation
+         const { data: newProfile } = await supabase.from('profiles').insert([{ id: user.id, email: user.email, role: 'operator', credits: 0 }]).select().single();
          userProfile = newProfile;
       }
-
       setProfile(userProfile);
 
-      // 2. Decidi cosa mostrare
       if (userProfile.role === 'super_admin') {
         setAppState("super_admin");
         fetchOperators();
       } else {
-        // È un operatore
         const storedCode = localStorage.getItem("neonpub_pub_code");
         if (storedCode) {
           setPubCode(storedCode);
           setAppState("dashboard");
-          await loadAdminData(); // Carica dati evento
         } else {
-          setAppState("setup"); // Deve creare evento
+          setAppState("setup");
         }
       }
     } catch (error) {
+      console.error("Errore check profile:", error);
       toast.error("Errore caricamento profilo");
-      logout();
-    } finally {
-      setAppState(prev => prev === "loading" ? "setup" : prev);
     }
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem("neonpub_pub_code");
+    logout();
+    navigate("/");
+  };
+
+  // --- 2. LOGICA SUPER ADMIN & SETUP ---
   const fetchOperators = async () => {
-    const { data } = await supabase.from('profiles').select('id, email, credits, role').eq('role', 'operator');
+    const { data } = await supabase.from('profiles').select('*').neq('role', 'super_admin');
     setOperators(data || []);
   };
 
   const handleCreateOperator = async (e) => {
     e.preventDefault();
-    setLoading(true);
+    if(!newOperatorEmail || !newOperatorPassword) return;
+    if (!window.confirm("Attenzione: verrai scollegato. Procedere?")) return;
+
     try {
       const { data, error } = await supabase.auth.signUp({
         email: newOperatorEmail,
         password: newOperatorPassword,
-        options: { data: { role: 'operator' } }
       });
       if (error) throw error;
-
-      await supabase.from('profiles').insert([{
-        id: data.user.id,
-        email: newOperatorEmail,
-        role: 'operator',
-        credits: 5  // Assegna crediti iniziali
-      }]);
-
+      if (data.user) {
+          await supabase.from('profiles').upsert([{ id: data.user.id, email: newOperatorEmail, role: 'operator', credits: 5 }]);
+      }
       toast.success("Operatore creato!");
-      fetchOperators();
-      setNewOperatorEmail("");
-      setNewOperatorPassword("");
-    } catch (error) {
-      toast.error(error.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (error) { toast.error(error.message); }
   };
 
-  const handleAddCredits = async (operatorId, credits) => {
-    const { data: current } = await supabase.from('profiles').select('credits').eq('id', operatorId).single();
-    await supabase.from('profiles').update({ credits: current.credits + credits }).eq('id', operatorId);
-    fetchOperators();
-    toast.success("Crediti aggiunti!");
+  const addCredits = async (operatorId, currentCredits, amount) => {
+    const { error } = await supabase.from('profiles').update({ credits: currentCredits + amount }).eq('id', operatorId);
+    if (error) toast.error("Errore"); else { toast.success("Crediti aggiunti!"); fetchOperators(); }
   };
 
-  const handleCreateEvent = async () => {
-    if (!profile.credits) return toast.error("Nessun gettone disponibile");
+  const handleStartEvent = async (e) => {
+    e.preventDefault();
+    if (!newEventName) return toast.error("Nome mancante");
+    if (profile.credits < 1) return toast.error("Crediti insufficienti!");
+
     setCreatingEvent(true);
     try {
-      const { data: event } = await api.createPub({ name: newEventName });
-      localStorage.setItem("neonpub_pub_code", event.code);
-      setPubCode(event.code);
-
-      // Deduci credito
-      await supabase.from('profiles').update({ credits: profile.credits - 1 }).eq('id', profile.id);
-      setProfile(prev => ({ ...prev, credits: prev.credits - 1 }));
-
-      toast.success(`Evento creato! Codice: ${event.code}`);
-      setAppState("dashboard");
-      await loadAdminData();
-    } catch (error) {
-      toast.error(error.message);
-    } finally {
-      setCreatingEvent(false);
-    }
+        const { data: pubData } = await createPub({ name: newEventName });
+        await supabase.from('profiles').update({ credits: profile.credits - 1 }).eq('id', profile.id);
+        
+        setProfile(prev => ({ ...prev, credits: prev.credits - 1 }));
+        localStorage.setItem("neonpub_pub_code", pubData.code);
+        setPubCode(pubData.code);
+        setAppState("dashboard");
+    } catch (error) { toast.error(error.message); } finally { setCreatingEvent(false); }
   };
 
-  // --- 2. CARICAMENTO DATI ADMIN (INVARIATO) ---
-  const loadAdminData = useCallback(async () => {
-    if (!pubCode) return;
+  // --- 3. DATA LOADING & POLLING (DASHBOARD) ---
+  const loadData = useCallback(async () => {
+    if (!pubCode || appState !== 'dashboard') return;
     try {
-      const [queueRes, perfRes, lbRes, msgsRes] = await Promise.all([
+      // Load Global State + Data Modules
+      const stateData = await api.getEventState();
+      if(stateData) setEventState(stateData);
+
+      const [qRes, perfRes, msgRes, lbRes, quizCatRes, activeQuizRes] = await Promise.all([
         api.getAdminQueue(),
         api.getAdminCurrentPerformance(),
+        api.getAdminPendingMessages(),
         api.getAdminLeaderboard(),
-        api.getAdminPendingMessages()
+        api.getQuizCatalog(),
+        api.getActiveQuiz()
       ]);
-      setQueue(queueRes.data || []);
+
+      setQueue(qRes.data || []);
       setCurrentPerformance(perfRes.data);
+      setPendingMessages(msgRes.data || []);
       setLeaderboard(lbRes.data || []);
-      setPendingMessages(msgsRes.data || []);
-
-      // Quiz attivo admin
-      const quiz = await api.getActiveQuiz();
-      if (quiz.data) {
-        setActiveQuizId(quiz.data.id);
-        setQuizStatus(quiz.data.status);
-        if (quiz.data.status === 'showing_results' && !quizResults) {
-          const res = await api.getQuizResults(quiz.data.id);
-          setQuizResults(res.data);
-        }
+      setQuizCatalog(quizCatRes.data || []);
+      
+      // Update Quiz Local State
+      if(activeQuizRes.data) {
+         setActiveQuizId(activeQuizRes.data.id);
+         setQuizStatus(activeQuizRes.data.status);
+         // Se stiamo mostrando risultati, fetch dei dettagli
+         if(activeQuizRes.data.status === 'showing_results') {
+             const resData = await api.getQuizResults(activeQuizRes.data.id);
+             setQuizResults(resData.data);
+         }
       } else {
-        setActiveQuizId(null);
-        setQuizStatus(null);
-        setQuizResults(null);
+         setActiveQuizId(null);
+         setQuizStatus(null);
+         setQuizResults(null);
       }
-    } catch (error) {
-      console.error(error);
-    }
-  }, [pubCode]);
+
+    } catch (error) { console.error(error); }
+  }, [pubCode, appState]);
 
   useEffect(() => {
-    if (appState === "dashboard" && pubCode) {
-      loadAdminData();
-      pollIntervalRef.current = setInterval(loadAdminData, 5000);
-
-      const channel = supabase
-        .channel('admin_realtime')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'song_requests', filter: `event_id=eq.${profile.event_id}` }, loadAdminData)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${profile.event_id}` }, loadAdminData)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'participants', filter: `event_id=eq.${profile.event_id}` }, loadAdminData)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `event_id=eq.${profile.event_id}` }, loadAdminData)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${profile.event_id}` }, loadAdminData)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'quiz_answers', filter: `event_id=eq.${profile.event_id}` }, loadAdminData)
-        .subscribe();
-
-      return () => {
-        clearInterval(pollIntervalRef.current);
-        supabase.removeChannel(channel);
-      };
+    if (appState === 'dashboard') {
+      loadData();
+      pollIntervalRef.current = setInterval(loadData, 3000);
+      return () => clearInterval(pollIntervalRef.current);
     }
-  }, [appState, pubCode, profile?.event_id, loadAdminData]);
+  }, [appState, loadData]);
 
-  // Nuovo useEffect per caricare moduli e partecipanti
-  useEffect(() => {
-    if (appState === "dashboard" && pubCode) {
-      loadModules();
-      loadParticipants();
-      const modulesChannel = supabase
-        .channel('modules_realtime')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'modules', filter: `event_id=eq.${profile.event_id}` }, 
-          (payload) => loadModules()
-        )
-        .subscribe();
-      return () => supabase.removeChannel(modulesChannel);
-    }
-  }, [appState, pubCode, profile?.event_id]);
+  // --- 4. FUNZIONI OPERATIVE REGIA ---
 
-  const loadModules = async () => {
-    const { data } = await supabase.from('modules').select('*').eq('event_id', profile.event_id).order('created_at');
-    setModulesPlaylist(data || []);
-    const active = data.find(m => m.status === 'active');
-    setActiveModule(active || null);
+  // YOUTUBE & KARAOKE
+  const handleStartLivePre = (req) => {
+    setSelectedRequest(req);
+    setYoutubeUrl(req.youtube_url || "");
+    setYoutubeSearchQuery(`${req.title} ${req.artist} karaoke`);
+    setYoutubeSearchResults([]);
+    setShowYoutubeModal(true);
   };
 
-  const loadParticipants = async () => {
-    const { data } = await supabase.from('participants').select('id, nickname, score').eq('event_id', profile.event_id).order('score', { ascending: false });
-    setParticipants(data || []);
-  };
-
-  // Funzione per creare/lanciare modulo
-  const createModule = async (type) => {
-    try {
-      const config = { ...moduleConfig, catalog_id: selectedCatalogItem?.id }; // Es. per quiz/challenge
-      const { data } = await supabase.from('modules').insert({
-        event_id: profile.event_id,
-        type,
-        status: 'ready',
-        config: JSON.stringify(config)
-      }).select().single();
-      setModulesPlaylist(prev => [...prev, data]);
-      toast.success(`Modulo ${type} creato!`);
-      setShowModuleModal(false);
-    } catch (error) {
-      toast.error('Errore creazione modulo');
-    }
-  };
-
-  // Controlli modulo (start, stop, etc.)
-  const startModule = async (moduleId) => {
-    await supabase.from('modules').update({ status: 'active' }).eq('id', moduleId);
-    loadModules(); // Refresh
-    // Integrazione con esistente: se quiz, chiama startQuiz; se karaoke, usa requestSong esistente
-    if (activeModule.type === MODULE_TYPES.QUIZ) {
-      // Usa logica quiz esistente, ma con config da catalogo (es. play media)
-      handleStartQuiz(); // Esistente
-    } else if (activeModule.type === MODULE_TYPES.CHALLENGE) {
-      // Nuova logica: assegna partecipanti, play media, vota
-      // Es. chiama startPerformance con config.song
-    }
-    // Aggiorna schermo Pub via realtime (esistente)
-  };
-
-  const endModule = async (moduleId, pointsToAssign) => {
-    await supabase.from('modules').update({ status: 'ended' }).eq('id', moduleId);
-    // Assegna punti alla leaderboard unica (integra con esistente)
-    if (pointsToAssign) {
-      // Es. aggiorna participants.score per vincitori
-      await updateScores(pointsToAssign);
-    }
-    loadModules();
-  };
-
-  const updateScores = async (assignments) => {
-    // assignments: [{ participant_id: id, points: num }]
-    for (const ass of assignments) {
-      const { data: p } = await supabase.from('participants').select('score').eq('id', ass.participant_id).single();
-      await supabase.from('participants').update({ score: p.score + ass.points }).eq('id', ass.participant_id);
-    }
-    loadParticipants(); // Refresh destra
-    loadAdminData(); // Refresh leaderboard esistente
-  };
-
-  // --- 3. FUNZIONI ORIGINALI INVARIATE ---
-  const approveSong = async (requestId) => {
-    try {
-      await api.approveRequest(requestId);
-      toast.success("Richiesta approvata!");
-      loadAdminData();
-    } catch (error) {
-      toast.error("Errore approvazione");
-    }
-  };
-
-  const rejectSong = async (requestId) => {
-    try {
-      await api.rejectRequest(requestId);
-      toast.success("Richiesta respinta");
-      loadAdminData();
-    } catch (error) {
-      toast.error("Errore");
-    }
-  };
-
-  const startPerformance = async () => {
-    if (!selectedRequest || !youtubeUrl.trim()) return;
-    try {
-      await api.startPerformance({
-        request_id: selectedRequest.id,
-        youtube_url: youtubeUrl
-      });
-      toast.success("Esibizione avviata!");
-      setShowYoutubeModal(false);
-      setYoutubeUrl("");
-      setSelectedRequest(null);
-      loadAdminData();
-    } catch (error) {
-      toast.error("Errore avvio esibizione");
-    }
-  };
-
-  const pausePerformance = async () => {
-    try {
-      await api.pausePerformance(currentPerformance.id);
-      loadAdminData();
-    } catch {}
-  };
-
-  const resumePerformance = async () => {
-    try {
-      await api.resumePerformance(currentPerformance.id);
-      loadAdminData();
-    } catch {}
-  };
-
-  const endPerformance = async () => {
-    try {
-      await api.endPerformance(currentPerformance.id);
-      loadAdminData();
-    } catch {}
-  };
-
-  const skipPerformance = async () => {
-    try {
-      await api.skipPerformance(currentPerformance.id);
-      loadAdminData();
-    } catch {}
-  };
-
-  const restartPerformance = async () => {
-    try {
-      await api.restartPerformance(currentPerformance.id);
-      loadAdminData();
-    } catch {}
-  };
-
-  const closeVoting = async () => {
-    try {
-      await api.closeVoting(currentPerformance.id);
-      loadAdminData();
-    } catch {}
-  };
-
-  const approveMessage = async (msgId) => {
-    try {
-      await api.approveMessage(msgId);
-      toast.success("Messaggio approvato");
-      loadAdminData();
-    } catch {}
-  };
-
-  const rejectMessage = async (msgId) => {
-    try {
-      await api.rejectMessage(msgId);
-      toast.success("Messaggio respinto");
-      loadAdminData();
-    } catch {}
-  };
-
-  const handleBroadcastMessage = async () => {
-    if (!adminMessage.trim()) return;
-    try {
-      await api.sendMessage({ text: adminMessage, from_regia: true });
-      toast.success("Messaggio inviato!");
-      setAdminMessage("");
-      setShowMessageModal(false);
-    } catch (error) {
-      toast.error("Errore invio");
-    }
-  };
-
-  const handleStartQuiz = async () => {
-    let quizData;
-    if (quizTab === 'category' || quizTab === 'custom') {
-      // Esistente
-      quizData = { question: quizQuestion, options: quizOptions, correct_index: quizCorrectIndex, points: 10 };
-    } else {
-      // Da catalogo
-      const catalog = { text: quizText, audio: quizAudio, video: quizVideo }[quizCategory.split('_')[0]] || [];
-      quizData = catalog.find(q => q.id === selectedCatalogItem.id);
-    }
-    // Crea quiz esistente, ma assegna a modulo
-    const res = await api.startQuiz(quizData);
-    setActiveQuizId(res.data.id);
-    // Se media, play su PubDisplay (integra con YouTube esistente)
-    if (quizData.media_url) {
-      // Manda evento realtime per play media con effetti (mute, blur)
-    }
-    setShowQuizModal(false);
-    loadAdminData();
-  };
-
-  const closeQuizVoting = async () => {
-    try {
-      await api.closeQuizVoting(activeQuizId);
-      loadAdminData();
-    } catch {}
-  };
-
-  const showQuizResults = async () => {
-    try {
-      await api.showQuizResults(activeQuizId);
-      loadAdminData();
-    } catch {}
-  };
-
-  const endQuiz = async () => {
-    try {
-      await api.endQuiz(activeQuizId);
-      loadAdminData();
-    } catch {}
-  };
-
-  const handleYoutubeSearch = async () => {
+  const searchYouTube = async () => {
     if (!youtubeSearchQuery.trim()) return;
     setSearchingYoutube(true);
     try {
-      // Placeholder per ricerca YouTube - integra con API reale se disponibile
-      // Es. const res = await fetch(`https://youtube.com/search?q=${encodeURIComponent(youtubeSearchQuery)}`);
-      // Per ora mock
-      setYoutubeSearchResults([
-        { id: 'vid1', title: 'Risultato 1', url: 'https://youtube.com/watch?v=vid1' },
-        { id: 'vid2', title: 'Risultato 2', url: 'https://youtube.com/watch?v=vid2' }
-      ]);
-    } catch (error) {
-      toast.error("Errore ricerca YouTube");
-    } finally {
-      setSearchingYoutube(false);
-    }
+      const apiKey = process.env.REACT_APP_YOUTUBE_API_KEY;
+      const response = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(youtubeSearchQuery)}&type=video&maxResults=5&key=${apiKey}`);
+      const data = await response.json();
+      setYoutubeSearchResults(data.items || []);
+    } catch (error) { toast.error("Errore YouTube API"); } finally { setSearchingYoutube(false); }
   };
 
-  const selectYoutubeResult = (url) => {
-    setYoutubeUrl(url);
+  const startPerformance = async () => {
+    if (!selectedRequest || !youtubeUrl) return toast.error("Manca URL");
+    try {
+        await api.startPerformance(selectedRequest.id, youtubeUrl);
+        // setEventModule viene chiamato automaticamente dentro startPerformance in api.js o lo forziamo qui
+        // In api.js ho messo che startPerformance forza active_module='karaoke'
+        setShowYoutubeModal(false);
+        toast.success("Karaoke Avviato!");
+        loadData();
+    } catch(e) { toast.error("Errore avvio"); }
   };
 
-  const handleLogout = () => {
-    logout();
-    localStorage.removeItem("neonpub_pub_code");
-    navigate("/");
+  // CONTROLLI PERFORMANCE
+  const ctrlPerf = async (action) => {
+      if(!currentPerformance) return;
+      try {
+        if(action==='pause') await api.pausePerformance(currentPerformance.id);
+        if(action==='resume') await api.resumePerformance(currentPerformance.id);
+        if(action==='restart') await api.restartPerformance(currentPerformance.id);
+        if(action==='skip') await api.skipPerformance(currentPerformance.id);
+        if(action==='end') await api.endPerformance(currentPerformance.id); // Goes to voting
+        if(action==='close_vote') await api.closeVoting(currentPerformance.id);
+        loadData();
+      } catch(e) { toast.error("Errore comando"); }
   };
 
-  // Nuova funzione per sfide
-  const handleStartChallenge = async () => {
-    const challenge = challenges.find(c => c.id === selectedCatalogItem.id);
-    // Assegna partecipanti (seleziona da lista destra)
-    const participantsIds = []; // TODO: UI per selezionare da participants
-    // Start performance con rules
-    const perfRes = await api.startPerformance(/* usa esistente, ma con config */);
-    // Votazione pubblica/giuria (usa voting esistente)
+  // QUIZ
+  const launchCatalogQuiz = async (item) => {
+      if(window.confirm(`Lanciare: ${item.question}?`)) {
+          await api.setEventModule('quiz', item.id);
+          toast.success("Quiz Lanciato!");
+          loadData();
+      }
   };
 
-  // --- RENDERING (AGGIORNATO CON COLONNE) ---
-  if (appState === "loading") {
-    return <div className="min-h-screen bg-[#050505] flex items-center justify-center"><div className="spinner"></div></div>;
-  }
+  const launchCustomQuiz = async (e) => {
+      e.preventDefault();
+      try {
+          const { data } = await api.startQuiz({
+              category: "custom",
+              question: quizQuestion,
+              options: quizOptions,
+              correct_index: quizCorrectIndex,
+              points: 10
+          });
+          setShowCustomQuizModal(false);
+          toast.success("Quiz Custom Lanciato!");
+          loadData();
+      } catch(e) { toast.error("Errore creazione quiz"); }
+  };
 
-  if (appState === "super_admin") {
+  const ctrlQuiz = async (action) => {
+      if(!activeQuizId) return;
+      try {
+          if(action==='close_vote') await api.closeQuizVoting(activeQuizId);
+          if(action==='show_results') await api.showQuizResults(activeQuizId);
+          if(action==='end') {
+              await api.endQuiz(activeQuizId);
+              await api.setEventModule('karaoke'); // Return to default
+              toast.info("Tornati al Karaoke");
+          }
+          loadData();
+      } catch(e) { toast.error("Errore quiz cmd"); }
+  };
+
+  // MESSAGGI
+  const handleApproveMessage = async (id) => { await api.approveMessage(id); loadData(); };
+  const handleRejectMessage = async (id) => { await api.rejectMessage(id); loadData(); };
+  const handleBroadcastMessage = async () => {
+      if(!adminMessage) return;
+      await api.sendMessage({ text: adminMessage, status: 'approved' });
+      setShowMessageModal(false);
+      setAdminMessage("");
+      toast.success("Messaggio inviato!");
+  };
+
+  // --- RENDER CONDITIONALE ---
+
+  if (appState === 'loading') return <div className="min-h-screen bg-black text-white flex items-center justify-center">Caricamento...</div>;
+
+  // --- VISTA 1: SUPER ADMIN ---
+  if (appState === 'super_admin') {
     return (
-      <div className="min-h-screen bg-[#050505] text-white p-6">
-        <header className="flex justify-between mb-8">
-          <h1 className="text-3xl font-bold">Console Super Admin</h1>
-          <Button variant="destructive" onClick={handleLogout}>Logout</Button>
-        </header>
-
-        <Card className="bg-zinc-900 border-zinc-800 mb-8">
-          <CardHeader><CardTitle>Gestione Operatori</CardTitle></CardHeader>
-          <CardContent>
-            <form onSubmit={handleCreateOperator} className="space-y-4 mb-8">
-              <Input value={newOperatorEmail} onChange={(e) => setNewOperatorEmail(e.target.value)} placeholder="Email Operatore" />
-              <Input type="password" value={newOperatorPassword} onChange={(e) => setNewOperatorPassword(e.target.value)} placeholder="Password" />
-              <Button type="submit" disabled={loading}>Crea Operatore</Button>
-            </form>
-
-            <div className="space-y-4">
-              {operators.map(op => (
-                <div key={op.id} className="flex justify-between items-center p-4 bg-zinc-800 rounded-xl">
-                  <div>
-                    <p className="font-medium">{op.email}</p>
-                    <p className="text-sm text-zinc-400">Crediti: {op.credits}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button onClick={() => handleAddCredits(op.id, 1)} size="sm"><Coins className="mr-1 w-4" /> +1</Button>
-                    <Button onClick={() => handleAddCredits(op.id, 5)} size="sm"><Coins className="mr-1 w-4" /> +5</Button>
-                  </div>
+        <div className="min-h-screen bg-zinc-950 text-white p-6">
+            <div className="max-w-4xl mx-auto">
+                <div className="flex justify-between mb-8"><h1 className="text-2xl font-bold">Super Admin</h1><Button onClick={handleLogout}>Esci</Button></div>
+                <div className="grid gap-6">
+                    <Card className="bg-zinc-900 border-zinc-800"><CardHeader><CardTitle className="text-white">Operatori</CardTitle></CardHeader>
+                        <CardContent>
+                            {operators.map(op => (
+                                <div key={op.id} className="flex justify-between mb-2 p-2 bg-zinc-800 rounded">
+                                    <span>{op.email} (Cr: {op.credits})</span>
+                                    <div><Button size="sm" onClick={()=>addCredits(op.id, op.credits, 5)}>+5</Button></div>
+                                </div>
+                            ))}
+                        </CardContent>
+                    </Card>
+                    <Card className="bg-zinc-900 border-zinc-800"><CardHeader><CardTitle className="text-white">Nuovo Operatore</CardTitle></CardHeader>
+                         <CardContent className="flex gap-2">
+                             <Input placeholder="Email" value={newOperatorEmail} onChange={e=>setNewOperatorEmail(e.target.value)} className="bg-zinc-800" />
+                             <Input type="password" placeholder="Pass" value={newOperatorPassword} onChange={e=>setNewOperatorPassword(e.target.value)} className="bg-zinc-800" />
+                             <Button onClick={handleCreateOperator}>Crea</Button>
+                         </CardContent>
+                    </Card>
                 </div>
-              ))}
             </div>
-          </CardContent>
-        </Card>
-      </div>
+        </div>
     );
   }
 
-  if (appState === "setup") {
-    return (
-      <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-6">
-        <Card className="w-full max-w-md bg-zinc-900 border-zinc-800">
-          <CardHeader><CardTitle>Crea Nuovo Evento</CardTitle></CardHeader>
-          <CardContent>
-            <p className="mb-4 text-zinc-400">Crediti disponibili: {profile?.credits || 0}</p>
-            <form onSubmit={(e) => { e.preventDefault(); handleCreateEvent(); }} className="space-y-4">
-              <Input 
-                value={newEventName}
-                onChange={(e) => setNewEventName(e.target.value)}
-                placeholder="Nome Evento (es. Serata Karaoke)"
-              />
-              <Button type="submit" disabled={creatingEvent || !profile?.credits} className="w-full">
-                {creatingEvent ? "Creazione..." : "Crea Evento (1 credito)"}
-              </Button>
-            </form>
-            <Button variant="ghost" onClick={handleLogout} className="w-full mt-4">Logout</Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
+  // --- VISTA 2: SETUP ---
+  if (appState === 'setup') {
+      return (
+        <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center p-4">
+            <Card className="w-full max-w-md bg-zinc-900 border-zinc-800">
+                <CardHeader><CardTitle className="text-center text-white">Nuovo Evento</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="text-center bg-yellow-900/20 text-yellow-500 p-2 rounded">Crediti: {profile?.credits}</div>
+                    <Input placeholder="Nome Evento" value={newEventName} onChange={e=>setNewEventName(e.target.value)} className="bg-zinc-950 text-center text-lg" />
+                    <Button onClick={handleStartEvent} disabled={creatingEvent || profile?.credits < 1} className="w-full bg-fuchsia-600 h-12">LANCIA EVENTO (-1 Credito)</Button>
+                    <Button variant="ghost" onClick={handleLogout} className="w-full text-zinc-500">Esci</Button>
+                </CardContent>
+            </Card>
+        </div>
+      );
   }
 
-  // Dashboard (vista regia)
+  // --- VISTA 3: MAIN DASHBOARD (NEW LAYOUT) ---
+  const pendingReqs = queue.filter(r => r.status === 'pending');
+  const queuedReqs = queue.filter(r => r.status === 'queued');
+
   return (
-    <div className="min-h-screen bg-[#050505] text-white p-6">
-      <header className="flex justify-between items-center mb-6">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" onClick={() => navigate('/')} size="icon"><ArrowLeft /></Button>
-          <h1 className="text-2xl font-bold">{newEventName || 'Dashboard Regia'}</h1>
-          <span className="text-zinc-500">Codice: {pubCode}</span>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="ghost" onClick={() => setShowMessageModal(true)}><MessageSquare className="mr-2" /> Messaggio Regia</Button>
-          <Button variant="ghost" onClick={() => navigate(`/display/${pubCode}`)}><Tv className="mr-2" /> Schermo Pub</Button>
-          <Button variant="destructive" onClick={handleLogout}>Logout</Button>
-        </div>
+    <div className="h-screen bg-[#050505] text-white flex flex-col overflow-hidden">
+      
+      {/* HEADER */}
+      <header className="h-14 border-b border-white/10 flex items-center justify-between px-4 bg-zinc-900">
+         <div className="flex items-center gap-4">
+            <h1 className="font-bold text-lg bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-400 to-cyan-400">NEONPUB OS</h1>
+            <span className="text-xs px-2 py-1 bg-zinc-800 rounded font-mono text-zinc-400">{pubCode}</span>
+         </div>
+         <div className="flex items-center gap-2">
+             <Button variant="outline" size="sm" onClick={() => window.open(`/display/${pubCode}`, '_blank')}><Tv className="w-4 h-4 mr-2" /> Display</Button>
+             <Button variant="ghost" size="sm" onClick={() => { if(confirm("Chiudere evento?")) { localStorage.removeItem("neonpub_pub_code"); setPubCode(null); setAppState("setup"); } }}><ArrowLeft className="w-4 h-4" /> Chiudi</Button>
+         </div>
       </header>
 
-      <div className="grid grid-cols-4 gap-6"> {/* Nuove colonne */}
-
-        {/* Sinistra: Moduli */}
-        <Card className="col-span-1 bg-zinc-900 border-zinc-800">
-          <CardHeader><CardTitle>Moduli</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
-            <Button onClick={() => setShowModuleModal(true)} className="w-full"><Plus /> Nuovo Modulo</Button>
-            {Object.values(MODULE_TYPES).map(type => (
-              <Button key={type} variant="outline" onClick={() => createModule(type)} className="w-full justify-start">
-                {type === 'karaoke' && <Mic2 className="mr-2" />}
-                {type === 'quiz' && <HelpCircle className="mr-2" />}
-                {type === 'challenge' && <Swords className="mr-2" />}
-                {type === 'media' && <Film className="mr-2" />}
-                {type === 'leaderboard' && <Trophy className="mr-2" />}
-                {type.charAt(0).toUpperCase() + type.slice(1)}
-              </Button>
-            ))}
-          </CardContent>
-        </Card>
-
-        {/* Centro: Modulo Attivo */}
-        <Card className="col-span-2 bg-zinc-900 border-zinc-800">
-          <CardHeader><CardTitle>Modulo Attivo: {activeModule?.type || 'Nessuno'}</CardTitle></CardHeader>
-          <CardContent>
-            {activeModule && (
-              <div className="space-y-4">
-                <p>Stato: {activeModule.status}</p>
-                {/* Config da JSON */}
-                <pre>{JSON.stringify(activeModule.config, null, 2)}</pre>
-                <div className="flex gap-2">
-                  <Button onClick={() => startModule(activeModule.id)}><Play /> Start</Button>
-                  <Button onClick={() => endModule(activeModule.id, /* points */)}><Square /> End</Button>
-                  {/* Altri controlli: pausa, next */}
-                </div>
-              </div>
-            )}
-            {/* Integrazione con sezioni esistenti (es. se karaoke, mostra queue) */}
-            {activeModule?.type === MODULE_TYPES.KARAOKE && (
-              // UI queue esistente qui
-              <div className="space-y-4">
-                <h3 className="text-lg font-bold">Coda Richieste</h3>
-                {queue.map(req => (
-                  <div key={req.id} className="bg-zinc-800 p-4 rounded-xl flex justify-between items-center">
-                    <div>
-                      <p className="font-medium">{req.title} - {req.artist}</p>
-                      <p className="text-sm text-zinc-400">Da: {req.user_nickname}</p>
-                      <p className="text-xs text-zinc-500">{new Date(req.requested_at).toLocaleTimeString()}</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button onClick={() => { setSelectedRequest(req); setShowYoutubeModal(true); }} variant="outline"><Play className="mr-1 w-4" /> Avvia</Button>
-                      <Button onClick={() => approveSong(req.id)} variant="outline"><Check className="w-4" /></Button>
-                      <Button onClick={() => rejectSong(req.id)} variant="destructive" size="icon"><X className="w-4" /></Button>
-                    </div>
+      {/* MAIN GRID */}
+      <div className="flex-1 grid grid-cols-12 gap-0 overflow-hidden">
+         
+         {/* LEFT: LIBRARY */}
+         <aside className="col-span-4 border-r border-white/10 bg-zinc-900/50 flex flex-col">
+            <div className="p-2 border-b border-white/5">
+               <Tabs value={libraryTab} onValueChange={setLibraryTab} className="w-full">
+                  <TabsList className="grid w-full grid-cols-3 bg-zinc-950">
+                     <TabsTrigger value="karaoke"><ListMusic className="w-4 h-4 mr-2" />Coda</TabsTrigger>
+                     <TabsTrigger value="quiz"><BrainCircuit className="w-4 h-4 mr-2" />Quiz</TabsTrigger>
+                     <TabsTrigger value="messages"><MessageSquare className="w-4 h-4 mr-2" />Msg</TabsTrigger>
+                  </TabsList>
+               </Tabs>
+            </div>
+            
+            <ScrollArea className="flex-1 p-3">
+               {/* KARAOKE LIST */}
+               {libraryTab === 'karaoke' && (
+                  <div className="space-y-4">
+                     {/* Pending */}
+                     {pendingReqs.length > 0 && (
+                        <div className="space-y-2">
+                            <h3 className="text-xs font-bold text-yellow-500 uppercase">Da Approvare ({pendingReqs.length})</h3>
+                            {pendingReqs.map(req => (
+                                <div key={req.id} className="p-2 bg-yellow-900/10 border border-yellow-900/30 rounded flex justify-between items-center">
+                                    <div className="truncate"><div className="font-bold text-sm truncate">{req.title}</div><div className="text-xs text-zinc-400">{req.user_nickname}</div></div>
+                                    <div className="flex gap-1">
+                                        <Button size="icon" variant="ghost" className="h-6 w-6 text-green-500" onClick={()=>api.approveRequest(req.id)}><Check className="w-4 h-4"/></Button>
+                                        <Button size="icon" variant="ghost" className="h-6 w-6 text-red-500" onClick={()=>api.rejectRequest(req.id)}><X className="w-4 h-4"/></Button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                     )}
+                     
+                     {/* Queued */}
+                     <div className="space-y-2">
+                        <h3 className="text-xs font-bold text-zinc-500 uppercase">In Scaletta ({queuedReqs.length})</h3>
+                        {queuedReqs.map((req, i) => (
+                           <div key={req.id} className="p-3 bg-zinc-800 rounded flex justify-between items-center group hover:bg-zinc-700 transition">
+                              <div className="flex items-center gap-3 overflow-hidden">
+                                  <span className="text-zinc-500 font-mono text-sm">{i+1}</span>
+                                  <div className="truncate">
+                                      <div className="font-bold text-sm truncate">{req.title}</div>
+                                      <div className="text-xs text-zinc-400">{req.artist} • {req.user_nickname}</div>
+                                  </div>
+                              </div>
+                              <Button size="sm" className="bg-fuchsia-600 h-7 opacity-0 group-hover:opacity-100 transition" onClick={() => handleStartLivePre(req)}>
+                                 <Play className="w-3 h-3 mr-1" /> LIVE
+                              </Button>
+                           </div>
+                        ))}
+                     </div>
                   </div>
-                ))}
-                {!queue.length && <p className="text-center text-zinc-500">Nessuna richiesta</p>}
-              </div>
-            )}
-            {/* Altre integrazioni per quiz/challenge */}
-          </CardContent>
-        </Card>
+               )}
 
-        {/* Destra: Partecipanti / Leaderboard */}
-        <Card className="col-span-1 bg-zinc-900 border-zinc-800">
-          <CardHeader><CardTitle>Partecipanti</CardTitle></CardHeader>
-          <CardContent>
-            <ul className="space-y-2 custom-scrollbar max-h-[60vh] overflow-y-auto">
-              {participants.map(p => (
-                <li key={p.id} className="flex justify-between p-3 bg-zinc-800 rounded-lg">
-                  <span>{p.nickname}</span>
-                  <span className="font-bold">{p.score} pt</span>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
+               {/* QUIZ LIBRARY */}
+               {libraryTab === 'quiz' && (
+                  <div className="space-y-3">
+                     <Button className="w-full bg-zinc-800 hover:bg-zinc-700 border border-white/10" onClick={()=>setShowCustomQuizModal(true)}>
+                        <Plus className="w-4 h-4 mr-2"/> Crea Quiz Manuale
+                     </Button>
+                     <h3 className="text-xs font-bold text-zinc-500 uppercase mt-4">Catalogo ({quizCatalog.length})</h3>
+                     {quizCatalog.map((item) => (
+                        <div key={item.id} className="p-3 bg-zinc-800 rounded border-l-2 border-transparent hover:border-yellow-500 cursor-pointer" onClick={() => launchCatalogQuiz(item)}>
+                           <div className="text-xs text-yellow-500 font-bold mb-1">{item.category}</div>
+                           <div className="text-sm font-medium">{item.question}</div>
+                        </div>
+                     ))}
+                  </div>
+               )}
+               
+               {/* MESSAGES LIBRARY */}
+               {libraryTab === 'messages' && (
+                   <div className="space-y-3">
+                       <Button className="w-full bg-cyan-900/30 hover:bg-cyan-900/50 text-cyan-400 border border-cyan-500/30" onClick={()=>setShowMessageModal(true)}>
+                           <MessageSquare className="w-4 h-4 mr-2"/> Invia Messaggio Libero
+                       </Button>
+                       <h3 className="text-xs font-bold text-zinc-500 uppercase mt-4">In Attesa ({pendingMessages.length})</h3>
+                       {pendingMessages.map(msg => (
+                           <div key={msg.id} className="p-3 bg-zinc-800 rounded">
+                               <p className="text-sm mb-2">"{msg.text}"</p>
+                               <p className="text-xs text-zinc-500 mb-2">da {msg.user_nickname}</p>
+                               <div className="flex gap-2">
+                                   <Button size="sm" className="flex-1 bg-green-600 h-7" onClick={()=>handleApproveMessage(msg.id)}>Approva</Button>
+                                   <Button size="sm" variant="destructive" className="flex-1 h-7" onClick={()=>handleRejectMessage(msg.id)}>Rifiuta</Button>
+                               </div>
+                           </div>
+                       ))}
+                   </div>
+               )}
+            </ScrollArea>
+         </aside>
 
+         {/* RIGHT: LIVE DECK */}
+         <main className="col-span-8 bg-black relative flex flex-col">
+            
+            {/* Live Status Bar */}
+            <div className="h-10 border-b border-white/10 flex items-center px-4 justify-between bg-zinc-950 select-none">
+               <span className="text-xs font-mono text-zinc-500">PROGRAMMA LIVE</span>
+               <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${eventState.active_module !== 'idle' ? 'bg-red-500 animate-pulse' : 'bg-zinc-600'}`}></div>
+                  <span className="uppercase font-bold tracking-wider text-sm text-red-500">{eventState.active_module}</span>
+               </div>
+            </div>
+
+            {/* Deck Content */}
+            <div className="flex-1 p-6 flex items-center justify-center bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-zinc-900 via-black to-black">
+               
+               {/* SCENA: KARAOKE */}
+               {eventState.active_module === 'karaoke' && (
+                  <div className="w-full max-w-3xl text-center">
+                     {!currentPerformance ? (
+                        <div className="text-zinc-600 flex flex-col items-center">
+                           <Mic2 className="w-24 h-24 mb-4 opacity-10" />
+                           <h2 className="text-2xl font-bold mb-2">Deck Karaoke Libero</h2>
+                           <p>Scegli una canzone dalla libreria per andare in onda.</p>
+                        </div>
+                     ) : (
+                        <div className="bg-zinc-900/80 backdrop-blur border border-white/10 p-8 rounded-2xl shadow-2xl relative overflow-hidden">
+                           {/* Info */}
+                           <div className="mb-8">
+                               <h2 className="text-4xl font-black text-white mb-2 leading-tight">{currentPerformance.song_title}</h2>
+                               <p className="text-2xl text-fuchsia-400">{currentPerformance.song_artist}</p>
+                               <div className="mt-4 inline-block bg-white/10 px-4 py-1 rounded-full text-sm">🎤 {currentPerformance.user_nickname}</div>
+                           </div>
+
+                           {/* Controls */}
+                           {currentPerformance.status === 'voting' ? (
+                               <div className="bg-yellow-500/20 p-6 rounded-xl border border-yellow-500/50 animate-pulse">
+                                   <h3 className="text-2xl font-bold text-yellow-500 mb-4">VOTAZIONE IN CORSO</h3>
+                                   <div className="flex items-center justify-center gap-4 mb-4">
+                                       <Star className="w-8 h-8 text-yellow-500 fill-yellow-500"/>
+                                       <span className="text-4xl font-bold text-white">{(currentPerformance.average_score || 0).toFixed(1)}</span>
+                                   </div>
+                                   <Button size="lg" className="w-full bg-yellow-500 text-black hover:bg-yellow-400" onClick={()=>ctrlPerf('close_vote')}>CHIUDI VOTAZIONE</Button>
+                               </div>
+                           ) : (
+                               <div className="flex justify-center gap-4">
+                                   {currentPerformance.status === 'live' && <Button size="lg" variant="outline" className="h-16 w-16 rounded-full" onClick={()=>ctrlPerf('pause')}><Pause className="w-6 h-6" /></Button>}
+                                   {currentPerformance.status === 'paused' && <Button size="lg" className="h-16 w-16 rounded-full bg-green-500 hover:bg-green-400" onClick={()=>ctrlPerf('resume')}><Play className="w-6 h-6" /></Button>}
+                                   <Button size="lg" variant="secondary" className="h-16 w-16 rounded-full" onClick={()=>ctrlPerf('restart')}><RotateCcw className="w-6 h-6" /></Button>
+                                   <Button size="lg" variant="destructive" className="h-16 w-auto px-8 rounded-full" onClick={()=>ctrlPerf('end')}><Square className="w-6 h-6 mr-2" /> STOP & VOTA</Button>
+                               </div>
+                           )}
+                        </div>
+                     )}
+                  </div>
+               )}
+
+               {/* SCENA: QUIZ */}
+               {eventState.active_module === 'quiz' && (
+                  <div className="w-full max-w-2xl">
+                     <div className="bg-yellow-950/30 border-2 border-yellow-600/50 p-8 rounded-2xl text-center shadow-[0_0_50px_rgba(234,179,8,0.2)]">
+                        <div className="flex justify-center mb-6"><BrainCircuit className="w-16 h-16 text-yellow-500" /></div>
+                        
+                        <h2 className="text-3xl font-bold text-white mb-8 bg-black/50 p-4 rounded-xl border border-white/10">
+                           {activeQuizId ? "Domanda in corso..." : "Caricamento..."}
+                        </h2>
+
+                        {activeQuizId && (
+                           <div className="grid grid-cols-2 gap-4">
+                              <Button disabled={quizStatus !== 'active'} className="h-16 text-lg bg-red-600 hover:bg-red-500" onClick={()=>ctrlQuiz('close_vote')}>
+                                 🛑 STOP VOTO
+                              </Button>
+                              <Button disabled={quizStatus !== 'closed'} className="h-16 text-lg bg-blue-600 hover:bg-blue-500" onClick={()=>ctrlQuiz('show_results')}>
+                                 🏆 RISULTATI
+                              </Button>
+                              <Button className="h-16 col-span-2 text-lg bg-zinc-700 hover:bg-zinc-600" onClick={()=>ctrlQuiz('end')}>
+                                 🚪 CHIUDI QUIZ
+                              </Button>
+                           </div>
+                        )}
+
+                        {quizResults && (
+                            <div className="mt-6 p-4 bg-green-900/20 rounded border border-green-500/30 text-green-400">
+                                <div>Risposte Totali: {quizResults.total_answers}</div>
+                                <div>Corrette: {quizResults.correct_count}</div>
+                            </div>
+                        )}
+                     </div>
+                  </div>
+               )}
+
+            </div>
+         </main>
       </div>
 
-      {/* Modal per Nuovo Modulo (scegli da catalogo) */}
-      <Dialog open={showModuleModal} onOpenChange={setShowModuleModal}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Configura Modulo</DialogTitle></DialogHeader>
-          {/* Tabs per tipo, catalogo */}
-          <Tabs>
-            <TabsList>
-              <TabsTrigger value="quiz">Quiz</TabsTrigger>
-              <TabsTrigger value="challenge">Sfida</TabsTrigger>
-              {/* Altri */}
-            </TabsList>
-            <TabsContent value="quiz">
-              {/* Lista da cataloghi */}
-              {[...quizText, ...quizAudio, ...quizVideo].map(item => (
-                <Button key={item.id} variant="outline" onClick={() => setSelectedCatalogItem(item)} className="w-full mb-2">{item.title}</Button>
-              ))}
-            </TabsContent>
-            <TabsContent value="challenge">
-              {challenges.map(item => (
-                <Button key={item.id} variant="outline" onClick={() => setSelectedCatalogItem(item)} className="w-full mb-2">{item.title}</Button>
-              ))}
-            </TabsContent>
-          </Tabs>
-          <Button onClick={() => createModule(/* tipo basato su tab */)} className="w-full mt-4">Crea Modulo</Button>
-        </DialogContent>
-      </Dialog>
-
-      {/* YOUTUBE MODAL (INVARIATO) */}
+      {/* --- MODALS --- */}
+      
+      {/* YOUTUBE MODAL */}
       <Dialog open={showYoutubeModal} onOpenChange={setShowYoutubeModal}>
-        <DialogContent className="bg-zinc-900 border-zinc-800">
-          <DialogHeader>
-            <DialogTitle>Avvia {selectedRequest?.title} di {selectedRequest?.user_nickname}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 mt-4">
-            <Tabs defaultValue="search">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="search">Cerca YouTube</TabsTrigger>
-                <TabsTrigger value="manual">Manuale</TabsTrigger>
-              </TabsList>
-              <TabsContent value="search">
-                <div className="flex gap-2 mb-4">
-                  <Input value={youtubeSearchQuery} onChange={(e) => setYoutubeSearchQuery(e.target.value)} placeholder="Cerca su YouTube..." />
-                  <Button onClick={handleYoutubeSearch} disabled={searchingYoutube}><Search className="w-4 mr-2" /> Cerca</Button>
-                </div>
-                {searchingYoutube && <p className="text-center">Ricerca...</p>}
-                {youtubeSearchResults.length > 0 && (
-                  <div className="space-y-2">
-                    {youtubeSearchResults.map(res => (
-                      <div key={res.id} onClick={() => selectYoutubeResult(res.url)} className={`p-3 rounded-xl cursor-pointer transition ${youtubeUrl === res.url ? 'bg-fuchsia-500/20 border-fuchsia-500' : 'bg-zinc-800 hover:bg-zinc-700'}`}>
-                        <p className="font-medium">{res.title}</p>
+        <DialogContent className="bg-zinc-900 border-zinc-800 max-w-3xl">
+          <DialogHeader><DialogTitle>Scegli Video per {selectedRequest?.title}</DialogTitle></DialogHeader>
+          <div className="space-y-4 pt-4">
+              <Tabs defaultValue="search" className="w-full">
+                  <TabsList className="grid w-full grid-cols-2 bg-zinc-800">
+                      <TabsTrigger value="search">Ricerca</TabsTrigger><TabsTrigger value="manual">URL</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="search" className="space-y-4 mt-4">
+                      <div className="flex gap-2">
+                          <Input value={youtubeSearchQuery} onChange={e=>setYoutubeSearchQuery(e.target.value)} className="bg-zinc-800" onKeyDown={e=>e.key==='Enter'&&searchYouTube()}/>
+                          <Button onClick={searchYouTube} disabled={searchingYoutube}>{searchingYoutube?'...':'Cerca'}</Button>
                       </div>
-                    ))}
+                      <div className="max-h-60 overflow-y-auto space-y-2">
+                          {youtubeSearchResults.map(vid => (
+                              <div key={vid.id.videoId} className="flex gap-3 p-2 hover:bg-white/5 cursor-pointer rounded" onClick={()=>{setYoutubeUrl(`https://www.youtube.com/watch?v=${vid.id.videoId}`); setYoutubeSearchResults([]);}}>
+                                  <img src={vid.snippet.thumbnails.default.url} className="w-24 h-16 object-cover rounded"/>
+                                  <div className="flex-1"><div className="font-bold text-sm">{vid.snippet.title}</div><div className="text-xs text-zinc-500">{vid.snippet.channelTitle}</div></div>
+                              </div>
+                          ))}
+                      </div>
+                  </TabsContent>
+                  <TabsContent value="manual" className="mt-4">
+                      <Input placeholder="https://youtube.com..." value={youtubeUrl} onChange={e=>setYoutubeUrl(e.target.value)} className="bg-zinc-800"/>
+                  </TabsContent>
+              </Tabs>
+              <div className="p-4 bg-zinc-950 rounded border border-zinc-800 break-all text-xs text-zinc-500">{youtubeUrl || "Nessun video selezionato"}</div>
+              <Button className="w-full bg-green-600 h-12 text-lg" disabled={!youtubeUrl} onClick={startPerformance}>CONFERMA E MANDA IN ONDA</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* CUSTOM QUIZ MODAL */}
+      <Dialog open={showCustomQuizModal} onOpenChange={setShowCustomQuizModal}>
+          <DialogContent className="bg-zinc-900 border-zinc-800">
+              <DialogHeader><DialogTitle>Crea Quiz al Volo</DialogTitle></DialogHeader>
+              <div className="space-y-4 pt-4">
+                  <div><label className="text-xs text-zinc-500">Domanda</label><Textarea value={quizQuestion} onChange={e=>setQuizQuestion(e.target.value)} className="bg-zinc-800"/></div>
+                  <div className="space-y-2">
+                      <label className="text-xs text-zinc-500">Opzioni (Spunta la corretta)</label>
+                      {quizOptions.map((opt, i) => (
+                          <div key={i} className="flex gap-2">
+                              <Input value={opt} onChange={e=>{const n=[...quizOptions]; n[i]=e.target.value; setQuizOptions(n)}} className="bg-zinc-800" placeholder={`Opzione ${i+1}`}/>
+                              <Button size="icon" variant={quizCorrectIndex===i?'default':'outline'} className={quizCorrectIndex===i?'bg-green-600':''} onClick={()=>setQuizCorrectIndex(i)}><Check className="w-4 h-4"/></Button>
+                          </div>
+                      ))}
                   </div>
-                )}
-              </TabsContent>
-              <TabsContent value="manual">
-                <Input value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=..." className="bg-zinc-800 border-zinc-700" />
-              </TabsContent>
-            </Tabs>
-            <Button onClick={startPerformance} disabled={!youtubeUrl.trim()} className="w-full bg-green-500 hover:bg-green-600" size="lg"><Play className="w-5 h-5 mr-2" /> Avvia Esibizione</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Quiz Modal */}
-      <Dialog open={showQuizModal} onOpenChange={setShowQuizModal}>
-        <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
-          <DialogHeader><DialogTitle>Crea Quiz</DialogTitle></DialogHeader>
-          <Tabs value={quizTab} onValueChange={setQuizTab} className="mt-4">
-            <TabsList className="grid w-full grid-cols-2"><TabsTrigger value="custom">Personalizzato</TabsTrigger><TabsTrigger value="category">Da Categoria</TabsTrigger></TabsList>
-            <TabsContent value="custom" className="space-y-4 mt-4">
-              <form onSubmit={handleStartQuiz} className="space-y-4">
-                <div><label className="text-sm text-zinc-400 mb-2 block">Domanda</label><Textarea value={quizQuestion} onChange={(e) => setQuizQuestion(e.target.value)} placeholder="Scrivi la domanda..." className="bg-zinc-800 border-zinc-700 min-h-20" /></div>
-                <div className="space-y-2"><label className="text-sm text-zinc-400">Opzioni di Risposta</label>
-                  {quizOptions.map((option, idx) => (
-                    <div key={idx} className="flex gap-2">
-                      <Input value={option} onChange={(e) => { const newOptions = [...quizOptions]; newOptions[idx] = e.target.value; setQuizOptions(newOptions); }} placeholder={`Opzione ${idx + 1}`} className="bg-zinc-800 border-zinc-700 flex-1" />
-                      <Button type="button" onClick={() => setQuizCorrectIndex(idx)} variant={quizCorrectIndex === idx ? "default" : "outline"} className={quizCorrectIndex === idx ? "bg-green-500" : ""}>{quizCorrectIndex === idx ? <Check className="w-4 h-4" /> : <span className="w-4 h-4" />}</Button>
-                    </div>
-                  ))}
-                </div>
-                <Button type="submit" className="w-full bg-fuchsia-500 hover:bg-fuchsia-600" size="lg"><HelpCircle className="w-5 h-5 mr-2" /> Lancia Quiz</Button>
-              </form>
-            </TabsContent>
-            <TabsContent value="category" className="space-y-4 mt-4">
-              <div className="grid grid-cols-2 gap-3">
-                {QUIZ_CATEGORIES.map(cat => (
-                  <button key={cat.id} onClick={() => setQuizCategory(cat.id)} className={`p-4 rounded-xl border transition ${quizCategory === cat.id ? 'border-fuchsia-500 bg-fuchsia-500/20' : 'border-zinc-700 hover:border-zinc-600'}`}>{cat.name}</button>
-                ))}
+                  <Button className="w-full bg-fuchsia-600 mt-4" onClick={launchCustomQuiz}>LANCIA SUBITO</Button>
               </div>
-              <Button onClick={handleStartQuiz} className="w-full bg-fuchsia-500 hover:bg-fuchsia-600" size="lg"><HelpCircle className="w-5 h-5 mr-2" /> Genera Quiz Random</Button>
-            </TabsContent>
-          </Tabs>
-        </DialogContent>
+          </DialogContent>
       </Dialog>
 
-      {/* Messages Regia Modal */}
+      {/* BROADCAST MSG MODAL */}
       <Dialog open={showMessageModal} onOpenChange={setShowMessageModal}>
-        <DialogContent className="bg-zinc-900 border-zinc-800">
-          <DialogHeader>
-            <DialogTitle>Invia Messaggio a Schermo</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 mt-4">
-            <Textarea 
-              value={adminMessage}
-              onChange={(e) => setAdminMessage(e.target.value)}
-              placeholder="Scrivi un avviso per il pubblico..."
-              className="bg-zinc-800 border-zinc-700 min-h-[100px]"
-            />
-            <div className="grid grid-cols-2 gap-2">
-              <Button onClick={() => setAdminMessage("🎉 Benvenuti al Karaoke! 🎉")} variant="outline" className="text-xs">Benvenuti</Button>
-              <Button onClick={() => setAdminMessage("🍺 Happy Hour al Bar! 🍺")} variant="outline" className="text-xs">Happy Hour</Button>
-              <Button onClick={() => setAdminMessage("👏 Applausi per il cantante! 👏")} variant="outline" className="text-xs">Applausi</Button>
-              <Button onClick={() => setAdminMessage("🤫 Silenzio in sala per favore")} variant="outline" className="text-xs">Silenzio</Button>
-            </div>
-            <Button onClick={handleBroadcastMessage} className="w-full bg-cyan-600 hover:bg-cyan-700">
-              <Send className="w-4 h-4 mr-2" /> Invia a Tutti
-            </Button>
-          </div>
-        </DialogContent>
+          <DialogContent className="bg-zinc-900 border-zinc-800">
+              <DialogHeader><DialogTitle>Messaggio Regia</DialogTitle></DialogHeader>
+              <div className="space-y-4 pt-4">
+                  <Textarea value={adminMessage} onChange={e=>setAdminMessage(e.target.value)} placeholder="Scrivi avviso..." className="bg-zinc-800 h-32 text-lg"/>
+                  <Button className="w-full bg-cyan-600" onClick={handleBroadcastMessage}><Send className="w-4 h-4 mr-2"/> INVIA AGLI SCHERMI</Button>
+              </div>
+          </DialogContent>
       </Dialog>
+
     </div>
   );
 }

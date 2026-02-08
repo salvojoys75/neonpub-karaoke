@@ -1,7 +1,7 @@
 import { supabase } from './supabase'
 
 // ============================================
-// HELPER FUNCTIONS
+// HELPER FUNCTIONS & AUTH
 // ============================================
 
 function getParticipantFromToken() {
@@ -28,10 +28,6 @@ async function getAdminEvent() {
   return data
 }
 
-// ============================================
-// AUTH & PROFILES
-// ============================================
-
 export const createPub = async (data) => {
   const { data: user } = await supabase.auth.getUser()
   if (!user?.user) throw new Error('Not authenticated')
@@ -45,7 +41,8 @@ export const createPub = async (data) => {
       name: data.name,
       code: code,
       event_type: 'mixed',
-      status: 'active'
+      status: 'active',
+      active_module: 'karaoke' // Default state
     })
     .select()
     .single()
@@ -99,6 +96,66 @@ export const joinPub = async ({ pub_code, nickname }) => {
 
 export const adminLogin = async (data) => { return { data: { user: { email: data.email } } } }
 export const getMe = async () => { const { data: { user } } = await supabase.auth.getUser(); return { data: user } }
+
+// ============================================
+// NUOVO: GESTIONE STATO EVENTO (REGIA)
+// ============================================
+
+export const getEventState = async () => {
+  const pubCode = localStorage.getItem('neonpub_pub_code');
+  if (!pubCode) return null;
+  const { data } = await supabase.from('events').select('active_module, active_module_id').eq('code', pubCode).maybeSingle();
+  return data;
+};
+
+export const setEventModule = async (moduleId, specificContentId = null) => {
+  // moduleId: 'karaoke', 'quiz', 'idle'
+  const pubCode = localStorage.getItem('neonpub_pub_code');
+  
+  // 1. Aggiorna lo stato globale dell'evento
+  const { data: event, error } = await supabase
+    .from('events')
+    .update({ 
+      active_module: moduleId,
+      active_module_id: specificContentId 
+    })
+    .eq('code', pubCode)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  // 2. LOGICA DI TRANSIZIONE (Se attivo un quiz dal catalogo)
+  if (moduleId === 'quiz' && specificContentId) {
+    // Recupera il quiz dal catalogo
+    const { data: catalogItem } = await supabase.from('quiz_catalog').select('*').eq('id', specificContentId).single();
+    
+    // Chiudi eventuali quiz vecchi
+    await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id);
+
+    // Crea il nuovo quiz live
+    await supabase.from('quizzes').insert({
+      event_id: event.id,
+      category: catalogItem.category,
+      question: catalogItem.question,
+      options: catalogItem.options,
+      correct_index: catalogItem.correct_index,
+      points: catalogItem.points,
+      status: 'active'
+    });
+  }
+};
+
+// ============================================
+// NUOVO: GESTIONE CATALOGHI
+// ============================================
+
+export const getQuizCatalog = async () => {
+  const { data, error } = await supabase.from('quiz_catalog').select('*').order('category');
+  // Se la tabella non esiste ancora o è vuota, non blocchiamo tutto
+  if (error && error.code !== '42P01') console.error("Errore catalogo", error); 
+  return { data: data || [] };
+};
 
 // ============================================
 // SONG REQUESTS
@@ -174,6 +231,10 @@ export const startPerformance = async (requestId, youtubeUrl) => {
     }).select().single()
   if (error) throw error
   await supabase.from('song_requests').update({ status: 'performing' }).eq('id', requestId)
+  
+  // Forziamo lo stato evento su 'karaoke' quando parte una canzone
+  await supabase.from('events').update({ active_module: 'karaoke' }).eq('id', request.event_id);
+  
   return { data: performance }
 }
 
@@ -255,6 +316,7 @@ export const sendMessage = async (data) => {
   let eventId = null;
   let status = 'pending';
 
+  // Supporto per invio sia da admin (senza token part) che da user
   try {
      const p = getParticipantFromToken();
      participantId = p.participant_id;
@@ -312,7 +374,13 @@ export const startQuiz = async (data) => {
   const { data: quiz, error } = await supabase.from('quizzes').insert({
     event_id: event.id, category: data.category, question: data.question, options: data.options, correct_index: data.correct_index, points: data.points, status: 'active'
   }).select().single()
-  if (error) throw error; return { data: quiz }
+  
+  if (error) throw error; 
+  
+  // Quando creo un quiz Custom (non da catalogo), imposto il modulo su Quiz
+  await supabase.from('events').update({ active_module: 'quiz' }).eq('id', event.id);
+  
+  return { data: quiz }
 }
 
 export const closeQuizVoting = async (quizId) => {
@@ -347,13 +415,12 @@ export const getQuizResults = async (quizId) => {
       correct_index: quiz.correct_index,
       total_answers: answers.length,
       correct_count: correctAnswers.length,
-      winners: correctAnswers.map(a => a.participants?.nickname || 'Unknown'), // Fix nickname
+      winners: correctAnswers.map(a => a.participants?.nickname || 'Unknown'), 
       points: quiz.points
     }
   }
 }
 
-// *** QUIZ ANSWER CON ASSEGNAZIONE PUNTI ***
 export const answerQuiz = async (data) => {
   const participant = getParticipantFromToken()
   
@@ -384,7 +451,7 @@ export const answerQuiz = async (data) => {
 
   // 3. Se corretto, AGGIORNA il punteggio del partecipante
   if (isCorrect) {
-      // Recupera punteggio attuale
+      // Nota: idealmente usare la RPC 'give_points' lato DB, ma qui manteniamo compatibilità
       const { data: p } = await supabase.from('participants').select('score').eq('id', participant.participant_id).single();
       if (p) {
           await supabase.from('participants').update({ score: p.score + pointsEarned }).eq('id', participant.participant_id);
@@ -396,6 +463,12 @@ export const answerQuiz = async (data) => {
 
 export const getActiveQuiz = async () => {
   const participant = getParticipantFromToken()
+  // Se non ho token (admin), devo usare il code
+  if(!participant) {
+     const event = await getAdminEvent();
+     const { data } = await supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results']).maybeSingle()
+     return { data };
+  }
   const { data, error } = await supabase.from('quizzes').select('*').eq('event_id', participant.event_id).in('status', ['active', 'closed', 'showing_results']).maybeSingle()
   if (error) throw error; return { data }
 }
@@ -416,23 +489,31 @@ export const getQuizLeaderboard = async () => { return getAdminLeaderboard(); }
 
 export const getDisplayData = async (pubCode) => {
   const { data: event } = await supabase.from('events').select('*').eq('code', pubCode.toUpperCase()).single()
-  const [perf, queue, lb] = await Promise.all([
+  
+  // Fetch parallelo dei dati necessari per il display
+  const [perf, queue, lb, activeQuiz, msg] = await Promise.all([
     supabase.from('performances').select('*, participants(nickname)').eq('event_id', event.id).in('status', ['live','voting','paused','restarted']).maybeSingle(),
     supabase.from('song_requests').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'queued').limit(10),
-    supabase.from('participants').select('nickname, score').eq('event_id', event.id).order('score', {ascending:false}).limit(5)
+    supabase.from('participants').select('nickname, score').eq('event_id', event.id).order('score', {ascending:false}).limit(5),
+    supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results']).maybeSingle(),
+    supabase.from('messages').select('*').eq('event_id', event.id).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle()
   ])
+
   return {
     data: {
       pub: event,
       current_performance: perf.data ? {...perf.data, user_nickname: perf.data.participants?.nickname} : null,
       queue: queue.data?.map(q => ({...q, user_nickname: q.participants?.nickname})),
-      leaderboard: lb.data
+      leaderboard: lb.data,
+      active_quiz: activeQuiz.data,
+      latest_message: msg.data
     }
   }
 }
 
 export default {
   createPub, getPub, joinPub, adminLogin, getMe,
+  getEventState, setEventModule, getQuizCatalog, // NEW
   requestSong, getSongQueue, getMyRequests, getAdminQueue, approveRequest, rejectRequest,
   startPerformance, pausePerformance, resumePerformance, endPerformance, closeVoting, skipPerformance, restartPerformance, 
   getCurrentPerformance, getAdminCurrentPerformance,
