@@ -333,26 +333,47 @@ export const getLibraryQuizzes = async (category = null) => {
   if (error) throw error; return { data };
 }
 
-// 3. Lancio quiz dalla libreria
+// 3. Lancio quiz dalla libreria (VERSIONE FIXATA)
 export const launchQuizFromLibrary = async (libraryId) => {
   const event = await getAdminEvent();
   
-  // Prendi template
-  const { data: template } = await supabase.from('quiz_library').select('*').eq('id', libraryId).single();
+  // Prendi template dalla libreria
+  const { data: template } = await supabase
+    .from('quiz_library')
+    .select('*')
+    .eq('id', libraryId)
+    .single();
     
-  // Crea quiz attivo
+  if (!template) throw new Error("Quiz non trovato in libreria");
+
+  // --- FIX SICUREZZA DATI ---
+  // Assicuriamoci che options sia un Array reale e non una stringa
+  let cleanOptions = template.options;
+  if (typeof cleanOptions === 'string') {
+    try {
+      cleanOptions = JSON.parse(cleanOptions);
+    } catch (e) {
+      console.error("Errore parsing opzioni:", e);
+      // Fallback: proviamo a splittare se è una stringa separata da virgole, o array vuoto
+      cleanOptions = cleanOptions.includes(',') ? cleanOptions.split(',') : ["Sì", "No"];
+    }
+  }
+  // --------------------------
+
+  // Crea quiz attivo usando le opzioni pulite
   const { data: activeQuiz, error } = await supabase.from('quizzes').insert({
       event_id: event.id,
       category: template.category,
       question: template.question,
-      options: template.options,
+      options: cleanOptions, // Usiamo la versione sicura
       correct_index: template.correct_index,
-      media_url: template.media_url, // Supporto media
+      media_url: template.media_url, 
       points: template.points,
       status: 'active'
     }).select().single();
 
-  if (error) throw error; return { data: activeQuiz };
+  if (error) throw error; 
+  return { data: activeQuiz };
 }
 
 // 4. Lancio quiz manuale (vecchio metodo)
