@@ -70,12 +70,9 @@ export default function PubDisplay() {
     const videoId = extractVideoId(perf.youtube_url);
     if (!videoId) return;
 
-    // Controllo embed
     isEmbeddable(videoId).then((ok) => {
       if (!ok) {
-         console.warn("Video non embeddabile, apertura popup...");
-         // Tenta apertura fallback se il browser lo permette, altrimenti gestito manualmente dall'admin
-         // window.open(`https://www.youtube.com/watch?v=${videoId}`, "_blank");
+         console.warn("Video non embeddabile");
          return;
       }
 
@@ -113,7 +110,6 @@ export default function PubDisplay() {
         setTicker("Inquadra il QR Code per cantare!");
       }
 
-      // Se c'è un voto medio salvato nella performance finita, mostralo
       if (data.current_performance?.status === 'ended' && !voteResult && data.current_performance.average_score > 0) {
          setVoteResult(data.current_performance.average_score);
          setTimeout(() => setVoteResult(null), 10000);
@@ -132,7 +128,6 @@ export default function PubDisplay() {
   useEffect(() => {
     if (!displayData?.pub?.id) return;
     
-    // Controllo specifico per Mute/Unmute
     const controlChannel = supabase.channel(`display_control_${pubCode}`)
         .on('broadcast', { event: 'control' }, (payload) => {
             if(payload.payload.command === 'mute') {
@@ -212,7 +207,6 @@ export default function PubDisplay() {
   };
 
   const currentPerf = displayData?.current_performance;
-  const queue = displayData?.queue || [];
   const leaderboard = displayData?.leaderboard || [];
   const joinUrl = `${window.location.origin}/join/${pubCode}`;
   const isVoting = currentPerf?.status === 'voting';
@@ -283,19 +277,18 @@ export default function PubDisplay() {
               <p className="text-xs text-zinc-500 uppercase mt-2">Scansiona per partecipare</p>
            </div>
            
-           <div className="flex-1 overflow-hidden flex flex-col p-4">
-              <h3 className="text-lg font-bold text-fuchsia-400 mb-4 flex items-center gap-2 uppercase tracking-wider"><Music className="w-5 h-5"/> Prossimi</h3>
-              <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-2">
-                 {queue.length === 0 ? <p className="text-center text-zinc-600 italic mt-10">Coda vuota...</p> : queue.map((s, i) => (
-                    <div key={s.id} className="bg-black/40 p-3 rounded-lg border-l-4 border-fuchsia-600 hover:bg-white/5 transition">
-                       <div className="font-bold text-white truncate text-lg">{s.title}</div>
-                       <div className="flex justify-between items-center mt-1">
-                          <span className="text-sm text-zinc-400 truncate max-w-[60%]">{s.artist}</span>
-                          <span className="text-xs text-cyan-500 font-bold px-2 py-0.5 bg-cyan-900/20 rounded-full">{s.user_nickname}</span>
-                       </div>
-                    </div>
-                 ))}
-              </div>
+           <div className="flex-1 overflow-hidden flex flex-col p-8 items-center justify-center text-center space-y-6">
+               {/* SIDEBAR RIPULITA: LOGO E NOME */}
+               {displayData?.pub?.logo_url ? (
+                   <img src={displayData.pub.logo_url} alt="Logo" className="w-48 h-48 object-contain drop-shadow-2xl animate-pulse"/>
+               ) : (
+                   <div className="w-48 h-48 bg-zinc-800 rounded-full flex items-center justify-center text-zinc-600 text-4xl font-bold border-4 border-zinc-700">LOGO</div>
+               )}
+               
+               <div>
+                   <h2 className="text-3xl font-black text-white uppercase tracking-wider">{displayData?.pub?.name || "NEONPUB"}</h2>
+                   <p className="text-zinc-500 mt-2">Benvenuti al Karaoke</p>
+               </div>
            </div>
 
            <div className="h-[35%] border-t border-white/10 p-4 bg-gradient-to-b from-zinc-900 to-black">

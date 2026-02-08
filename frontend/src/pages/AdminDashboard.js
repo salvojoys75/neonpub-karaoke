@@ -4,7 +4,8 @@ import { toast } from "sonner";
 import {
   Music, Play, Square, Trophy, Tv, Check, X, MessageSquare, 
   LogOut, SkipForward, Pause, RotateCcw, Search, Plus, ArrowLeft,
-  ListMusic, BrainCircuit, Swords, Send, Star, VolumeX, Volume2, ExternalLink
+  ListMusic, BrainCircuit, Swords, Send, Star, VolumeX, Volume2, ExternalLink,
+  Users, Coins, Settings, Save, LayoutDashboard
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
-import api, { createPub } from "@/lib/api";
+import api, { createPub, updateEventSettings } from "@/lib/api";
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -35,6 +36,13 @@ export default function AdminDashboard() {
   const [isMuted, setIsMuted] = useState(false);
   
   const [libraryTab, setLibraryTab] = useState("karaoke"); 
+
+  // --- STATI SUPER ADMIN ---
+  const [userList, setUserList] = useState([]);
+
+  // --- IMPOSTAZIONI EVENTO ---
+  const [venueName, setVenueName] = useState("");
+  const [venueLogo, setVenueLogo] = useState("");
 
   // --- MODULO SFIDE & SCRIPT (AI Ready) ---
   const [challengeScripts, setChallengeScripts] = useState([
@@ -91,6 +99,14 @@ export default function AdminDashboard() {
 
       let { data: userProfile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
 
+      // FORZA SUPER ADMIN PER EMAIL SPECIFICA
+      if (user.email === 'admin@neonpub.com') {
+          if (!userProfile || userProfile.role !== 'super_admin') {
+              const { error } = await supabase.from('profiles').upsert({ id: user.id, email: user.email, role: 'super_admin', credits: 9999 });
+              if(!error) userProfile = { id: user.id, email: user.email, role: 'super_admin', credits: 9999 };
+          }
+      }
+
       if (!userProfile) {
          const { data: newProfile } = await supabase.from('profiles').insert([{ id: user.id, email: user.email, role: 'operator', credits: 0 }]).select().single();
          userProfile = newProfile;
@@ -99,6 +115,7 @@ export default function AdminDashboard() {
 
       if (userProfile.role === 'super_admin') {
         setAppState("super_admin");
+        loadSuperAdminData();
       } else {
         const storedCode = localStorage.getItem("neonpub_pub_code");
         if (storedCode) {
@@ -133,6 +150,13 @@ export default function AdminDashboard() {
     } catch (error) { toast.error(error.message); } finally { setCreatingEvent(false); }
   };
 
+  const handleSaveSettings = async () => {
+      try {
+          await updateEventSettings({ name: venueName, logo_url: venueLogo });
+          toast.success("Impostazioni salvate");
+      } catch (e) { toast.error("Errore salvataggio"); }
+  };
+
   // 3. LOAD DATA
   const loadData = useCallback(async () => {
     if (!pubCode || appState !== 'dashboard') return;
@@ -140,16 +164,22 @@ export default function AdminDashboard() {
       const stateData = await api.getEventState();
       if(stateData) setEventState(stateData);
 
-      const [qRes, perfRes, msgRes, activeQuizRes] = await Promise.all([
+      const [qRes, perfRes, msgRes, activeQuizRes, pubRes] = await Promise.all([
         api.getAdminQueue(),
         api.getAdminCurrentPerformance(),
         api.getAdminPendingMessages(),
-        api.getActiveQuiz()
+        api.getActiveQuiz(),
+        api.getPub(pubCode)
       ]);
 
       setQueue(qRes.data || []);
       setCurrentPerformance(perfRes.data);
       setPendingMessages(msgRes.data || []);
+      
+      if(pubRes.data && !venueName) {
+          setVenueName(pubRes.data.name);
+          setVenueLogo(pubRes.data.logo_url || "");
+      }
       
       if(activeQuizRes.data) {
          setActiveQuizId(activeQuizRes.data.id);
@@ -162,7 +192,21 @@ export default function AdminDashboard() {
          setActiveQuizId(null); setQuizStatus(null); setQuizResults(null);
       }
     } catch (error) { console.error(error); }
-  }, [pubCode, appState]);
+  }, [pubCode, appState, venueName]); // Added venueName to deps to avoid infinite reset if empty
+
+  const loadSuperAdminData = async () => {
+      const { data } = await api.getAllProfiles();
+      setUserList(data || []);
+  };
+
+  const addCredits = async (userId, amount) => {
+      const user = userList.find(u => u.id === userId);
+      if(!user) return;
+      const newAmount = (user.credits || 0) + amount;
+      await api.updateProfileCredits(userId, newAmount);
+      toast.success(`Crediti aggiornati a ${newAmount}`);
+      loadSuperAdminData();
+  };
 
   useEffect(() => {
     if (appState === 'dashboard') {
@@ -212,7 +256,8 @@ export default function AdminDashboard() {
   const startPerformance = async () => {
     if (!selectedRequest || !youtubeUrl) return toast.error("Manca URL");
     try {
-        await api.startPerformance(selectedRequest.id, youtubeUrl);
+        const { data: newPerf } = await api.startPerformance(selectedRequest.id, youtubeUrl);
+        setCurrentPerformance(newPerf); // Aggiorna stato locale immediatamente
         setShowYoutubeModal(false);
         toast.success("Karaoke Avviato!");
         loadData();
@@ -227,10 +272,10 @@ export default function AdminDashboard() {
         if(action==='resume') await api.resumePerformance(currentPerformance.id);
         if(action==='restart') await api.restartPerformance(currentPerformance.id);
         
-        // NUOVO: Stop e Vota
+        // Stop e Vota
         if(action==='end_vote') await api.endPerformance(currentPerformance.id);
         
-        // NUOVO: Stop SENZA Voto (Skip)
+        // Stop SENZA Voto (Skip)
         if(action==='skip_next') {
             if(window.confirm("Chiudere senza voto?")) {
                 await api.stopAndNext(currentPerformance.id);
@@ -251,8 +296,10 @@ export default function AdminDashboard() {
   };
 
   const openManualVideoWindow = () => {
-      if (currentPerformance?.youtube_url) {
-          window.open(currentPerformance.youtube_url, '_blank');
+      // Usa l'URL della performance corrente se esiste, altrimenti usa quello appena selezionato
+      const urlToOpen = currentPerformance?.youtube_url || youtubeUrl;
+      if (urlToOpen) {
+          window.open(urlToOpen, '_blank');
       } else {
           toast.error("Nessun video attivo");
       }
@@ -269,9 +316,7 @@ export default function AdminDashboard() {
 
   const launchChallenge = async (script) => {
       if(window.confirm(`Lanciare sfida: ${script.title}?`)) {
-          // Qui in futuro si creerà l'entry nel DB. Per ora toast.
           toast.success(`Sfida "${script.title}" inviata agli schermi (Simulazione)`);
-          // api.setEventModule('challenge', script.id);
       }
   };
 
@@ -309,6 +354,42 @@ export default function AdminDashboard() {
   // --- RENDER ---
   if (appState === 'loading') return <div className="bg-black h-screen text-white flex items-center justify-center">Caricamento...</div>;
 
+  // --- SUPER ADMIN DASHBOARD ---
+  if (appState === 'super_admin') {
+      return (
+        <div className="h-screen bg-zinc-950 text-white flex flex-col p-8">
+            <header className="flex justify-between items-center mb-8 border-b border-zinc-800 pb-4">
+                <h1 className="text-3xl font-bold text-fuchsia-500">SUPER ADMIN DASHBOARD</h1>
+                <div className="flex items-center gap-4">
+                    <span className="text-zinc-400">admin@neonpub.com</span>
+                    <Button variant="ghost" onClick={handleLogout}><LogOut className="w-4 h-4 mr-2"/> Esci</Button>
+                </div>
+            </header>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {userList.map(user => (
+                    <Card key={user.id} className="bg-zinc-900 border-zinc-800">
+                        <CardHeader>
+                            <CardTitle className="text-white truncate">{user.email}</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="flex justify-between items-center mb-4">
+                                <span className="text-zinc-500">Crediti Attuali:</span>
+                                <span className="text-2xl font-bold text-yellow-500">{user.credits || 0}</span>
+                            </div>
+                            <div className="flex gap-2">
+                                <Button size="sm" onClick={()=>addCredits(user.id, 10)} className="flex-1 bg-zinc-800 hover:bg-zinc-700">+10</Button>
+                                <Button size="sm" onClick={()=>addCredits(user.id, 50)} className="flex-1 bg-zinc-800 hover:bg-zinc-700">+50</Button>
+                                <Button size="sm" onClick={()=>addCredits(user.id, 100)} className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-black font-bold">+100</Button>
+                            </div>
+                        </CardContent>
+                    </Card>
+                ))}
+            </div>
+        </div>
+      );
+  }
+
+  // --- SETUP ---
   if (appState === 'setup') {
       return (
         <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center p-4">
@@ -324,7 +405,7 @@ export default function AdminDashboard() {
       );
   }
 
-  // DASHBOARD REALE
+  // --- OPERATOR DASHBOARD ---
   const pendingReqs = queue.filter(r => r.status === 'pending');
   const queuedReqs = queue.filter(r => r.status === 'queued');
 
@@ -350,11 +431,12 @@ export default function AdminDashboard() {
          <aside className="col-span-4 border-r border-white/10 bg-zinc-900/50 flex flex-col">
             <div className="p-2 border-b border-white/5">
                <Tabs value={libraryTab} onValueChange={setLibraryTab} className="w-full">
-                  <TabsList className="grid w-full grid-cols-4 bg-zinc-950 p-1">
-                     <TabsTrigger value="karaoke" className="text-xs"><ListMusic className="w-3 h-3 mr-1" />Coda</TabsTrigger>
-                     <TabsTrigger value="quiz" className="text-xs"><BrainCircuit className="w-3 h-3 mr-1" />Quiz</TabsTrigger>
-                     <TabsTrigger value="challenges" className="text-xs"><Swords className="w-3 h-3 mr-1" />Sfide</TabsTrigger>
-                     <TabsTrigger value="messages" className="text-xs"><MessageSquare className="w-3 h-3 mr-1" />Msg</TabsTrigger>
+                  <TabsList className="grid w-full grid-cols-5 bg-zinc-950 p-1">
+                     <TabsTrigger value="karaoke" className="text-xs px-1"><ListMusic className="w-3 h-3 mr-1" />Coda</TabsTrigger>
+                     <TabsTrigger value="quiz" className="text-xs px-1"><BrainCircuit className="w-3 h-3 mr-1" />Quiz</TabsTrigger>
+                     <TabsTrigger value="challenges" className="text-xs px-1"><Swords className="w-3 h-3 mr-1" />Sfide</TabsTrigger>
+                     <TabsTrigger value="messages" className="text-xs px-1"><MessageSquare className="w-3 h-3 mr-1" />Msg</TabsTrigger>
+                     <TabsTrigger value="settings" className="text-xs px-1"><Settings className="w-3 h-3 mr-1" />Set</TabsTrigger>
                   </TabsList>
                </Tabs>
             </div>
@@ -410,7 +492,7 @@ export default function AdminDashboard() {
                   </div>
                )}
 
-               {/* 3. SFIDE (AGGIORNATO - AI READY) */}
+               {/* 3. SFIDE */}
                {libraryTab === 'challenges' && (
                    <div className="space-y-3">
                        <div className="flex gap-2">
@@ -468,6 +550,24 @@ export default function AdminDashboard() {
                                </div>
                            </div>
                        ))}
+                   </div>
+               )}
+
+               {/* 5. SETTINGS */}
+               {libraryTab === 'settings' && (
+                   <div className="space-y-4 pt-2">
+                       <div className="space-y-2">
+                           <label className="text-xs text-zinc-500">Nome Locale</label>
+                           <Input value={venueName} onChange={e=>setVenueName(e.target.value)} className="bg-zinc-800" placeholder="Es. Mario's Pub"/>
+                       </div>
+                       <div className="space-y-2">
+                           <label className="text-xs text-zinc-500">URL Logo (Immagine)</label>
+                           <Input value={venueLogo} onChange={e=>setVenueLogo(e.target.value)} className="bg-zinc-800" placeholder="https://..."/>
+                           <p className="text-[10px] text-zinc-600">Incolla qui un link diretto ad un'immagine online.</p>
+                       </div>
+                       <Button className="w-full bg-zinc-700 hover:bg-zinc-600" onClick={handleSaveSettings}>
+                           <Save className="w-4 h-4 mr-2"/> Salva Impostazioni
+                       </Button>
                    </div>
                )}
             </ScrollArea>

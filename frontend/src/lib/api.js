@@ -55,6 +55,16 @@ export const createPub = async (data) => {
   return { data: event }
 }
 
+export const updateEventSettings = async (data) => {
+  const event = await getAdminEvent();
+  const { error } = await supabase.from('events').update({ 
+      name: data.name, 
+      logo_url: data.logo_url 
+  }).eq('id', event.id);
+  if (error) throw error;
+  return { data: 'ok' };
+}
+
 export const getPub = async (pubCode) => {
   const { data, error } = await supabase.from('events').select('*').eq('code', pubCode.toUpperCase()).eq('status', 'active').single()
   if (error) throw error
@@ -74,6 +84,19 @@ export const joinPub = async ({ pub_code, nickname }) => {
 
 export const adminLogin = async (data) => { return { data: { user: { email: data.email } } } }
 export const getMe = async () => { const { data: { user } } = await supabase.auth.getUser(); return { data: user } }
+
+// === SUPER ADMIN ===
+export const getAllProfiles = async () => {
+    const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
+    if (error) throw error;
+    return { data };
+}
+
+export const updateProfileCredits = async (id, credits) => {
+    const { error } = await supabase.from('profiles').update({ credits }).eq('id', id);
+    if (error) throw error;
+    return { data: 'ok' };
+}
 
 // ============================================
 // REGIA & STATO
@@ -123,11 +146,11 @@ export const requestSong = async (data) => {
 
 export const getSongQueue = async () => {
   const participant = getParticipantFromToken()
-  // Filtro rigoroso: solo pending, queued o approved. NON ended o performing.
+  // Filtro rigoroso: Nasconde performing e ended
   const { data, error } = await supabase.from('song_requests')
     .select('*, participants (nickname)')
     .eq('event_id', participant.event_id)
-    .in('status', ['pending', 'queued', 'approved'])
+    .in('status', ['pending', 'queued', 'approved']) 
     .order('position', { ascending: true })
   
   if (error) throw error
@@ -176,10 +199,11 @@ export const startPerformance = async (requestId, youtubeUrl) => {
   const { data: performance, error } = await supabase.from('performances').insert({
       event_id: request.event_id, song_request_id: request.id, participant_id: request.participant_id,
       song_title: request.title, song_artist: request.artist, youtube_url: youtubeUrl || request.youtube_url, status: 'live',
-      average_score: 0 // Reset score
+      average_score: 0 
     }).select().single()
   
   if (error) throw error
+  // Imposta status 'performing' così sparisce dalla coda principale
   await supabase.from('song_requests').update({ status: 'performing' }).eq('id', requestId)
   await supabase.from('events').update({ active_module: 'karaoke' }).eq('id', request.event_id);
   
@@ -196,8 +220,14 @@ export const closeVoting = async (performanceId) => {
   if (error) throw error; return { data }
 }
 
-// NUOVO: Funzione per skippare il voto e chiudere direttamente
 export const stopAndNext = async (performanceId) => {
+    // Chiude performance e request
+    const { data: perf } = await supabase.from('performances').select('song_request_id').eq('id', performanceId).single();
+    
+    if (perf?.song_request_id) {
+        await supabase.from('song_requests').update({ status: 'ended' }).eq('id', perf.song_request_id);
+    }
+
     const { data, error } = await supabase.from('performances').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', performanceId).select()
     if (error) throw error; 
     return { data };
@@ -250,29 +280,17 @@ export const getAdminCurrentPerformance = async () => {
 
 export const submitVote = async (data) => {
   const participant = getParticipantFromToken();
-  
-  // 1. Inserisci il voto
   const { data: vote, error } = await supabase.from('votes').insert({
       performance_id: data.performance_id, participant_id: participant.participant_id, score: data.score
     }).select().single();
+  if (error) { if (error.code === '23505') throw new Error('Hai già votato'); throw error; }
   
-  if (error) { 
-      if (error.code === '23505') throw new Error('Hai già votato'); 
-      throw error; 
-  }
-
-  // 2. Calcola media manuale per aggiornamento immediato
   const { data: allVotes } = await supabase.from('votes').select('score').eq('performance_id', data.performance_id);
-  
   if (allVotes && allVotes.length > 0) {
       const total = allVotes.reduce((acc, v) => acc + v.score, 0);
       const avg = total / allVotes.length;
-      
-      await supabase.from('performances')
-          .update({ average_score: avg })
-          .eq('id', data.performance_id);
+      await supabase.from('performances').update({ average_score: avg }).eq('id', data.performance_id);
   }
-
   return { data: vote };
 }
 
@@ -285,12 +303,10 @@ export const sendReaction = async (data) => {
   return { data: reaction }
 }
 
-// *** MESSAGES ***
 export const sendMessage = async (data) => {
   let participantId = null;
   let eventId = null;
   let status = data.status || 'pending';
-
   try {
      const p = getParticipantFromToken();
      participantId = p.participant_id;
@@ -302,14 +318,11 @@ export const sendMessage = async (data) => {
         if(event) eventId = event.id;
      }
   }
-
   if (!eventId) throw new Error("Errore contesto evento");
   const text = typeof data === 'string' ? data : (data.text || data.message);
-  
   const { data: message, error } = await supabase.from('messages').insert({
       event_id: eventId, participant_id: participantId, text: text, status: status
     }).select().single()
-
   if (error) throw error
   return { data: message }
 }
@@ -332,7 +345,7 @@ export const rejectMessage = async (id) => {
 }
 
 // ============================================
-// QUIZ
+// QUIZ & DISPLAY DATA
 // ============================================
 
 export const startQuiz = async (data) => {
@@ -419,7 +432,6 @@ export const getQuizLeaderboard = async () => { return getAdminLeaderboard(); }
 export const getDisplayData = async (pubCode) => {
   const { data: event } = await supabase.from('events').select('*').eq('code', pubCode.toUpperCase()).single()
   
-  // Fetch only active/voting performances
   const [perf, queue, lb, activeQuiz, msg] = await Promise.all([
     supabase.from('performances').select('*, participants(nickname)').eq('event_id', event.id).in('status', ['live','voting','paused','restarted']).maybeSingle(),
     supabase.from('song_requests').select('*, participants(nickname)').eq('event_id', event.id).in('status', ['queued', 'approved', 'pending']).limit(10), // Clean queue
@@ -441,7 +453,8 @@ export const getDisplayData = async (pubCode) => {
 }
 
 export default {
-  createPub, getPub, joinPub, adminLogin, getMe,
+  createPub, updateEventSettings, getPub, joinPub, adminLogin, getMe,
+  getAllProfiles, updateProfileCredits,
   getEventState, setEventModule, getQuizCatalog,
   requestSong, getSongQueue, getMyRequests, getAdminQueue, approveRequest, rejectRequest,
   startPerformance, pausePerformance, resumePerformance, endPerformance, closeVoting, stopAndNext, restartPerformance, toggleMute,
