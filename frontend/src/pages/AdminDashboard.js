@@ -5,7 +5,7 @@ import {
   Music, Play, Square, Trophy, Tv, Star, HelpCircle,
   Check, X, MessageSquare, LogOut, SkipForward, Pause,
   RotateCcw, Mic2, Search, Send, Coins, BookOpen, 
-  Upload, EyeOff, VolumeX, Volume2, Eye, Plus, Lock
+  Upload, EyeOff, VolumeX, Volume2, Eye, Plus, Lock, RefreshCw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,7 +23,6 @@ export default function AdminDashboard() {
   // --- STATI PROFILO ---
   const [appState, setAppState] = useState("loading");
   const [profile, setProfile] = useState(null);
-  const [operators, setOperators] = useState([]);
   const [newEventName, setNewEventName] = useState("");
   const [creatingEvent, setCreatingEvent] = useState(false);
 
@@ -33,20 +32,16 @@ export default function AdminDashboard() {
   const [activeSection, setActiveSection] = useState("queue");
   const [pendingMessages, setPendingMessages] = useState([]);
   
-  // --- STATI QUIZ (Libreria + Manuale) ---
+  // --- STATI QUIZ ---
   const [libraryQuizzes, setLibraryQuizzes] = useState([]);
   const [jsonImport, setJsonImport] = useState("");
-  const [showQuizModal, setShowQuizModal] = useState(false); // Modale creazione manuale
-  
-  // Quiz Manuale form
+  const [showQuizModal, setShowQuizModal] = useState(false);
   const [quizQuestion, setQuizQuestion] = useState("");
   const [quizOptions, setQuizOptions] = useState(["", "", "", ""]);
   const [quizCorrectIndex, setQuizCorrectIndex] = useState(0); 
-
-  // Quiz Live Controllo
   const [activeQuizId, setActiveQuizId] = useState(null);
   const [quizResults, setQuizResults] = useState(null);
-  const [quizStatus, setQuizStatus] = useState(null); // 'active', 'closed', 'showing_results'
+  const [quizStatus, setQuizStatus] = useState(null);
   
   // --- YOUTUBE ---
   const [showYoutubeModal, setShowYoutubeModal] = useState(false);
@@ -56,7 +51,7 @@ export default function AdminDashboard() {
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [searchingYoutube, setSearchingYoutube] = useState(false);
   
-  // --- MESSAGGI REGIA ---
+  // --- MESSAGGI ---
   const [showMessageModal, setShowMessageModal] = useState(false);
   const [adminMessage, setAdminMessage] = useState("");
 
@@ -77,50 +72,54 @@ export default function AdminDashboard() {
          userProfile = newProfile;
       }
       setProfile(userProfile);
-      if (userProfile.role === 'super_admin') {
-         setAppState("super_admin");
-         const { data } = await supabase.from('profiles').select('*').neq('role', 'super_admin');
-         setOperators(data || []);
-      } else {
-         const storedCode = localStorage.getItem("neonpub_pub_code");
-         if (storedCode) { setPubCode(storedCode); setAppState("dashboard"); } 
-         else { setAppState("setup"); }
-      }
+      
+      const storedCode = localStorage.getItem("neonpub_pub_code");
+      if (storedCode) { setPubCode(storedCode); setAppState("dashboard"); } 
+      else { setAppState("setup"); }
+      
     } catch (error) { setAppState("setup"); }
   };
 
   const handleLogout = () => { localStorage.removeItem("neonpub_pub_code"); logout(); navigate("/"); };
 
-  // --- CARICAMENTO DATI ---
+  // --- CARICAMENTO DATI BLINDATO (Separa le chiamate per evitare blocchi totali) ---
   const loadData = useCallback(async () => {
     if (!pubCode || appState !== 'dashboard') return;
+
+    // 1. CARICA CODA (Priorità assoluta)
     try {
-      const [queueRes, perfRes, messagesRes, quizRes] = await Promise.all([
-        api.getAdminQueue(),
-        api.getAdminCurrentPerformance(),
-        api.getAdminPendingMessages(),
-        api.getActiveQuiz()
-      ]);
-      setQueue(queueRes.data || []);
-      setCurrentPerformance(perfRes.data);
-      setPendingMessages(messagesRes.data || []);
-      
-      // Sincronizza stato Quiz
-      if (quizRes.data) {
-          setActiveQuizId(quizRes.data.id);
-          setQuizStatus(quizRes.data.status);
-          setQuizQuestion(quizRes.data.question);
-          if (quizRes.data.status === 'showing_results' && !quizResults) {
-             const res = await api.getQuizResults(quizRes.data.id);
-             setQuizResults(res.data);
-          }
-      } else {
-          // Se non c'è quiz dal server ma ne avevamo uno locale, resettiamo
-          if (activeQuizId) {
-             setActiveQuizId(null); setQuizStatus(null); setQuizResults(null);
-          }
-      }
-    } catch (error) { console.error(error); }
+        const queueRes = await api.getAdminQueue();
+        setQueue(queueRes.data || []);
+    } catch (e) { console.error("Errore Queue:", e); }
+
+    // 2. CARICA LIVE
+    try {
+        const perfRes = await api.getAdminCurrentPerformance();
+        setCurrentPerformance(perfRes.data);
+    } catch (e) { console.error("Errore Perf:", e); }
+
+    // 3. CARICA MESSAGGI
+    try {
+        const messagesRes = await api.getAdminPendingMessages();
+        setPendingMessages(messagesRes.data || []);
+    } catch (e) { console.error("Errore Messaggi:", e); }
+
+    // 4. CARICA QUIZ
+    try {
+        const quizRes = await api.getActiveQuiz();
+        if (quizRes.data) {
+            setActiveQuizId(quizRes.data.id);
+            setQuizStatus(quizRes.data.status);
+            setQuizQuestion(quizRes.data.question);
+            if (quizRes.data.status === 'showing_results' && !quizResults) {
+                const res = await api.getQuizResults(quizRes.data.id);
+                setQuizResults(res.data);
+            }
+        } else {
+            if (activeQuizId) { setActiveQuizId(null); setQuizStatus(null); setQuizResults(null); }
+        }
+    } catch (e) { console.error("Errore Quiz:", e); }
+
   }, [pubCode, appState, activeQuizId, quizResults]);
 
   const loadLibrary = useCallback(async () => {
@@ -140,41 +139,23 @@ export default function AdminDashboard() {
     }
   }, [isAuthenticated, appState, pubCode, loadData, loadLibrary]);
 
-  // --- AZIONI YOUTUBE ---
+  // --- YOUTUBE ---
   const searchYouTube = async () => {
-    if (!youtubeSearchQuery.trim()) return; 
-    setSearchingYoutube(true);
+    if (!youtubeSearchQuery.trim()) return; setSearchingYoutube(true);
     try {
       const apiKey = process.env.REACT_APP_YOUTUBE_API_KEY;
       const res = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(youtubeSearchQuery)}&type=video&maxResults=5&key=${apiKey}`);
-      const data = await res.json(); 
-      setYoutubeSearchResults(data.items || []);
-    } catch (error) { toast.error("Errore ricerca YouTube"); } 
-    finally { setSearchingYoutube(false); }
+      const data = await res.json(); setYoutubeSearchResults(data.items || []);
+    } catch (error) { toast.error("Errore ricerca YouTube"); } finally { setSearchingYoutube(false); }
   };
-  
-  const handleStartLive = (req) => { 
-      setSelectedRequest(req); 
-      setYoutubeSearchQuery(req.title + " " + req.artist + " karaoke"); // Precompila ricerca
-      setYoutubeUrl(req.youtube_url || ""); 
-      setYoutubeSearchResults([]); // Pulisci vecchi risultati
-      setShowYoutubeModal(true); 
-  };
-  
-  const startPerformance = async () => { 
-      try { 
-          await api.startPerformance(selectedRequest.id, youtubeUrl); 
-          setShowYoutubeModal(false); 
-          loadData(); 
-          toast.success("Live Avviata!");
-      } catch(e) { toast.error("Errore avvio live"); } 
-  };
+  const handleStartLive = (req) => { setSelectedRequest(req); setYoutubeSearchQuery(req.title + " " + req.artist + " karaoke"); setYoutubeUrl(req.youtube_url || ""); setYoutubeSearchResults([]); setShowYoutubeModal(true); };
+  const startPerformance = async () => { try { await api.startPerformance(selectedRequest.id, youtubeUrl); setShowYoutubeModal(false); loadData(); toast.success("Live Avviata!"); } catch(e) { toast.error("Errore avvio live"); } };
 
-  // --- AZIONI PERFORMANCE ---
+  // --- PERFORMANCE ---
   const handleToggleMute = async () => { if(currentPerformance) await api.togglePerformanceMute(currentPerformance.id, !currentPerformance.is_muted); loadData(); };
   const handleToggleBlur = async () => { if(currentPerformance) await api.togglePerformanceBlur(currentPerformance.id, !currentPerformance.is_blurred); loadData(); };
 
-  // --- AZIONI QUIZ ---
+  // --- QUIZ ---
   const handleStartManualQuiz = async (e) => { 
     e.preventDefault(); 
     if (!quizQuestion.trim() || quizOptions.some(o => !o.trim())) { toast.error("Compila tutti i campi"); return; } 
@@ -184,30 +165,15 @@ export default function AdminDashboard() {
         toast.success("Quiz Manuale Lanciato!"); setShowQuizModal(false); 
     } catch (error) { toast.error("Errore lancio quiz"); } 
   };
-
-  const handleLaunchLibraryQuiz = async (quizId) => {
-    try {
-      const { data } = await api.launchQuizFromLibrary(quizId);
-      setActiveQuizId(data.id); setQuizStatus('active'); setQuizResults(null);
-      setQuizQuestion(data.question);
-      toast.success("Quiz Libreria Lanciato!");
-      setActiveSection('quiz');
-    } catch (e) { toast.error("Errore: " + e.message); }
-  };
-
+  const handleLaunchLibraryQuiz = async (quizId) => { try { const { data } = await api.launchQuizFromLibrary(quizId); setActiveQuizId(data.id); setQuizStatus('active'); setQuizResults(null); setQuizQuestion(data.question); toast.success("Quiz Libreria Lanciato!"); setActiveSection('quiz'); } catch (e) { toast.error("Errore: " + e.message); } };
   const handleStopVoting = async () => { await api.closeQuizVoting(activeQuizId); setQuizStatus('closed'); toast.info("Voto chiuso!"); };
   const handleShowResults = async () => { await api.showQuizResults(activeQuizId); const { data } = await api.getQuizResults(activeQuizId); setQuizResults(data); setQuizStatus('showing_results'); };
   const handleEndQuiz = async () => { await api.endQuiz(activeQuizId); setActiveQuizId(null); setQuizStatus(null); setQuizResults(null); loadData(); toast.success("Quiz Terminato"); };
+  const handleBulkImport = async () => { try { const data = JSON.parse(jsonImport); await api.importQuizBatch(data); toast.success("Importazione riuscita!"); setJsonImport(""); loadLibrary(); } catch(e) { toast.error("JSON non valido"); } };
 
-  const handleBulkImport = async () => {
-    try {
-        const data = JSON.parse(jsonImport);
-        await api.importQuizBatch(data);
-        toast.success("Importazione riuscita!"); setJsonImport(""); loadLibrary();
-    } catch(e) { toast.error("JSON non valido"); }
-  };
-
-  // --- AZIONI MESSAGGI & ALTRO ---
+  // --- MESSAGGI & GENERIC ---
+  const handleApprove = async (id) => { await api.approveRequest(id); loadData(); };
+  const handleReject = async (id) => { await api.rejectRequest(id); loadData(); };
   const handleApproveMessage = async (id) => { await api.approveMessage(id); loadData(); };
   const handleRejectMessage = async (id) => { await api.rejectMessage(id); loadData(); };
   const handleBroadcastMessage = async () => { if(adminMessage) { await api.sendMessage({ text: adminMessage, status: 'approved' }); setShowMessageModal(false); setAdminMessage(""); toast.success("Messaggio inviato!"); }};
@@ -223,8 +189,7 @@ export default function AdminDashboard() {
     } catch (error) { toast.error(error.message); } finally { setCreatingEvent(false); }
   };
 
-
-  // --- RENDER ---
+  // --- UI RENDER ---
   if (appState === 'loading') return <div className="h-screen bg-black text-white flex items-center justify-center">Caricamento...</div>;
 
   if (appState === 'setup') return (
@@ -249,13 +214,7 @@ export default function AdminDashboard() {
            <p className="text-zinc-500 text-sm">Codice: <span className="text-cyan-400 font-mono font-bold">{pubCode}</span></p>
         </div>
         <nav className="space-y-2 flex-1">
-          {[
-            { id: "queue", icon: Music, label: "Coda" }, 
-            { id: "performance", icon: Mic2, label: "Live Control" }, 
-            { id: "library", icon: BookOpen, label: "Libreria Quiz" }, 
-            { id: "quiz", icon: HelpCircle, label: "Quiz Live" },
-            { id: "messages", icon: MessageSquare, label: "Messaggi" }
-          ].map(item => (
+          {[{ id: "queue", icon: Music, label: "Coda" }, { id: "performance", icon: Mic2, label: "Live Control" }, { id: "library", icon: BookOpen, label: "Libreria Quiz" }, { id: "quiz", icon: HelpCircle, label: "Quiz Live" }, { id: "messages", icon: MessageSquare, label: "Messaggi" }].map(item => (
             <button key={item.id} onClick={() => setActiveSection(item.id)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeSection === item.id ? 'bg-fuchsia-600 shadow-lg shadow-fuchsia-900/20' : 'hover:bg-white/5 text-zinc-400'}`}>
               <item.icon className="w-5 h-5" /><span>{item.label}</span>
               {item.id === 'queue' && queue.filter(q=>q.status==='pending').length > 0 && <span className="ml-auto bg-red-500 text-xs px-2 py-0.5 rounded-full text-white">{queue.filter(q=>q.status==='pending').length}</span>}
@@ -264,8 +223,8 @@ export default function AdminDashboard() {
           ))}
         </nav>
         <div className="space-y-3 pt-6 border-t border-white/10">
+          <Button onClick={loadData} variant="ghost" className="w-full text-zinc-400 hover:text-white"><RefreshCw className="w-4 h-4 mr-2"/> Force Refresh</Button>
           <Button onClick={handleOpenDisplay} className="w-full bg-cyan-600 hover:bg-cyan-700"><Tv className="w-4 h-4 mr-2"/> Apri Display</Button>
-          <Button onClick={() => setShowMessageModal(true)} variant="outline" className="w-full border-zinc-700 hover:bg-zinc-800"><MessageSquare className="w-4 h-4 mr-2"/> Msg Regia</Button>
           <Button onClick={handleLogout} variant="ghost" className="w-full text-zinc-500 hover:text-red-400"><LogOut className="w-4 h-4 mr-2"/> Esci</Button>
         </div>
       </aside>
@@ -273,15 +232,15 @@ export default function AdminDashboard() {
       {/* Main Area */}
       <main className="flex-1 p-8 overflow-y-auto">
         
-        {/* SEZIONE 1: CODA */}
+        {/* CODA */}
         {activeSection === "queue" && (
            <div className="space-y-6">
-             <h2 className="text-3xl font-bold mb-4">Gestione Coda</h2>
+             <div className="flex justify-between items-center"><h2 className="text-3xl font-bold">Gestione Coda</h2><Button onClick={loadData} size="sm" variant="ghost"><RefreshCw className="w-4 h-4"/></Button></div>
              
              {/* Richieste in Attesa */}
              {queue.filter(r => r.status === 'pending').length > 0 && (
-               <div className="space-y-2 mb-8">
-                 <h3 className="text-yellow-500 font-bold text-sm uppercase tracking-wider">In Attesa di Approvazione</h3>
+               <div className="space-y-2 mb-8 animate-fade-in">
+                 <h3 className="text-yellow-500 font-bold text-sm uppercase tracking-wider">In Attesa di Approvazione ({queue.filter(r => r.status === 'pending').length})</h3>
                  {queue.filter(r => r.status === 'pending').map(req => (
                    <div key={req.id} className="glass p-4 flex items-center justify-between bg-zinc-900 border border-yellow-500/30 rounded-xl">
                      <div><p className="font-bold text-lg">{req.title}</p><p className="text-zinc-400">{req.user_nickname} • {req.artist}</p></div>
@@ -296,14 +255,13 @@ export default function AdminDashboard() {
 
              {/* Coda Approvata */}
              <div className="space-y-2">
-                <h3 className="text-cyan-500 font-bold text-sm uppercase tracking-wider">In Scaletta</h3>
+                <h3 className="text-cyan-500 font-bold text-sm uppercase tracking-wider">In Scaletta ({queue.filter(r => r.status === 'queued').length})</h3>
                 {queue.filter(r => r.status === 'queued').length === 0 ? <p className="text-zinc-600 italic">Coda vuota.</p> : queue.filter(r => r.status === 'queued').map((req, i) => (
                   <div key={req.id} className="glass p-4 flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-xl">
                     <div className="flex items-center gap-4">
                        <span className="font-mono text-2xl text-zinc-600 font-bold w-8">{i+1}</span>
                        <div><p className="font-bold text-lg">{req.title}</p><p className="text-zinc-400">{req.user_nickname}</p></div>
                     </div>
-                    {/* Se non c'è live, mostra tasto play */}
                     {!currentPerformance && <Button onClick={() => handleStartLive(req)} className="bg-fuchsia-600 hover:bg-fuchsia-700 px-6"><Play className="w-5 h-5 mr-2"/> Manda Live</Button>}
                   </div>
                 ))}
@@ -311,7 +269,7 @@ export default function AdminDashboard() {
            </div>
         )}
 
-        {/* SEZIONE 2: LIVE CONTROL */}
+        {/* LIVE CONTROL */}
         {activeSection === "performance" && (
            <div className="space-y-6">
               <h2 className="text-3xl font-bold mb-4">Controllo Live</h2>
@@ -332,8 +290,6 @@ export default function AdminDashboard() {
                           <p className="text-zinc-500 text-sm">{currentPerformance.vote_count} voti ricevuti</p>
                        </div>
                     </div>
-
-                    {/* Controls Grid */}
                     <div className="grid grid-cols-4 gap-4">
                        {currentPerformance.status === 'live' && (
                           <>
@@ -341,52 +297,38 @@ export default function AdminDashboard() {
                              <Button onClick={async()=>{await api.restartPerformance(currentPerformance.id);loadData()}} variant="outline" className="h-14 border-zinc-700 hover:bg-zinc-800 text-blue-400"><RotateCcw className="mr-2"/> Riavvolgi</Button>
                              <Button onClick={handleToggleMute} variant="outline" className={`h-14 border-zinc-700 ${currentPerformance.is_muted ? "bg-red-900/30 text-red-400 border-red-500" : "hover:bg-zinc-800"}`}>{currentPerformance.is_muted ? <VolumeX className="mr-2"/> : <Volume2 className="mr-2"/>} {currentPerformance.is_muted ? "UNMUTE" : "MUTE"}</Button>
                              <Button onClick={handleToggleBlur} variant="outline" className={`h-14 border-zinc-700 ${currentPerformance.is_blurred ? "bg-purple-900/30 text-purple-400 border-purple-500" : "hover:bg-zinc-800"}`}>{currentPerformance.is_blurred ? <Eye className="mr-2"/> : <EyeOff className="mr-2"/>} {currentPerformance.is_blurred ? "SVELA" : "OSCURA"}</Button>
-                             
                              <Button onClick={async()=>{if(confirm("Chiudere esibizione?")) await api.endPerformance(currentPerformance.id);loadData()}} className="h-14 col-span-2 bg-green-600 hover:bg-green-700 text-lg"><Square className="mr-2"/> FINE ESIBIZIONE</Button>
                              <Button onClick={async()=>{if(confirm("Saltare?")) await api.skipPerformance(currentPerformance.id);loadData()}} variant="destructive" className="h-14 col-span-2"><SkipForward className="mr-2"/> SALTA (SKIP)</Button>
                           </>
                        )}
-                       
                        {currentPerformance.status === 'paused' && <Button onClick={async()=>{await api.resumePerformance(currentPerformance.id);loadData()}} className="col-span-4 h-16 bg-green-600 text-xl"><Play className="mr-2"/> RIPRENDI VIDEO</Button>}
-                       
                        {currentPerformance.status === 'voting' && <Button onClick={async()=>{await api.closeVoting(currentPerformance.id);loadData()}} className="col-span-4 h-16 bg-yellow-500 text-black font-bold text-xl"><Check className="mr-2"/> CHIUDI VOTAZIONE E APRI CODA</Button>}
                     </div>
                  </div>
-              ) : (
-                 <div className="glass p-12 text-center bg-zinc-900 border-zinc-800 rounded-2xl border-dashed border-2">
-                    <Mic2 className="w-16 h-16 mx-auto text-zinc-700 mb-4"/>
-                    <p className="text-zinc-500 text-xl">Nessuna esibizione in corso.</p>
-                    <p className="text-zinc-600 text-sm mt-2">Vai nella sezione "Coda" per mandare qualcuno sul palco.</p>
-                 </div>
-              )}
+              ) : <div className="glass p-12 text-center bg-zinc-900 border-zinc-800 rounded-2xl border-dashed border-2"><Mic2 className="w-16 h-16 mx-auto text-zinc-700 mb-4"/><p className="text-zinc-500 text-xl">Nessuna esibizione in corso.</p></div>}
            </div>
         )}
 
-        {/* SEZIONE 3: LIBRERIA */}
+        {/* LIBRERIA */}
         {activeSection === "library" && (
            <div className="space-y-6">
               <h2 className="text-3xl font-bold">Libreria & AI</h2>
               <div className="grid md:grid-cols-3 gap-6">
-                 {/* Box Import */}
                  <div className="md:col-span-1">
                     <Card className="bg-zinc-900 border-zinc-800 sticky top-4">
                        <CardHeader><CardTitle className="text-white flex items-center gap-2"><Upload className="w-5 h-5"/> Importa JSON</CardTitle></CardHeader>
                        <CardContent>
-                          <p className="text-xs text-zinc-400 mb-2">Incolla qui l'output di ChatGPT:</p>
+                          <p className="text-xs text-zinc-400 mb-2">Output ChatGPT:</p>
                           <Textarea value={jsonImport} onChange={e=>setJsonImport(e.target.value)} placeholder='[{"category":"Rock",...}]' className="bg-black border-zinc-700 font-mono text-xs h-40 mb-4"/>
                           <Button onClick={handleBulkImport} className="w-full bg-blue-600 hover:bg-blue-700">Importa nel Database</Button>
                        </CardContent>
                     </Card>
                  </div>
-                 {/* Lista Quiz */}
                  <div className="md:col-span-2 space-y-3">
-                    {libraryQuizzes.length === 0 ? <p className="text-zinc-500 italic">Libreria vuota.</p> : libraryQuizzes.map(q => (
+                    {libraryQuizzes.map(q => (
                        <div key={q.id} className="glass p-4 flex items-center gap-4 bg-zinc-900 border border-zinc-800 rounded-xl hover:border-zinc-700 transition">
                           <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center font-bold text-zinc-500 shrink-0">{q.category.substring(0,2).toUpperCase()}</div>
-                          <div className="flex-1 min-w-0">
-                             <p className="font-bold truncate">{q.question}</p>
-                             <p className="text-xs text-zinc-500">{q.category}</p>
-                          </div>
+                          <div className="flex-1 min-w-0"><p className="font-bold truncate">{q.question}</p><p className="text-xs text-zinc-500">{q.category}</p></div>
                           <Button onClick={()=>handleLaunchLibraryQuiz(q.id)} size="sm" className="bg-fuchsia-600 hover:bg-fuchsia-700 whitespace-nowrap">Lancia</Button>
                        </div>
                     ))}
@@ -395,7 +337,7 @@ export default function AdminDashboard() {
            </div>
         )}
 
-        {/* SEZIONE 4: QUIZ LIVE */}
+        {/* QUIZ LIVE */}
         {activeSection === "quiz" && (
            <div className="space-y-6">
               <h2 className="text-3xl font-bold">Quiz Live Control</h2>
@@ -403,149 +345,72 @@ export default function AdminDashboard() {
                  <div className="text-center py-20 bg-zinc-900 rounded-2xl border border-zinc-800">
                     <HelpCircle className="w-16 h-16 mx-auto text-zinc-700 mb-6"/>
                     <h2 className="text-xl font-bold mb-2">Nessun Quiz Attivo</h2>
-                    <p className="text-zinc-500 mb-8">Scegli dalla Libreria o creane uno al volo.</p>
                     <Button onClick={()=>setShowQuizModal(true)} className="bg-fuchsia-600 hover:bg-fuchsia-700 text-lg px-8 py-6 rounded-xl"><Plus className="w-5 h-5 mr-2"/> Crea Quiz Manuale</Button>
                  </div>
               ) : (
-                 <div className="glass p-8 bg-zinc-900 border-2 border-fuchsia-500/50 rounded-2xl shadow-[0_0_50px_rgba(192,38,211,0.1)]">
-                    <div className="flex justify-between items-start mb-8 border-b border-white/10 pb-6">
+                 <div className="glass p-8 bg-zinc-900 border-2 border-fuchsia-500/50 rounded-2xl">
+                    <div className="flex justify-between items-start mb-8">
                        <h3 className="text-2xl font-bold text-white max-w-3xl">{quizQuestion}</h3>
-                       <span className={`px-4 py-2 rounded-full font-bold uppercase tracking-wider text-sm ${
-                          quizStatus === 'active' ? 'bg-green-500 text-black animate-pulse' :
-                          quizStatus === 'closed' ? 'bg-red-500 text-white' : 'bg-yellow-500 text-black'
-                       }`}>
-                          {quizStatus === 'active' ? "TELEVOTO APERTO" : quizStatus === 'closed' ? "VOTO CHIUSO" : "RISULTATI"}
-                       </span>
+                       <span className="bg-green-500 text-black px-4 py-2 rounded-full font-bold uppercase">{quizStatus}</span>
                     </div>
-
                     <div className="grid grid-cols-3 gap-6">
-                       <Button onClick={handleStopVoting} disabled={quizStatus!=='active'} className="h-24 text-xl bg-red-600 hover:bg-red-700 disabled:opacity-20 flex flex-col gap-2">
-                          <Lock className="w-8 h-8"/> 1. STOP VOTO
-                       </Button>
-                       <Button onClick={()=>handleShowResults()} disabled={quizStatus!=='closed'} className="h-24 text-xl bg-yellow-500 hover:bg-yellow-600 text-black disabled:opacity-20 flex flex-col gap-2">
-                          <Trophy className="w-8 h-8"/> 2. MOSTRA RISULTATI
-                       </Button>
-                       <Button onClick={handleEndQuiz} className="h-24 text-xl bg-zinc-700 hover:bg-zinc-600 flex flex-col gap-2">
-                          <X className="w-8 h-8"/> 3. CHIUDI QUIZ
-                       </Button>
+                       <Button onClick={handleStopVoting} disabled={quizStatus!=='active'} className="h-24 text-xl bg-red-600 hover:bg-red-700 disabled:opacity-20 flex flex-col gap-2"><Lock className="w-8 h-8"/> 1. STOP VOTO</Button>
+                       <Button onClick={()=>handleShowResults()} disabled={quizStatus!=='closed'} className="h-24 text-xl bg-yellow-500 hover:bg-yellow-600 text-black disabled:opacity-20 flex flex-col gap-2"><Trophy className="w-8 h-8"/> 2. MOSTRA RISULTATI</Button>
+                       <Button onClick={handleEndQuiz} className="h-24 text-xl bg-zinc-700 hover:bg-zinc-600 flex flex-col gap-2"><X className="w-8 h-8"/> 3. CHIUDI QUIZ</Button>
                     </div>
-
-                    {quizResults && (
-                       <div className="mt-8 bg-green-900/20 p-6 rounded-xl border border-green-500/30 text-center animate-fade-in">
-                          <p className="text-green-400 font-bold text-2xl mb-2">Risposta Corretta: {quizResults.correct_option}</p>
-                          <p className="text-zinc-400">Hanno indovinato: <span className="text-white font-bold">{quizResults.winners.length > 0 ? quizResults.winners.join(', ') : "Nessuno"}</span></p>
-                       </div>
-                    )}
+                    {quizResults && <div className="mt-8 bg-green-900/20 p-6 rounded-xl border border-green-500/30 text-center"><p className="text-green-400 font-bold text-2xl mb-2">Corretta: {quizResults.correct_option}</p></div>}
                  </div>
               )}
            </div>
         )}
 
-        {/* SEZIONE 5: MESSAGGI */}
+        {/* MESSAGGI */}
         {activeSection === "messages" && (
            <div className="space-y-6">
               <h2 className="text-3xl font-bold">Messaggi in Arrivo</h2>
-              {pendingMessages.length === 0 ? <p className="text-zinc-500 italic">Nessun messaggio da approvare.</p> : (
+              {pendingMessages.length === 0 ? <p className="text-zinc-500 italic">Nessun messaggio.</p> : (
                  <div className="grid gap-4">
                     {pendingMessages.map(msg => (
                        <div key={msg.id} className="glass p-4 flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-xl">
                           <div><p className="font-bold text-lg">"{msg.text}"</p><p className="text-sm text-cyan-400 font-bold">{msg.user_nickname}</p></div>
-                          <div className="flex gap-2">
-                             <Button onClick={()=>handleApproveMessage(msg.id)} className="bg-green-600">Pubblica</Button>
-                             <Button onClick={()=>handleRejectMessage(msg.id)} variant="destructive">Rifiuta</Button>
-                          </div>
+                          <div className="flex gap-2"><Button onClick={()=>handleApproveMessage(msg.id)} className="bg-green-600">Pubblica</Button><Button onClick={()=>handleRejectMessage(msg.id)} variant="destructive">Rifiuta</Button></div>
                        </div>
                     ))}
                  </div>
               )}
            </div>
         )}
-
       </main>
 
-      {/* MODALS */}
-      
-      {/* YOUTUBE SEARCH MODAL */}
+      {/* MODALS: YOUTUBE, QUIZ, MESSAGGI (Restano uguali al codice precedente) */}
       <Dialog open={showYoutubeModal} onOpenChange={setShowYoutubeModal}>
          <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
             <DialogHeader><DialogTitle>Ricerca YouTube</DialogTitle></DialogHeader>
-            <div className="flex gap-2 mb-4">
-               <Input value={youtubeSearchQuery} onChange={e=>setYoutubeSearchQuery(e.target.value)} placeholder="Cerca canzone..." className="bg-black border-zinc-700"/>
-               <Button onClick={searchYouTube} disabled={searchingYoutube}><Search className="w-4 h-4"/></Button>
-            </div>
-            {/* Lista Risultati */}
-            {youtubeSearchResults.length > 0 && (
-               <div className="space-y-2 max-h-60 overflow-y-auto mb-4 border border-zinc-800 rounded p-2">
-                  {youtubeSearchResults.map(v => (
-                     <div key={v.id.videoId} onClick={()=>{setYoutubeUrl(`https://www.youtube.com/watch?v=${v.id.videoId}`); setYoutubeSearchResults([])}} className="flex items-center gap-3 p-2 hover:bg-zinc-800 cursor-pointer rounded">
-                        <img src={v.snippet.thumbnails.default.url} alt="" className="w-12 h-9 object-cover rounded"/>
-                        <p className="text-sm font-medium truncate">{v.snippet.title}</p>
-                     </div>
-                  ))}
-               </div>
-            )}
-            <div className="space-y-2">
-               <label className="text-xs text-zinc-500">URL Manuale (opzionale)</label>
-               <Input value={youtubeUrl} onChange={e=>setYoutubeUrl(e.target.value)} placeholder="https://youtube.com/..." className="bg-black border-zinc-700"/>
-            </div>
+            <div className="flex gap-2 mb-4"><Input value={youtubeSearchQuery} onChange={e=>setYoutubeSearchQuery(e.target.value)} placeholder="Cerca..." className="bg-black border-zinc-700"/><Button onClick={searchYouTube} disabled={searchingYoutube}><Search className="w-4 h-4"/></Button></div>
+            {youtubeSearchResults.length > 0 && <div className="space-y-2 max-h-60 overflow-y-auto mb-4 border border-zinc-800 rounded p-2">{youtubeSearchResults.map(v => <div key={v.id.videoId} onClick={()=>{setYoutubeUrl(`https://www.youtube.com/watch?v=${v.id.videoId}`); setYoutubeSearchResults([])}} className="flex items-center gap-3 p-2 hover:bg-zinc-800 cursor-pointer rounded"><img src={v.snippet.thumbnails.default.url} className="w-12 h-9 object-cover rounded"/><p className="text-sm font-medium truncate">{v.snippet.title}</p></div>)}</div>}
+            <div className="space-y-2"><label className="text-xs text-zinc-500">URL Manuale</label><Input value={youtubeUrl} onChange={e=>setYoutubeUrl(e.target.value)} placeholder="https://youtube.com/..." className="bg-black border-zinc-700"/></div>
             <Button onClick={startPerformance} className="w-full bg-green-600 mt-4 h-12 text-lg">AVVIA KARAOKE</Button>
          </DialogContent>
       </Dialog>
       
-      {/* QUIZ MANUALE MODAL (FIXATO con bottoni selezione) */}
       <Dialog open={showQuizModal} onOpenChange={setShowQuizModal}>
          <DialogContent className="bg-zinc-900 border-zinc-800 max-w-lg">
             <DialogHeader><DialogTitle>Crea Quiz Manuale</DialogTitle></DialogHeader>
             <form onSubmit={handleStartManualQuiz} className="space-y-4 mt-2">
-               <div>
-                  <label className="text-xs text-zinc-400 mb-1 block">Domanda</label>
-                  <Textarea value={quizQuestion} onChange={e => setQuizQuestion(e.target.value)} placeholder="Scrivi la domanda..." className="bg-black border-zinc-700 min-h-[80px]"/>
-               </div>
-               
-               <div className="space-y-3">
-                  <label className="text-xs text-zinc-400 block">Opzioni (Clicca la lettera corretta)</label>
-                  {quizOptions.map((option, idx) => (
-                    <div key={idx} className="flex gap-3 items-center">
-                       {/* BOTTONE SELEZIONE (Radio Button style) */}
-                       <button
-                          type="button"
-                          onClick={() => setQuizCorrectIndex(idx)}
-                          className={`w-12 h-12 rounded-lg font-bold text-lg flex items-center justify-center transition-all border-2 ${
-                             quizCorrectIndex === idx 
-                                ? 'bg-green-500 text-black border-green-500 shadow-[0_0_15px_rgba(34,197,94,0.4)] scale-105' 
-                                : 'bg-zinc-800 text-zinc-500 border-zinc-700 hover:bg-zinc-700'
-                          }`}
-                       >
-                          {String.fromCharCode(65 + idx)}
-                       </button>
-                       <Input 
-                          value={option} 
-                          onChange={(e) => {
-                             const newOpts = [...quizOptions];
-                             newOpts[idx] = e.target.value;
-                             setQuizOptions(newOpts);
-                          }}
-                          placeholder={`Opzione ${String.fromCharCode(65 + idx)}`} 
-                          className="bg-black border-zinc-700 flex-1 h-12"
-                       />
-                    </div>
-                  ))}
-               </div>
-
-               <Button type="submit" className="w-full bg-fuchsia-600 h-14 text-lg font-bold mt-4 shadow-lg shadow-fuchsia-900/20">LANCIA QUIZ ORA</Button>
+               <div><label className="text-xs text-zinc-400 mb-1 block">Domanda</label><Textarea value={quizQuestion} onChange={e => setQuizQuestion(e.target.value)} placeholder="Domanda..." className="bg-black border-zinc-700 min-h-[80px]"/></div>
+               <div className="space-y-3"><label className="text-xs text-zinc-400 block">Opzioni</label>{quizOptions.map((option, idx) => (<div key={idx} className="flex gap-3 items-center"><button type="button" onClick={() => setQuizCorrectIndex(idx)} className={`w-12 h-12 rounded-lg font-bold text-lg flex items-center justify-center transition-all border-2 ${quizCorrectIndex === idx ? 'bg-green-500 text-black border-green-500' : 'bg-zinc-800 text-zinc-500 border-zinc-700'}`}>{String.fromCharCode(65 + idx)}</button><Input value={option} onChange={(e) => {const newOpts = [...quizOptions];newOpts[idx] = e.target.value;setQuizOptions(newOpts);}} placeholder={`Opzione ${String.fromCharCode(65 + idx)}`} className="bg-black border-zinc-700 flex-1 h-12"/></div>))}</div>
+               <Button type="submit" className="w-full bg-fuchsia-600 h-14 text-lg font-bold mt-4">LANCIA QUIZ</Button>
             </form>
          </DialogContent>
       </Dialog>
 
-      {/* MESSAGGIO REGIA MODAL */}
       <Dialog open={showMessageModal} onOpenChange={setShowMessageModal}>
         <DialogContent className="bg-zinc-900 border-zinc-800">
           <DialogHeader><DialogTitle>Messaggio a Schermo</DialogTitle></DialogHeader>
-          <Textarea value={adminMessage} onChange={e=>setAdminMessage(e.target.value)} placeholder="Scrivi un avviso per tutti..." className="bg-black border-zinc-700 min-h-[100px]"/>
-          <Button onClick={handleBroadcastMessage} className="w-full mt-4 bg-cyan-600 h-12 text-lg">INVIA AL DISPLAY</Button>
+          <Textarea value={adminMessage} onChange={e=>setAdminMessage(e.target.value)} placeholder="Avviso..." className="bg-black border-zinc-700 min-h-[100px]"/>
+          <Button onClick={handleBroadcastMessage} className="w-full mt-4 bg-cyan-600 h-12 text-lg">INVIA</Button>
         </DialogContent>
       </Dialog>
-
     </div>
   );
 }
