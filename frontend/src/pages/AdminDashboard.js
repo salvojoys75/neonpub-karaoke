@@ -5,7 +5,7 @@ import {
   Music, Play, Square, Trophy, Tv, Check, X, MessageSquare, 
   LogOut, SkipForward, Pause, RotateCcw, Search, Plus, ArrowLeft,
   ListMusic, BrainCircuit, Swords, Send, Star, VolumeX, Volume2, ExternalLink,
-  Users, Coins, Settings, Save, LayoutDashboard
+  Users, Coins, Settings, Save, LayoutDashboard, Gem
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -192,7 +192,7 @@ export default function AdminDashboard() {
          setActiveQuizId(null); setQuizStatus(null); setQuizResults(null);
       }
     } catch (error) { console.error(error); }
-  }, [pubCode, appState, venueName]); // Added venueName to deps to avoid infinite reset if empty
+  }, [pubCode, appState, venueName]);
 
   const loadSuperAdminData = async () => {
       const { data } = await api.getAllProfiles();
@@ -257,7 +257,7 @@ export default function AdminDashboard() {
     if (!selectedRequest || !youtubeUrl) return toast.error("Manca URL");
     try {
         const { data: newPerf } = await api.startPerformance(selectedRequest.id, youtubeUrl);
-        setCurrentPerformance(newPerf); // Aggiorna stato locale immediatamente
+        setCurrentPerformance(newPerf);
         setShowYoutubeModal(false);
         toast.success("Karaoke Avviato!");
         loadData();
@@ -296,7 +296,6 @@ export default function AdminDashboard() {
   };
 
   const openManualVideoWindow = () => {
-      // Usa l'URL della performance corrente se esiste, altrimenti usa quello appena selezionato
       const urlToOpen = currentPerformance?.youtube_url || youtubeUrl;
       if (urlToOpen) {
           window.open(urlToOpen, '_blank');
@@ -418,7 +417,13 @@ export default function AdminDashboard() {
             <h1 className="font-bold text-lg bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-400 to-cyan-400">NEONPUB OS</h1>
             <span className="text-xs px-2 py-1 bg-zinc-800 rounded font-mono text-zinc-400">{pubCode}</span>
          </div>
-         <div className="flex items-center gap-2">
+         <div className="flex items-center gap-4">
+             {/* CREDITI OPERATORE */}
+             <div className="flex items-center gap-2 px-3 py-1 bg-yellow-950/20 border border-yellow-700/30 rounded text-yellow-500 font-bold text-sm">
+                 <Gem className="w-4 h-4 text-yellow-400 fill-yellow-400" />
+                 <span>{profile?.credits || 0}</span>
+             </div>
+
              <Button variant="outline" size="sm" onClick={handleOpenDisplay} className="bg-cyan-900/20 text-cyan-400 border-cyan-800 hover:bg-cyan-900/40"><Tv className="w-4 h-4 mr-2" /> APRI DISPLAY</Button>
              <Button variant="ghost" size="sm" onClick={() => { if(confirm("Chiudere evento?")) { localStorage.removeItem("neonpub_pub_code"); setPubCode(null); setAppState("setup"); } }}><ArrowLeft className="w-4 h-4" /> Chiudi</Button>
          </div>
@@ -563,7 +568,7 @@ export default function AdminDashboard() {
                        <div className="space-y-2">
                            <label className="text-xs text-zinc-500">URL Logo (Immagine)</label>
                            <Input value={venueLogo} onChange={e=>setVenueLogo(e.target.value)} className="bg-zinc-800" placeholder="https://..."/>
-                           <p className="text-[10px] text-zinc-600">Incolla qui un link diretto ad un'immagine online.</p>
+                           <p className="text-[10px] text-zinc-600">Incolla qui un link diretto ad un'immagine online (es. da Imgur).</p>
                        </div>
                        <Button className="w-full bg-zinc-700 hover:bg-zinc-600" onClick={handleSaveSettings}>
                            <Save className="w-4 h-4 mr-2"/> Salva Impostazioni

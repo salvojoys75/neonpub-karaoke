@@ -36,6 +36,7 @@ export const createPub = async (data) => {
   const { data: user } = await supabase.auth.getUser()
   if (!user?.user) throw new Error('Not authenticated')
 
+  // Controllo crediti (opzionale, per ora lasciamo passare)
   const code = Math.random().toString(36).substring(2, 8).toUpperCase()
 
   const { data: event, error } = await supabase
@@ -211,8 +212,18 @@ export const startPerformance = async (requestId, youtubeUrl) => {
 }
 
 export const endPerformance = async (performanceId) => {
-  const { data, error } = await supabase.from('performances').update({ status: 'voting', ended_at: new Date().toISOString() }).eq('id', performanceId).select()
-  if (error) throw error; return { data }
+  // 1. Chiudi performance per il voto
+  const { data, error } = await supabase.from('performances').update({ status: 'voting', ended_at: new Date().toISOString() }).eq('id', performanceId).select();
+  if (error) throw error; 
+  
+  // 2. IMPORTANTE: Marca la richiesta canzone come 'ended' così sparisce dalla coda definitivamente
+  // (Anche se è in fase di voto, non deve tornare in 'queued')
+  const { data: perf } = await supabase.from('performances').select('song_request_id').eq('id', performanceId).single();
+  if (perf?.song_request_id) {
+     await supabase.from('song_requests').update({ status: 'ended' }).eq('id', perf.song_request_id);
+  }
+
+  return { data }
 }
 
 export const closeVoting = async (performanceId) => {
@@ -221,13 +232,13 @@ export const closeVoting = async (performanceId) => {
 }
 
 export const stopAndNext = async (performanceId) => {
-    // Chiude performance e request
+    // 1. Marca la richiesta originale come 'ended' così sparisce dalla coda
     const { data: perf } = await supabase.from('performances').select('song_request_id').eq('id', performanceId).single();
-    
     if (perf?.song_request_id) {
         await supabase.from('song_requests').update({ status: 'ended' }).eq('id', perf.song_request_id);
     }
 
+    // 2. Chiudi la performance
     const { data, error } = await supabase.from('performances').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', performanceId).select()
     if (error) throw error; 
     return { data };
@@ -283,13 +294,24 @@ export const submitVote = async (data) => {
   const { data: vote, error } = await supabase.from('votes').insert({
       performance_id: data.performance_id, participant_id: participant.participant_id, score: data.score
     }).select().single();
-  if (error) { if (error.code === '23505') throw new Error('Hai già votato'); throw error; }
   
+  if (error) { 
+      if (error.code === '23505') throw new Error('Hai già votato'); 
+      throw error; 
+  }
+  
+  // FIX CRITICO VOTAZIONE: 
+  // Ricalcola immediatamente la media e aggiorna la performance.
+  // Questo fa scattare il Realtime nel Display e Admin.
   const { data: allVotes } = await supabase.from('votes').select('score').eq('performance_id', data.performance_id);
+  
   if (allVotes && allVotes.length > 0) {
       const total = allVotes.reduce((acc, v) => acc + v.score, 0);
       const avg = total / allVotes.length;
-      await supabase.from('performances').update({ average_score: avg }).eq('id', data.performance_id);
+      
+      await supabase.from('performances')
+        .update({ average_score: avg })
+        .eq('id', data.performance_id);
   }
   return { data: vote };
 }
