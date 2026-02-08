@@ -1,0 +1,21 @@
+[
+  {
+    "id": "ch1",
+    "type": "1vs1",
+    "title": "Duello 1 vs 1",
+    "rules": "Canta metà canzone ciascuno. Pubblico vota.",
+    "song": "Bohemian Rhapsody",
+    "youtube_url": "https://www.youtube.com/watch?v=fJ9rUzIMcZQ",
+    "points_winner": 50,
+    "points_loser": 10
+  },
+  {
+    "id": "ch2",
+    "type": "team",
+    "title": "Sfida a Squadre",
+    "rules": "Squadre alternate su versi. Giuria + pubblico.",
+    "song": "We Will Rock You",
+    "youtube_url": "https://www.youtube.com/watch?v=-tJYN-eG1zk",
+    "points_team_win": 30
+  }
+]

@@ -1,0 +1,13 @@
+[
+  {
+    "id": "qv1",
+    "type": "video",
+    "title": "Clip muta",
+    "question": "Indovina dal video (senza audio)",
+    "media_url": "https://www.youtube.com/watch?v=9bZkp7q19f0", // Gangnam Style
+    "options": ["Gangnam Style", "Uptown Funk", "Despacito", "Shape of You"],
+    "correct_index": 0,
+    "points": 25,
+    "effects": ["mute", "blur"] // Controlli regia: mute audio, blur video
+  }
+]
