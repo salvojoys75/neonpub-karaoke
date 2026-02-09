@@ -156,16 +156,29 @@ export const getEventState = async () => {
 
 export const setEventModule = async (moduleId, specificContentId = null) => {
   const pubCode = localStorage.getItem('neonpub_pub_code');
+  // Aggiorniamo il modulo attivo
   const { data: event, error } = await supabase.from('events').update({ active_module: moduleId, active_module_id: specificContentId }).eq('code', pubCode).select().single();
   if (error) throw error;
   
+  // Se stiamo attivando un quiz dal catalogo
   if (moduleId === 'quiz' && specificContentId) {
     const { data: catalogItem } = await supabase.from('quiz_catalog').select('*').eq('id', specificContentId).single();
-    await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id);
-    await supabase.from('quizzes').insert({
-      event_id: event.id, category: catalogItem.category, question: catalogItem.question, options: catalogItem.options,
-      correct_index: catalogItem.correct_index, points: catalogItem.points, status: 'active'
-    });
+    if (catalogItem) {
+        // Chiudiamo quiz precedenti
+        await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
+        // Creiamo nuova istanza quiz
+        await supabase.from('quizzes').insert({
+          event_id: event.id, 
+          category: catalogItem.category, 
+          question: catalogItem.question, 
+          options: catalogItem.options,
+          correct_index: catalogItem.correct_index, 
+          points: catalogItem.points, 
+          status: 'active',
+          media_url: catalogItem.media_url || null,
+          media_type: catalogItem.media_type || 'text'
+        });
+    }
   }
 };
 
@@ -179,21 +192,45 @@ export const getChallengeCatalog = async () => {
   return { data: data || [] };
 };
 
-// *** NUOVA FUNZIONE: IMPORTA JSON SCRIPT ***
+// *** FUNZIONE IMPORTAZIONE POTENZIATA ***
 export const importQuizCatalog = async (jsonString) => {
     try {
-        const parsed = JSON.parse(jsonString);
-        // Verifica se è un array o un oggetto singolo e normalizza
-        const items = Array.isArray(parsed) ? parsed : [parsed];
-        
-        // Validazione minima
-        if(items.length === 0) throw new Error("JSON vuoto");
-        if(!items[0].question || !items[0].options) throw new Error("Formato JSON non valido. Mancano 'question' o 'options'.");
+        let items;
+        // Tentativo di parsing
+        try {
+            items = JSON.parse(jsonString);
+        } catch (e) {
+            throw new Error("Il testo incollato non è un JSON valido.");
+        }
 
-        const { error } = await supabase.from('quiz_catalog').insert(items);
+        // Se è un oggetto singolo, lo trasformo in array
+        if (!Array.isArray(items)) {
+            items = [items];
+        }
+        
+        // Validazione dei campi essenziali
+        if(items.length === 0) throw new Error("JSON vuoto");
+        
+        const cleanItems = items.map(item => {
+             if(!item.question || !item.options || !Array.isArray(item.options)) {
+                 throw new Error(`Errore formato per la domanda: ${item.question || 'sconosciuta'}`);
+             }
+             return {
+                 category: item.category || 'Generale',
+                 question: item.question,
+                 options: item.options,
+                 correct_index: item.correct_index ?? 0,
+                 points: item.points || 10,
+                 media_url: item.media_url || null,
+                 media_type: item.media_type || 'text'
+             };
+        });
+
+        const { error } = await supabase.from('quiz_catalog').insert(cleanItems);
         if(error) throw error;
-        return { success: true, count: items.length };
+        return { success: true, count: cleanItems.length };
     } catch (e) {
+        console.error(e);
         throw new Error("Errore Importazione: " + e.message);
     }
 }
@@ -442,9 +479,21 @@ export const rejectMessage = async (id) => {
 
 export const startQuiz = async (data) => {
   const event = await getAdminEvent()
+  // Reset active quiz
+  await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
+
   const { data: quiz, error } = await supabase.from('quizzes').insert({
-    event_id: event.id, category: data.category, question: data.question, options: data.options, correct_index: data.correct_index, points: data.points, status: 'active'
+    event_id: event.id, 
+    category: data.category, 
+    question: data.question, 
+    options: data.options, 
+    correct_index: data.correct_index, 
+    points: data.points, 
+    status: 'active',
+    media_url: data.media_url || null,
+    media_type: data.media_type || 'text'
   }).select().single()
+  
   if (error) throw error; 
   await supabase.from('events').update({ active_module: 'quiz' }).eq('id', event.id);
   return { data: quiz }

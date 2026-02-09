@@ -6,7 +6,8 @@ import {
   LogOut, SkipForward, Pause, RotateCcw, Search, Plus, ArrowLeft,
   ListMusic, BrainCircuit, Swords, Send, Star, VolumeX, Volume2, ExternalLink,
   Users, Coins, Settings, Save, LayoutDashboard, Gem, Upload, UserPlus, Ban, Trash2, Image as ImageIcon,
-  FileJson, Download
+  FileJson, Download, Gamepad2, StopCircle, Eye, EyeOff, ListOrdered, MonitorPlay, 
+  Music2, Film
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -458,34 +459,129 @@ export default function AdminDashboard() {
                )}
 
                {libraryTab === 'quiz' && (
-                  <div className="space-y-4">
-                       <div className="grid grid-cols-2 gap-2">
-                           <Button className="bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-xs" onClick={()=>setShowCustomQuizModal(true)}><Plus className="w-3 h-3 mr-1"/> Manuale</Button>
-                           <Button className="bg-blue-600 hover:bg-blue-500 text-xs" onClick={()=>setShowImportModal(true)}><Download className="w-3 h-3 mr-1"/> Importa Script</Button>
-                       </div>
+                    <div className="flex flex-col h-full">
+                        {/* HEADER CONTROLLI RAPIDI */}
+                        <div className="grid grid-cols-2 gap-2 mb-4">
+                            <Button className="bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-xs" onClick={()=>setShowCustomQuizModal(true)}>
+                                <Plus className="w-3 h-3 mr-1"/> Crea Manuale
+                            </Button>
+                            <Button className="bg-blue-600 hover:bg-blue-500 text-xs" onClick={()=>setShowImportModal(true)}>
+                                <Download className="w-3 h-3 mr-1"/> Importa JSON
+                            </Button>
+                        </div>
 
-                       {activeQuizId ? (
-                           <div className="p-4 bg-zinc-800 border border-zinc-700 rounded text-center">
-                               <h3 className="text-fuchsia-500 font-bold mb-2 uppercase">Quiz In Corso</h3>
-                               {quizStatus === 'active' && <div className="animate-pulse text-green-500 text-sm mb-4">Votazioni Aperte</div>}
-                               {quizStatus === 'closed' && <div className="text-yellow-500 text-sm mb-4">Votazioni Chiuse</div>}
-                               {quizStatus === 'showing_results' && <div className="text-blue-500 text-sm mb-4">Risultati a schermo</div>}
-                               <div className="grid grid-cols-1 gap-2">
-                                   {quizStatus === 'active' && <Button className="w-full bg-yellow-600 hover:bg-yellow-500 text-black" onClick={()=>ctrlQuiz('close_vote')}>Chiudi Voto</Button>}
-                                   {quizStatus === 'closed' && <Button className="w-full bg-blue-600 hover:bg-blue-500" onClick={()=>ctrlQuiz('show_results')}>Mostra Risultati</Button>}
-                                   {(quizStatus === 'showing_results' || quizStatus === 'closed') && <Button className="w-full bg-red-600 hover:bg-red-500" onClick={()=>ctrlQuiz('end')}>Termina Quiz</Button>}
-                               </div>
-                           </div>
-                       ) : null}
+                        {/* --- REGIA LIVE (Se c'è un quiz attivo) --- */}
+                        {activeQuizId && quizStatus !== 'ended' ? (
+                            <Card className="bg-zinc-900 border-2 border-fuchsia-600 mb-6 shadow-2xl shadow-fuchsia-900/20">
+                                <CardHeader className="pb-2 border-b border-white/10 bg-fuchsia-900/20">
+                                    <CardTitle className="text-sm font-bold text-white flex justify-between items-center">
+                                        <span className="flex items-center gap-2">
+                                            <Gamepad2 className="w-4 h-4 text-fuchsia-400"/> IN ONDA
+                                        </span>
+                                        <span className="text-xs font-mono px-2 py-1 bg-black rounded text-fuchsia-300">
+                                            STATUS: {quizStatus?.toUpperCase()}
+                                        </span>
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="pt-4 space-y-4">
+                                    {/* INFO DOMANDA */}
+                                    <div className="text-center">
+                                        <div className="text-xs text-zinc-400 uppercase tracking-widest mb-1">Domanda Attuale</div>
+                                        <div className="font-bold text-lg leading-tight text-white mb-2">
+                                            {quizCatalog.find(q => q.id === activeQuizId)?.question || "Quiz in corso..."}
+                                        </div>
+                                        {/* Indicatore Media */}
+                                        {(() => {
+                                            const q = quizCatalog.find(q => q.id === activeQuizId);
+                                            if(q?.media_type === 'audio') return <div className="text-xs flex items-center justify-center gap-1 text-yellow-400"><Music2 className="w-3 h-3"/> Audio Quiz</div>;
+                                            if(q?.media_type === 'video') return <div className="text-xs flex items-center justify-center gap-1 text-blue-400"><Film className="w-3 h-3"/> Video Quiz</div>;
+                                        })()}
+                                    </div>
 
-                       <h3 className="text-xs font-bold text-zinc-500 uppercase mt-4">Catalogo ({quizCatalog.length})</h3>
-                       {quizCatalog.length === 0 ? <p className="text-xs text-zinc-600">Catalogo vuoto.</p> : quizCatalog.map((item) => (
-                          <div key={item.id} className="p-3 bg-zinc-800 rounded border-l-2 border-transparent hover:border-yellow-500 cursor-pointer" onClick={() => launchCatalogQuiz(item)}>
-                             <div className="text-xs text-yellow-500 font-bold mb-1">{item.category}</div>
-                             <div className="text-sm font-medium text-zinc-300">{item.question}</div>
-                          </div>
-                       ))}
-                   </div>
+                                    {/* PULSANTIERA DI REGIA (Workflow sequenziale) */}
+                                    <div className="grid grid-cols-1 gap-2">
+                                        {quizStatus === 'active' && (
+                                            <Button className="w-full bg-red-600 hover:bg-red-500 h-10 font-bold animate-pulse" 
+                                                onClick={() => ctrlQuiz('close_vote')}>
+                                                <StopCircle className="w-4 h-4 mr-2"/> STOP AL TELEVOTO
+                                            </Button>
+                                        )}
+                                        
+                                        {quizStatus === 'closed' && (
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <Button className="bg-blue-600 hover:bg-blue-500" onClick={() => ctrlQuiz('show_results')}>
+                                                    <Eye className="w-4 h-4 mr-2"/> MOSTRA RISPOSTA
+                                                </Button>
+                                            </div>
+                                        )}
+
+                                        {quizStatus === 'showing_results' && (
+                                            <div className="grid grid-cols-1 gap-2">
+                                                <Button className="bg-yellow-600 hover:bg-yellow-500 text-black font-bold" 
+                                                    onClick={() => toast.info("Classifica aggiornata sugli schermi")}>
+                                                    <ListOrdered className="w-4 h-4 mr-2"/> MOSTRA CLASSIFICA
+                                                </Button>
+                                                <Button variant="destructive" onClick={() => ctrlQuiz('end')}>
+                                                    <MonitorPlay className="w-4 h-4 mr-2"/> CHIUDI E TORNA AL KARAOKE
+                                                </Button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        ) : (
+                            <div className="p-4 bg-zinc-900/50 border border-dashed border-zinc-700 rounded mb-4 text-center text-zinc-500 text-xs">
+                                NESSUN QUIZ ATTIVO. SELEZIONA DAL CATALOGO.
+                            </div>
+                        )}
+
+                        {/* --- CATALOGO DOMANDE --- */}
+                        <div className="flex-1 overflow-hidden flex flex-col">
+                            <h3 className="text-xs font-bold text-zinc-500 uppercase mb-2 flex justify-between items-center">
+                                Catalogo Disponibile
+                                <span className="bg-zinc-800 px-2 py-0.5 rounded text-white">{quizCatalog.length}</span>
+                            </h3>
+                            
+                            <ScrollArea className="flex-1 pr-2">
+                                <div className="space-y-2 pb-20">
+                                    {quizCatalog.length === 0 ? (
+                                        <p className="text-xs text-zinc-600 text-center py-8">
+                                            Catalogo vuoto.<br/>Importa un JSON o crea manualmente.
+                                        </p>
+                                    ) : (
+                                        quizCatalog.map((item, index) => (
+                                            <div key={item.id || index} 
+                                                className="group relative bg-zinc-800 hover:bg-zinc-700 border border-transparent hover:border-yellow-500 rounded p-3 cursor-pointer transition-all"
+                                                onClick={() => launchCatalogQuiz(item)}>
+                                                
+                                                <div className="absolute top-2 right-2 flex gap-1">
+                                                    {item.media_type === 'audio' && <span className="bg-yellow-500/20 text-yellow-500 p-1 rounded"><Music2 className="w-3 h-3"/></span>}
+                                                    {item.media_type === 'video' && <span className="bg-blue-500/20 text-blue-500 p-1 rounded"><Film className="w-3 h-3"/></span>}
+                                                </div>
+
+                                                <div className="text-[10px] font-bold text-fuchsia-500 uppercase tracking-wider mb-1">
+                                                    {item.category}
+                                                </div>
+                                                <div className="text-sm font-medium text-white pr-6 line-clamp-2">
+                                                    {item.question}
+                                                </div>
+                                                <div className="text-[10px] text-zinc-500 mt-2 flex gap-2">
+                                                    <span>Risp. Esatta: <b>{item.options[item.correct_index]}</b></span>
+                                                    <span>• {item.points} Punti</span>
+                                                </div>
+                                                
+                                                <div className="absolute inset-0 bg-fuchsia-600/90 hidden group-hover:flex items-center justify-center rounded transition-opacity opacity-0 group-hover:opacity-100">
+                                                    <span className="text-white font-bold flex items-center">
+                                                        <MonitorPlay className="w-4 h-4 mr-2"/> LANCIA ORA
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </ScrollArea>
+                        </div>
+                    </div>
                )}
 
                {libraryTab === 'challenges' && (
@@ -578,8 +674,11 @@ export default function AdminDashboard() {
           <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
               <DialogHeader><DialogTitle>Importa Script JSON</DialogTitle></DialogHeader>
               <div className="space-y-4 pt-4">
-                  <p className="text-xs text-zinc-500">Incolla qui il JSON generato dall'AI. Formato: <span className="font-mono text-yellow-500">[{`{ "category": "...", "question": "...", "options": ["A","B","C","D"], "correct_index": 0, "points": 10 }`}]</span></p>
-                  <Textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder='[ { "category": "Cinema", ... } ]' className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"/>
+                  <p className="text-xs text-zinc-500">Incolla qui il JSON. Esempio:</p>
+                  <div className="bg-black p-2 rounded text-xs font-mono text-zinc-500 overflow-x-auto">
+                    [&#123; "category": "Cinema", "question": "...", "options": ["A","B"], "correct_index": 0 &#125;]
+                  </div>
+                  <Textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder='Incolla qui...' className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"/>
                   <Button className="w-full bg-blue-600 font-bold" onClick={handleImportScript}><Download className="w-4 h-4 mr-2"/> IMPORTA NEL CATALOGO</Button>
               </div>
           </DialogContent>
