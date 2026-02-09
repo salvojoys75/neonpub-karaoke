@@ -23,18 +23,33 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isVisible }) => {
     const detectedType = getMediaType(mediaUrl, mediaType);
     const videoId = detectedType === 'youtube' ? getYoutubeId(mediaUrl) : null;
 
+    // --- GESTIONE VISIBILITÀ / STOP AUDIO ---
+    // Questo è il fix fondamentale: se isVisible diventa false, mettiamo in PAUSA.
+    useEffect(() => {
+        if (!playerRef.current || typeof playerRef.current.pauseVideo !== 'function') return;
+
+        if (!isVisible) {
+            playerRef.current.pauseVideo();
+        } else {
+            // Se torna visibile ed era un video caricato, riprendiamo (opzionale, o ricarichiamo)
+            if (playerRef.current.getPlayerState() === 2) { // 2 = Paused
+                playerRef.current.playVideo();
+            }
+        }
+    }, [isVisible]);
+
     // --- LOGICA YOUTUBE ---
     useEffect(() => {
-        // Se non c'è URL o non siamo visibili (opzionale), non facciamo nulla di distruttivo
         if (!videoId) return;
 
-        // CRUCIALE: Se l'ID è lo stesso di prima, NON TOCCARE NULLA.
-        // Questo impedisce il reload/rewind quando cambia solo lo stato del quiz.
+        // Se l'ID è lo stesso, non ricarichiamo iframe, ma assicuriamoci che suoni se visibile
         if (currentVideoIdRef.current === videoId) {
+            if (isVisible && playerRef.current && typeof playerRef.current.playVideo === 'function') {
+                playerRef.current.playVideo();
+            }
             return; 
         }
 
-        // È un nuovo video. Aggiorniamo il ref.
         currentVideoIdRef.current = videoId;
         setAudioBlocked(false);
 
@@ -42,20 +57,18 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isVisible }) => {
             const player = event.target;
             player.setVolume(100);
             player.unMute();
-            player.playVideo();
+            if (isVisible) player.playVideo(); // Suona solo se deve essere visibile
+            
             if (player.isMuted()) setAudioBlocked(true);
         };
 
         const onStateChange = (event) => {
-            // Se sta suonando (1) e non è muto, togliamo l'avviso
             if (event.data === 1 && !event.target.isMuted()) {
                 setAudioBlocked(false);
             }
         };
 
-        // Inizializza o Aggiorna Player
         if (!playerRef.current) {
-            // Crea nuova istanza
             if (!window.YT) {
                 const tag = document.createElement('script');
                 tag.src = "https://www.youtube.com/iframe_api";
@@ -66,14 +79,13 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isVisible }) => {
                 createPlayer(videoId, onPlayerReady, onStateChange);
             }
         } else {
-            // Player esiste già: Carica solo il video senza distruggere iframe
             if (typeof playerRef.current.loadVideoById === 'function') {
                 playerRef.current.loadVideoById(videoId);
                 playerRef.current.setVolume(100);
                 playerRef.current.unMute();
             }
         }
-    }, [videoId]); // Dipende SOLO dall'ID del video. Ignora tutto il resto.
+    }, [videoId, isVisible]); // Aggiunto isVisible alle dipendenze per sicurezza
 
     const createPlayer = (id, onReady, onStateChange) => {
         playerRef.current = new window.YT.Player('quiz-fixed-player', {
@@ -97,13 +109,11 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isVisible }) => {
         }
     };
 
-    // Se non c'è nulla da mostrare, rendiamo invisibile ma NON smontiamo (per YouTube)
     const containerClass = `absolute inset-0 z-0 bg-black flex items-center justify-center transition-opacity duration-500 ${isVisible && mediaUrl ? 'opacity-100' : 'opacity-0 pointer-events-none'}`;
 
     if (detectedType === 'audio_file') {
         return (
             <div className={containerClass}>
-                 {/* Audio HTML5 standard per MP3 */}
                  {isVisible && <audio autoPlay src={mediaUrl} loop />}
                  <div className="flex flex-col items-center animate-pulse">
                         <div className="bg-white/10 p-12 rounded-full border-4 border-white/20 mb-4 shadow-[0_0_50px_rgba(255,255,255,0.2)]">
@@ -115,7 +125,6 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isVisible }) => {
         );
     }
 
-    // YouTube Container (Sempre presente, cambia solo opacità/z-index)
     return (
         <div className={containerClass} style={{ zIndex: 0 }}>
             <div id="quiz-fixed-player" className="absolute inset-0 w-full h-full object-cover pointer-events-none" />
@@ -133,7 +142,6 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isVisible }) => {
         </div>
     );
 }, (prev, next) => {
-    // Rerenderizza solo se cambia URL o Visibilità in modo significativo
     return prev.mediaUrl === next.mediaUrl && prev.isVisible === next.isVisible;
 });
 

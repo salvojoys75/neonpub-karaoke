@@ -96,9 +96,8 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
     );
 };
 
-// --- QUIZ OVERLAY SCREEN (SOLO TESTO/GRAFICA, NO VIDEO) ---
+// --- QUIZ OVERLAY SCREEN ---
 const QuizOverlay = ({ quiz, quizResults, leaderboard }) => {
-    // Classifica
     if (quiz.status === 'leaderboard') {
         return (
             <div className="absolute inset-0 bg-zinc-900 z-50 flex flex-col p-8 overflow-hidden animate-fade-in">
@@ -118,7 +117,6 @@ const QuizOverlay = ({ quiz, quizResults, leaderboard }) => {
     const hasVideo = quiz.media_type === 'video' || (quiz.media_url && quiz.media_url.includes('youtu'));
     const isShowingResult = !!quizResults;
 
-    // Se stiamo mostrando i risultati
     if (isShowingResult) {
         return (
             <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-xl animate-fade-in">
@@ -132,7 +130,6 @@ const QuizOverlay = ({ quiz, quizResults, leaderboard }) => {
         );
     }
 
-    // Se Video: Layout "Game Show" (Trasparente al centro)
     if (hasVideo) {
         return (
             <div className="absolute inset-0 z-30 flex flex-col justify-between pointer-events-none">
@@ -156,7 +153,6 @@ const QuizOverlay = ({ quiz, quizResults, leaderboard }) => {
         );
     }
 
-    // Se Testo/Audio: Layout Standard (Background Opaco)
     return (
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-center p-10 bg-gradient-to-b from-purple-900/90 to-black/90">
              <div className="w-full max-w-6xl text-center animate-zoom-in">
@@ -169,7 +165,7 @@ const QuizOverlay = ({ quiz, quizResults, leaderboard }) => {
 }
 
 // ===========================================
-// MAIN COMPONENT: PUB DISPLAY
+// MAIN COMPONENT
 // ===========================================
 export default function PubDisplay() {
   const { pubCode } = useParams();
@@ -189,7 +185,6 @@ export default function PubDisplay() {
       if (data.queue?.length > 0) setTicker(data.queue.slice(0, 5).map((s, i) => `${i + 1}. ${s.title} (${s.user_nickname})`).join(' • '));
       else setTicker("Inquadra il QR Code per cantare!");
       
-      // Auto-clear vote results
       if (data.current_performance?.status === 'ended' && !voteResult && data.current_performance.average_score > 0) {
          setVoteResult(data.current_performance.average_score);
          setTimeout(() => setVoteResult(null), 10000);
@@ -205,24 +200,16 @@ export default function PubDisplay() {
     }
   }, [hasInteracted, loadDisplayData]);
 
-  // Realtime
   useEffect(() => {
     if (!hasInteracted || !displayData?.pub?.id) return;
-
-    // --- Mute Control ---
     const controlChannel = supabase.channel(`display_control_${pubCode}`)
         .on('broadcast', { event: 'control' }, (payload) => {
-             // Mute logica generica per entrambi i player
-             const players = ['karaoke-player', 'quiz-fixed-player'];
-             players.forEach(pid => {
+             ['karaoke-player', 'quiz-fixed-player'].forEach(pid => {
                  const player = window.YT?.get && window.YT.get(pid);
-                 if (player && typeof player.mute === 'function') {
-                     if(payload.payload.value) player.mute(); else player.unMute();
-                 }
+                 if (player && typeof player.mute === 'function') { if(payload.payload.value) player.mute(); else player.unMute(); }
              });
         }).subscribe();
 
-    // --- Data Updates ---
     const channel = supabase.channel(`display_realtime`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${displayData.pub.id}` }, 
             (payload) => {
@@ -254,7 +241,6 @@ export default function PubDisplay() {
                 }
             }
         ).subscribe();
-
     return () => { supabase.removeChannel(channel); supabase.removeChannel(controlChannel); }
   }, [hasInteracted, displayData?.pub?.id, pubCode]);
 
@@ -269,7 +255,6 @@ export default function PubDisplay() {
     setTimeout(() => setFloatingReactions(prev => prev.filter(r => r.id !== id)), 4000);
   };
 
-  // --- INTERACTION SCREEN ---
   if (!hasInteracted) {
       return (
           <div className="h-screen w-screen bg-black flex flex-col items-center justify-center z-[9999]">
@@ -282,22 +267,23 @@ export default function PubDisplay() {
       );
   }
 
-  // --- MAIN RENDER ---
+  // LOGICA CHIAVE PER RISOLVERE SOVRAPPOSIZIONE AUDIO
   const activeQuiz = displayData?.active_quiz;
   const currentPerf = displayData?.current_performance;
   const joinUrl = `${window.location.origin}/join/${pubCode}`;
+
+  const isKaraokeActive = currentPerf && (currentPerf.status === 'live' || currentPerf.status === 'paused' || currentPerf.status === 'voting' || voteResult);
   
-  // Determina quale Overlay mostrare (Il video è sempre sotto)
+  // Il quiz è visibile SOLO se NON c'è karaoke in corso E se lo stato non è 'ended'
+  const isQuizVisible = activeQuiz && activeQuiz.status !== 'ended' && !isKaraokeActive;
+
   let OverlayComponent = null;
 
-  if (activeQuiz && activeQuiz.status !== 'ended') {
-      // QUIZ ACTIVE: Mostriamo overlay quiz. Il player video è gestito "dietro" da QuizMediaFixed.
+  if (isQuizVisible) {
       OverlayComponent = <QuizOverlay quiz={activeQuiz} quizResults={quizResults} leaderboard={displayData?.leaderboard || []} />;
-  } else if (currentPerf && (currentPerf.status === 'live' || currentPerf.status === 'paused' || currentPerf.status === 'voting' || voteResult)) {
-      // KARAOKE ACTIVE: Mostriamo KaraokeScreen (che gestisce il suo player internamente)
+  } else if (isKaraokeActive) {
       OverlayComponent = <KaraokeScreen performance={currentPerf} isVoting={currentPerf.status === 'voting'} voteResult={voteResult} />;
   } else {
-      // IDLE
       OverlayComponent = (
          <div className="flex flex-col items-center justify-center h-full z-10 bg-zinc-950 animate-fade-in relative">
             <h2 className="text-7xl font-bold mb-8 text-white">PROSSIMO CANTANTE... TU?</h2>
@@ -309,8 +295,6 @@ export default function PubDisplay() {
 
   return (
     <div className="h-screen bg-black text-white overflow-hidden flex flex-col font-sans">
-      
-      {/* HEADER */}
       <div className="h-16 bg-zinc-900 flex items-center px-6 border-b border-zinc-800 z-50 relative shadow-xl">
          <div className="font-bold text-xl mr-8 text-fuchsia-500">{displayData?.pub?.name || "NEONPUB"}</div>
          <div className="flex-1 overflow-hidden relative h-full flex items-center"><div className="ticker-container w-full"><div className="ticker-content text-lg font-medium text-cyan-300">{ticker}</div></div></div>
@@ -319,28 +303,25 @@ export default function PubDisplay() {
       <div className="flex-1 flex overflow-hidden relative">
         <div className="flex-1 relative bg-black flex flex-col justify-center overflow-hidden">
            
-           {/* === BACKGROUND MEDIA LAYER (ALWAYS RENDERED) === */}
-           {/* Questo componente sta "sotto" a tutto (z-0). Non viene mai smontato se cambia il quiz */}
+           {/* BACKGROUND LAYER - VISIBILE SOLO SE IL QUIZ È ATTIVO */}
            <QuizMediaFixed 
                mediaUrl={activeQuiz?.media_url} 
                mediaType={activeQuiz?.media_type} 
-               isVisible={activeQuiz && activeQuiz.status !== 'ended'}
+               isVisible={isQuizVisible}
            />
 
-           {/* === FOREGROUND CONTENT LAYER === */}
-           {/* Questo componente cambia dinamicamente, coprendo il video se necessario */}
+           {/* FOREGROUND CONTENT */}
            {OverlayComponent}
 
         </div>
         
-        {/* SIDEBAR (QR CODE) */}
+        {/* SIDEBAR */}
         {!(activeQuiz && activeQuiz.status === 'leaderboard') && (
             <div className="w-[350px] bg-zinc-900/95 border-l border-zinc-800 flex flex-col z-30 shadow-2xl relative">
                 <div className="p-6 flex flex-col items-center bg-white/5 border-b border-white/10">
                     <div className="bg-white p-3 rounded-xl mb-3 shadow-lg transform hover:scale-105 transition"><QRCodeSVG value={joinUrl} size={150} /></div>
                     <p className="font-mono text-3xl font-bold text-cyan-400 tracking-widest drop-shadow">{pubCode}</p>
                 </div>
-                {/* ... resto sidebar identico ... */}
                 <div className="flex-1 overflow-hidden flex flex-col p-8 items-center justify-center text-center space-y-6">
                     {displayData?.pub?.logo_url ? (<img src={displayData.pub.logo_url} alt="Logo" className="w-40 h-40 object-contain drop-shadow-2xl"/>) : (<div className="w-40 h-40 bg-zinc-800 rounded-full flex items-center justify-center text-zinc-600 text-4xl font-bold border-4 border-zinc-700">LOGO</div>)}
                     <div className="mt-2"><h2 className="text-3xl font-black text-white uppercase tracking-wider">{displayData?.pub?.name || "NEONPUB"}</h2></div>
@@ -353,7 +334,6 @@ export default function PubDisplay() {
         )}
       </div>
 
-      {/* REACTIONS & FLASH MESSAGES */}
       <div className="reactions-overlay pointer-events-none fixed inset-0 z-[100] overflow-hidden">{floatingReactions.map(r => (<div key={r.id} className="absolute flex flex-col items-center animate-float-up" style={{ left: `${r.left}%`, bottom: '-50px' }}><span className="text-7xl filter drop-shadow-2xl">{r.emoji}</span></div>))}</div>
       {flashMessages.length > 0 && (<div className="fixed top-24 left-8 z-[110] w-2/3 max-w-4xl flex flex-col gap-4">{flashMessages.map(msg => (<div key={msg.internalId} className="bg-black/90 backdrop-blur-xl border-l-8 border-cyan-500 text-white p-6 rounded-r-2xl shadow-2xl animate-slide-in-left"><p className="text-4xl font-bold">{msg.text}</p></div>))}</div>)}
       
