@@ -1,5 +1,3 @@
---- START OF FILE api.js ---
-
 import { supabase } from './supabase'
 
 // ============================================
