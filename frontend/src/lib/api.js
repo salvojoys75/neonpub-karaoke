@@ -70,12 +70,10 @@ export const createPub = async (data) => {
   return { data: event }
 }
 
-// *** NUOVA FUNZIONE: RECUPERA EVENTO ATTIVO SENZA PAGARE ***
 export const recoverActiveEvent = async () => {
   const { data: user } = await supabase.auth.getUser();
   if (!user?.user) return null;
 
-  // Cerca un evento attivo di questo proprietario
   const { data, error } = await supabase
     .from('events')
     .select('*')
@@ -86,7 +84,7 @@ export const recoverActiveEvent = async () => {
     .maybeSingle();
 
   if (error) console.error("Error recovering event:", error);
-  return data; // Ritorna l'evento se esiste, altrimenti null
+  return data;
 }
 
 export const uploadLogo = async (file) => {
@@ -136,20 +134,17 @@ export const getAllProfiles = async () => {
 }
 
 export const updateProfileCredits = async (id, credits) => {
-    // FIX: Assicura che sia un numero valido
     const val = parseInt(credits, 10);
     if (isNaN(val)) throw new Error("Invalid credit amount");
-    
     const { error } = await supabase.from('profiles').update({ credits: val }).eq('id', id);
     if (error) throw error;
     return { data: 'ok' };
 }
 
-export const toggleOperatorStatus = async (id, isActive) => { return { data: 'ok' }; }
 export const createOperatorProfile = async (email, name, initialCredits) => { return { data: 'User invited (Simulation)' }; }
 
 // ============================================
-// REGIA & STATO
+// REGIA & STATO & CATALOGHI
 // ============================================
 
 export const getEventState = async () => {
@@ -163,6 +158,7 @@ export const setEventModule = async (moduleId, specificContentId = null) => {
   const pubCode = localStorage.getItem('neonpub_pub_code');
   const { data: event, error } = await supabase.from('events').update({ active_module: moduleId, active_module_id: specificContentId }).eq('code', pubCode).select().single();
   if (error) throw error;
+  
   if (moduleId === 'quiz' && specificContentId) {
     const { data: catalogItem } = await supabase.from('quiz_catalog').select('*').eq('id', specificContentId).single();
     await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id);
@@ -177,6 +173,30 @@ export const getQuizCatalog = async () => {
   const { data, error } = await supabase.from('quiz_catalog').select('*').order('category');
   return { data: data || [] };
 };
+
+export const getChallengeCatalog = async () => {
+  const { data, error } = await supabase.from('challenge_catalog').select('*');
+  return { data: data || [] };
+};
+
+// *** NUOVA FUNZIONE: IMPORTA JSON SCRIPT ***
+export const importQuizCatalog = async (jsonString) => {
+    try {
+        const parsed = JSON.parse(jsonString);
+        // Verifica se è un array o un oggetto singolo e normalizza
+        const items = Array.isArray(parsed) ? parsed : [parsed];
+        
+        // Validazione minima
+        if(items.length === 0) throw new Error("JSON vuoto");
+        if(!items[0].question || !items[0].options) throw new Error("Formato JSON non valido. Mancano 'question' o 'options'.");
+
+        const { error } = await supabase.from('quiz_catalog').insert(items);
+        if(error) throw error;
+        return { success: true, count: items.length };
+    } catch (e) {
+        throw new Error("Errore Importazione: " + e.message);
+    }
+}
 
 // ============================================
 // SONG REQUESTS
@@ -303,14 +323,13 @@ export const restartPerformance = async (performanceId) => {
   return { data };
 }
 
-// FIX: MUTE LOGIC
 export const toggleMute = async (isMuted) => {
     const pubCode = localStorage.getItem('neonpub_pub_code');
     const channel = supabase.channel(`display_control_${pubCode}`);
     await channel.send({
         type: 'broadcast',
         event: 'control',
-        payload: { command: 'mute', value: isMuted } // Sends true or false
+        payload: { command: 'mute', value: isMuted }
     });
 }
 
@@ -368,29 +387,34 @@ export const sendReaction = async (data) => {
   return { data: reaction }
 }
 
+// MESSAGGI IBRIDI (USER + ADMIN)
 export const sendMessage = async (data) => {
   let participantId = null;
   let eventId = null;
-  const pubCode = localStorage.getItem('neonpub_pub_code');
-  if (pubCode) {
-     const { data: event } = await supabase.from('events').select('id').eq('code', pubCode).single();
-     if(event) eventId = event.id;
-  }
-  try {
-     const token = localStorage.getItem('neonpub_token');
-     if(token) {
-        const p = JSON.parse(atob(token));
-        participantId = p.participant_id;
-        eventId = p.event_id;
-     }
-  } catch (e) { }
+  let status = data.status || 'pending';
 
-  if (!eventId) throw new Error("Errore contesto evento");
-  const status = participantId ? 'pending' : 'approved'; 
+  try {
+     const p = getParticipantFromToken();
+     participantId = p.participant_id;
+     eventId = p.event_id;
+  } catch (e) {
+     const pubCode = localStorage.getItem('neonpub_pub_code');
+     if(pubCode) {
+        const { data: event } = await supabase.from('events').select('id').eq('code', pubCode).single();
+        if(event) {
+           eventId = event.id;
+        }
+     }
+  }
+
+  if (!eventId) throw new Error("Errore contesto evento: ricarica la pagina");
+  
   const text = typeof data === 'string' ? data : (data.text || data.message);
+  
   const { data: message, error } = await supabase.from('messages').insert({
       event_id: eventId, participant_id: participantId, text: text, status: status
     }).select().single()
+
   if (error) throw error
   return { data: message }
 }
@@ -522,8 +546,8 @@ export const getDisplayData = async (pubCode) => {
 
 export default {
   createPub, updateEventSettings, uploadLogo, getPub, joinPub, adminLogin, getMe,
-  getAllProfiles, updateProfileCredits, toggleOperatorStatus, createOperatorProfile,
-  getEventState, setEventModule, getQuizCatalog,
+  getAllProfiles, updateProfileCredits, createOperatorProfile,
+  getEventState, setEventModule, getQuizCatalog, getChallengeCatalog, importQuizCatalog,
   requestSong, getSongQueue, getMyRequests, getAdminQueue, approveRequest, rejectRequest, deleteRequest,
   startPerformance, pausePerformance, resumePerformance, endPerformance, closeVoting, stopAndNext, restartPerformance, toggleMute,
   getCurrentPerformance, getAdminCurrentPerformance,

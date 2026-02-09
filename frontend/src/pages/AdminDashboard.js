@@ -5,7 +5,8 @@ import {
   Music, Play, Square, Trophy, Tv, Check, X, MessageSquare, 
   LogOut, SkipForward, Pause, RotateCcw, Search, Plus, ArrowLeft,
   ListMusic, BrainCircuit, Swords, Send, Star, VolumeX, Volume2, ExternalLink,
-  Users, Coins, Settings, Save, LayoutDashboard, Gem, Upload, UserPlus, Ban, Trash2, Image as ImageIcon
+  Users, Coins, Settings, Save, LayoutDashboard, Gem, Upload, UserPlus, Ban, Trash2, Image as ImageIcon,
+  FileJson, Download
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +37,10 @@ export default function AdminDashboard() {
   
   const [libraryTab, setLibraryTab] = useState("karaoke"); 
 
+  // --- STATI CATALOGHI ---
+  const [quizCatalog, setQuizCatalog] = useState([]);
+  const [challenges, setChallenges] = useState([]);
+
   // --- STATI SUPER ADMIN ---
   const [userList, setUserList] = useState([]);
   const [showCreateUserModal, setShowCreateUserModal] = useState(false);
@@ -55,6 +60,10 @@ export default function AdminDashboard() {
   const [showYoutubeModal, setShowYoutubeModal] = useState(false);
   const [showCustomQuizModal, setShowCustomQuizModal] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
+  
+  // NUOVO: IMPORT MODAL
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importText, setImportText] = useState("");
 
   // --- YOUTUBE VARS ---
   const [youtubeUrl, setYoutubeUrl] = useState("");
@@ -101,13 +110,11 @@ export default function AdminDashboard() {
           setAppState("super_admin"); 
           loadSuperAdminData(); 
       } else {
-        // --- LOGICA RIENTRO GRATUITO ---
         const storedCode = localStorage.getItem("neonpub_pub_code");
         if (storedCode) { 
             setPubCode(storedCode); 
             setAppState("dashboard"); 
         } else {
-            // Controlla se c'è un evento attivo sul DB per questo utente
             const activeEvent = await api.recoverActiveEvent();
             if (activeEvent) {
                 localStorage.setItem("neonpub_pub_code", activeEvent.code);
@@ -144,17 +151,22 @@ export default function AdminDashboard() {
       const stateData = await api.getEventState();
       if(stateData) setEventState(stateData);
 
-      const [qRes, perfRes, msgRes, activeQuizRes, pubRes] = await Promise.all([
+      const [qRes, perfRes, msgRes, activeQuizRes, pubRes, quizCatRes, challRes] = await Promise.all([
         api.getAdminQueue(),
         api.getAdminCurrentPerformance(),
         api.getAdminPendingMessages(),
         api.getActiveQuiz(),
-        api.getPub(pubCode)
+        api.getPub(pubCode),
+        api.getQuizCatalog(),
+        api.getChallengeCatalog()
       ]);
 
       setQueue(qRes.data || []);
       setCurrentPerformance(perfRes.data);
       setPendingMessages(msgRes.data || []);
+      setQuizCatalog(quizCatRes.data || []);
+      setChallenges(challRes.data || []);
+
       if(pubRes.data && !venueName) { setVenueName(pubRes.data.name); setVenueLogo(pubRes.data.logo_url || ""); }
       
       if(activeQuizRes.data) {
@@ -178,12 +190,11 @@ export default function AdminDashboard() {
     }
   }, [appState, loadData]);
 
-  // SUPER ADMIN FUNCTIONS (FIX CREDITI)
+  // SUPER ADMIN FUNCTIONS
   const loadSuperAdminData = async () => { const { data } = await api.getAllProfiles(); setUserList(data || []); };
   const addCredits = async (userId, amount) => {
       const user = userList.find(u => u.id === userId);
       if(!user) return;
-      // FIX: usa (user.credits || 0) per evitare NaN
       const current = user.credits || 0;
       await api.updateProfileCredits(userId, current + amount);
       toast.success("Crediti aggiornati"); loadSuperAdminData();
@@ -201,11 +212,10 @@ export default function AdminDashboard() {
     window.open(`/display/${pubCode}`, 'NeonPubDisplay', `popup=yes,width=${width},height=${height},top=${top},left=${left},toolbar=no,menubar=no`);
   };
 
-  // FIX AUDIO MUTE
   const handleToggleMute = async () => {
       const newState = !isMuted;
-      setIsMuted(newState); // Aggiorna UI subito
-      await api.toggleMute(newState); // Manda comando
+      setIsMuted(newState); 
+      await api.toggleMute(newState);
   };
 
   const handleLogoUpload = async (e) => {
@@ -256,28 +266,15 @@ export default function AdminDashboard() {
         if(action==='resume') await api.resumePerformance(currentPerformance.id);
         if(action==='restart') await api.restartPerformance(currentPerformance.id);
         if(action==='end_vote') await api.endPerformance(currentPerformance.id);
-        
-        if(action==='skip_next') {
-            if(window.confirm("Chiudere senza voto?")) {
-                await api.stopAndNext(currentPerformance.id);
-                toast.info("Chiuso senza voto");
-            }
-        }
-        if(action==='close_vote') {
-             await api.closeVoting(currentPerformance.id);
-             toast.success("Votazione conclusa!");
-        }
+        if(action==='skip_next') { if(window.confirm("Chiudere senza voto?")) { await api.stopAndNext(currentPerformance.id); toast.info("Chiuso senza voto"); } }
+        if(action==='close_vote') { await api.closeVoting(currentPerformance.id); toast.success("Votazione conclusa!"); }
         loadData();
       } catch(e) { toast.error("Errore comando: " + e.message); }
   };
 
   const deleteRequest = async (id) => {
       if(!confirm("Eliminare definitivamente dalla scaletta?")) return;
-      try {
-          await api.deleteRequest(id);
-          toast.success("Cancellato");
-          loadData();
-      } catch(e) { toast.error("Errore cancellazione"); }
+      try { await api.deleteRequest(id); toast.success("Cancellato"); loadData(); } catch(e) { toast.error("Errore cancellazione"); }
   };
 
   const openManualVideoWindow = () => {
@@ -303,24 +300,40 @@ export default function AdminDashboard() {
       } catch(e) { toast.error("Errore quiz custom"); }
   };
 
+  const launchCatalogQuiz = async (item) => {
+      if(window.confirm(`Lanciare: ${item.question}?`)) {
+          await api.setEventModule('quiz', item.id);
+          toast.success("Quiz Lanciato!");
+          loadData();
+      }
+  };
+
   const ctrlQuiz = async (action) => {
       if(!activeQuizId) return;
       try {
           if(action==='close_vote') await api.closeQuizVoting(activeQuizId);
           if(action==='show_results') await api.showQuizResults(activeQuizId);
-          if(action==='end') {
-              await api.endQuiz(activeQuizId);
-              await api.setEventModule('karaoke'); 
-              toast.info("Tornati al Karaoke");
-          }
+          if(action==='end') { await api.endQuiz(activeQuizId); await api.setEventModule('karaoke'); toast.info("Tornati al Karaoke"); }
           loadData();
       } catch(e) { toast.error("Errore comando quiz"); }
+  };
+
+  const handleImportScript = async () => {
+      if(!importText) return;
+      try {
+          const res = await api.importQuizCatalog(importText);
+          toast.success(`${res.count} Quiz importati con successo!`);
+          setShowImportModal(false);
+          setImportText("");
+          loadData();
+      } catch(e) {
+          toast.error(e.message);
+      }
   };
 
   // --- RENDER ---
   if (appState === 'loading') return <div className="bg-black h-screen text-white flex items-center justify-center">Caricamento...</div>;
 
-  // --- SUPER ADMIN DASHBOARD ---
   if (appState === 'super_admin') {
       return (
         <div className="h-screen bg-zinc-950 text-white flex flex-col p-8 overflow-auto">
@@ -340,7 +353,6 @@ export default function AdminDashboard() {
                     </Card>
                 ))}
             </div>
-            {/* Modal Creazione User */}
             <Dialog open={showCreateUserModal} onOpenChange={setShowCreateUserModal}>
                 <DialogContent className="bg-zinc-900 border-zinc-800">
                     <DialogHeader><DialogTitle>Invita Operatore</DialogTitle></DialogHeader>
@@ -354,7 +366,6 @@ export default function AdminDashboard() {
       );
   }
 
-  // --- SETUP ---
   if (appState === 'setup') {
       return (
         <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center p-4">
@@ -370,14 +381,12 @@ export default function AdminDashboard() {
       );
   }
 
-  // --- OPERATOR DASHBOARD ---
   const pendingReqs = queue.filter(r => r.status === 'pending');
   const queuedReqs = queue.filter(r => r.status === 'queued');
 
   return (
     <div className="h-screen bg-[#050505] text-white flex flex-col overflow-hidden">
       
-      {/* HEADER */}
       <header className="h-14 border-b border-white/10 flex items-center justify-between px-4 bg-zinc-900">
          <div className="flex items-center gap-4">
             <h1 className="font-bold text-lg text-fuchsia-400">NEONPUB OS</h1>
@@ -390,10 +399,7 @@ export default function AdminDashboard() {
          </div>
       </header>
 
-      {/* GRID */}
       <div className="flex-1 grid grid-cols-12 gap-0 overflow-hidden">
-         
-         {/* SINISTRA: LIBRARY */}
          <aside className="col-span-4 border-r border-white/10 bg-zinc-900/50 flex flex-col">
             <div className="p-2 border-b border-white/5">
                <Tabs value={libraryTab} onValueChange={setLibraryTab} className="w-full">
@@ -411,10 +417,8 @@ export default function AdminDashboard() {
             </div>
             
             <ScrollArea className="flex-1 p-3">
-               {/* 1. KARAOKE */}
                {libraryTab === 'karaoke' && (
                   <div className="space-y-4">
-                     {/* PENDING */}
                      {pendingReqs.length > 0 && (
                         <div className="space-y-2">
                             <h3 className="text-xs font-bold text-yellow-500 uppercase">Da Approvare ({pendingReqs.length})</h3>
@@ -429,7 +433,6 @@ export default function AdminDashboard() {
                             ))}
                         </div>
                      )}
-                     {/* QUEUE */}
                      <div className="space-y-2">
                         <h3 className="text-xs font-bold text-zinc-500 uppercase">In Scaletta ({queuedReqs.length})</h3>
                         {queuedReqs.map((req, i) => (
@@ -442,18 +445,11 @@ export default function AdminDashboard() {
                                   </div>
                               </div>
                               <div className="flex gap-2">
-                                  <Button size="icon" variant="ghost" className="h-7 w-7 text-zinc-500 hover:text-red-500 hover:bg-red-900/20" onClick={() => deleteRequest(req.id)}>
-                                     <Trash2 className="w-3 h-3" />
-                                  </Button>
+                                  <Button size="icon" variant="ghost" className="h-7 w-7 text-zinc-500 hover:text-red-500 hover:bg-red-900/20" onClick={() => deleteRequest(req.id)}><Trash2 className="w-3 h-3" /></Button>
                                   <Button size="sm" className="bg-fuchsia-600 h-7" onClick={() => { 
-                                      setSelectedRequest(req); 
-                                      setYoutubeSearchResults([]);
-                                      setYoutubeUrl(req.youtube_url || "");
-                                      setShowYoutubeModal(true);
+                                      setSelectedRequest(req); setYoutubeSearchResults([]); setYoutubeUrl(req.youtube_url || ""); setShowYoutubeModal(true);
                                       if(!req.youtube_url) setTimeout(() => searchYouTube(`${req.title} ${req.artist} karaoke`), 100);
-                                  }}>
-                                     <Play className="w-3 h-3 mr-1" /> LIVE
-                                  </Button>
+                                  }}><Play className="w-3 h-3 mr-1" /> LIVE</Button>
                               </div>
                            </div>
                         ))}
@@ -461,10 +457,13 @@ export default function AdminDashboard() {
                   </div>
                )}
 
-               {/* 2. QUIZ */}
                {libraryTab === 'quiz' && (
-                   <div className="space-y-4">
-                       <Button className="w-full bg-fuchsia-600" onClick={()=>setShowCustomQuizModal(true)}><Plus className="w-4 h-4 mr-2"/> Nuovo Quiz</Button>
+                  <div className="space-y-4">
+                       <div className="grid grid-cols-2 gap-2">
+                           <Button className="bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-xs" onClick={()=>setShowCustomQuizModal(true)}><Plus className="w-3 h-3 mr-1"/> Manuale</Button>
+                           <Button className="bg-blue-600 hover:bg-blue-500 text-xs" onClick={()=>setShowImportModal(true)}><Download className="w-3 h-3 mr-1"/> Importa Script</Button>
+                       </div>
+
                        {activeQuizId ? (
                            <div className="p-4 bg-zinc-800 border border-zinc-700 rounded text-center">
                                <h3 className="text-fuchsia-500 font-bold mb-2 uppercase">Quiz In Corso</h3>
@@ -476,95 +475,78 @@ export default function AdminDashboard() {
                                    {quizStatus === 'closed' && <Button className="w-full bg-blue-600 hover:bg-blue-500" onClick={()=>ctrlQuiz('show_results')}>Mostra Risultati</Button>}
                                    {(quizStatus === 'showing_results' || quizStatus === 'closed') && <Button className="w-full bg-red-600 hover:bg-red-500" onClick={()=>ctrlQuiz('end')}>Termina Quiz</Button>}
                                </div>
-                               {quizResults && quizStatus === 'showing_results' && (
-                                   <div className="mt-4 text-left bg-black/20 p-2 rounded text-xs"><p className="text-zinc-400">Risposte Totali: {quizResults.total_answers}</p><p className="text-green-400">Corrette: {quizResults.correct_count}</p></div>
-                               )}
                            </div>
-                       ) : <p className="text-center text-zinc-500 py-4">Nessun quiz attivo</p>}
+                       ) : null}
+
+                       <h3 className="text-xs font-bold text-zinc-500 uppercase mt-4">Catalogo ({quizCatalog.length})</h3>
+                       {quizCatalog.length === 0 ? <p className="text-xs text-zinc-600">Catalogo vuoto.</p> : quizCatalog.map((item) => (
+                          <div key={item.id} className="p-3 bg-zinc-800 rounded border-l-2 border-transparent hover:border-yellow-500 cursor-pointer" onClick={() => launchCatalogQuiz(item)}>
+                             <div className="text-xs text-yellow-500 font-bold mb-1">{item.category}</div>
+                             <div className="text-sm font-medium text-zinc-300">{item.question}</div>
+                          </div>
+                       ))}
                    </div>
                )}
 
-               {/* 4. MESSAGGI */}
-               {libraryTab === 'messages' && (
-                   <div className="space-y-4 pt-2">
-                       <Button className="w-full bg-cyan-600 hover:bg-cyan-500 mb-4" onClick={()=>setShowMessageModal(true)}>
-                           <MessageSquare className="w-4 h-4 mr-2"/> Scrivi Messaggio Regia
-                       </Button>
-                       
-                       <h3 className="text-xs font-bold text-zinc-500 uppercase">In Attesa ({pendingMessages.length})</h3>
-                       {pendingMessages.length === 0 && <p className="text-zinc-600 text-xs">Nessun messaggio in coda.</p>}
-                       {pendingMessages.map(msg => (
-                           <div key={msg.id} className="bg-zinc-800 p-3 rounded border-l-2 border-blue-500">
-                               <div className="flex justify-between mb-2">
-                                   <span className="font-bold text-sm">{msg.user_nickname || 'Anonimo'}</span>
-                                   <span className="text-xs text-zinc-500">App: {msg.participant_id ? 'Utente' : 'Regia'}</span>
-                               </div>
-                               <p className="text-sm bg-black/20 p-2 rounded mb-2">{msg.text}</p>
-                               <div className="flex gap-2 justify-end">
-                                   <Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-900/20 h-7" onClick={async()=>{await api.rejectMessage(msg.id); loadData();}}>Rifiuta</Button>
-                                   <Button size="sm" className="bg-green-600 h-7 hover:bg-green-500" onClick={async()=>{await api.approveMessage(msg.id); loadData();}}>Approva</Button>
-                               </div>
+               {libraryTab === 'challenges' && (
+                   <div className="space-y-3">
+                       <h3 className="text-xs font-bold text-zinc-500 uppercase">Catalogo Sfide</h3>
+                       {challenges.length === 0 ? <p className="text-xs text-zinc-600">Nessuna sfida.</p> : challenges.map(c => (
+                           <div key={c.id} className="p-3 bg-zinc-800 rounded flex flex-col gap-1 hover:bg-zinc-700 cursor-pointer border-l-2 border-red-500" onClick={() => toast.info(`Sfida "${c.title}" lanciata! (In arrivo)`)}>
+                               <div className="flex justify-between"><span className="font-bold text-sm text-white">{c.title}</span><Swords className="w-3 h-3 text-red-500" /></div>
+                               <p className="text-xs text-zinc-400">{c.description}</p>
                            </div>
                        ))}
                    </div>
                )}
 
-               {/* 5. SETTINGS */}
+               {libraryTab === 'messages' && (
+                   <div className="space-y-4 pt-2">
+                       <Button className="w-full bg-cyan-600 hover:bg-cyan-500 mb-4" onClick={()=>setShowMessageModal(true)}><MessageSquare className="w-4 h-4 mr-2"/> Scrivi Messaggio Regia</Button>
+                       <h3 className="text-xs font-bold text-zinc-500 uppercase">In Attesa ({pendingMessages.length})</h3>
+                       {pendingMessages.map(msg => (
+                           <div key={msg.id} className="bg-zinc-800 p-3 rounded border-l-2 border-blue-500">
+                               <div className="flex justify-between mb-2"><span className="font-bold text-sm">{msg.user_nickname || 'Anonimo'}</span><span className="text-xs text-zinc-500">App: {msg.participant_id ? 'Utente' : 'Regia'}</span></div>
+                               <p className="text-sm bg-black/20 p-2 rounded mb-2">{msg.text}</p>
+                               <div className="flex gap-2 justify-end"><Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-900/20 h-7" onClick={async()=>{await api.rejectMessage(msg.id); loadData();}}>Rifiuta</Button><Button size="sm" className="bg-green-600 h-7 hover:bg-green-500" onClick={async()=>{await api.approveMessage(msg.id); loadData();}}>Approva</Button></div>
+                           </div>
+                       ))}
+                   </div>
+               )}
+
                {libraryTab === 'settings' && (
                    <div className="space-y-4 pt-2">
                        <div className="space-y-2"><label className="text-xs text-zinc-500">Nome Locale</label><Input value={venueName} onChange={e=>setVenueName(e.target.value)} className="bg-zinc-800"/></div>
                        <div className="space-y-2"><label className="text-xs text-zinc-500">Logo (File)</label><div className="flex gap-2"><Input type="file" onChange={handleLogoUpload} className="bg-zinc-800 text-xs" accept="image/*" disabled={uploadingLogo}/>{uploadingLogo && <span className="text-yellow-500 text-xs animate-pulse">...</span>}</div></div>
-                       <div className="space-y-2"><label className="text-xs text-zinc-500">URL Logo</label><Input value={venueLogo} onChange={e=>setVenueLogo(e.target.value)} className="bg-zinc-800"/>{venueLogo && <img src={venueLogo} alt="Preview" className="h-10 mt-2 object-contain" />}</div>
                        <Button className="w-full bg-zinc-700" onClick={handleSaveSettings}><Save className="w-4 h-4 mr-2"/> Salva Impostazioni</Button>
                    </div>
                )}
             </ScrollArea>
          </aside>
 
-         {/* DESTRA: LIVE DECK */}
          <main className="col-span-8 bg-black relative flex flex-col">
-            {/* Header Deck */}
             <div className="h-10 border-b border-white/10 flex items-center px-4 justify-between bg-zinc-950">
                <span className="text-xs font-mono text-zinc-500">PROGRAMMA LIVE</span>
-               <Button size="sm" variant="ghost" onClick={handleToggleMute} className={isMuted?'text-red-500':'text-zinc-400'}>
-                   {isMuted ? <VolumeX className="w-4 h-4"/> : <Volume2 className="w-4 h-4"/>}
-               </Button>
+               <Button size="sm" variant="ghost" onClick={handleToggleMute} className={isMuted?'text-red-500':'text-zinc-400'}>{isMuted ? <VolumeX className="w-4 h-4"/> : <Volume2 className="w-4 h-4"/>}</Button>
             </div>
-
             <div className="flex-1 p-6 flex items-center justify-center bg-gradient-to-b from-zinc-900 to-black">
                {eventState.active_module === 'karaoke' && (
                   <div className="w-full max-w-3xl text-center">
                      {!currentPerformance ? (
-                        <div className="text-zinc-600 flex flex-col items-center opacity-50">
-                           <ListMusic className="w-24 h-24 mb-4" />
-                           <h2 className="text-2xl font-bold">In Attesa...</h2>
-                        </div>
+                        <div className="text-zinc-600 flex flex-col items-center opacity-50"><ListMusic className="w-24 h-24 mb-4" /><h2 className="text-2xl font-bold">In Attesa...</h2></div>
                      ) : (
                         <div className="bg-zinc-900/80 border border-white/10 p-8 rounded-2xl shadow-2xl relative">
-                           <div className="mb-6">
-                               <h2 className="text-4xl font-black text-white">{currentPerformance.song_title}</h2>
-                               <p className="text-2xl text-fuchsia-400">{currentPerformance.song_artist}</p>
-                               <div className="mt-4 text-zinc-300">🎤 {currentPerformance.user_nickname}</div>
-                           </div>
-
+                           <div className="mb-6"><h2 className="text-4xl font-black text-white">{currentPerformance.song_title}</h2><p className="text-2xl text-fuchsia-400">{currentPerformance.song_artist}</p><div className="mt-4 text-zinc-300">🎤 {currentPerformance.user_nickname}</div></div>
                            {currentPerformance.status === 'voting' ? (
-                               <div className="bg-yellow-500/20 p-6 rounded-xl border border-yellow-500/50 animate-pulse">
-                                   <h3 className="text-2xl font-bold text-yellow-500 mb-4">VOTAZIONE IN CORSO</h3>
-                                   <Button size="lg" className="w-full bg-yellow-500 text-black font-bold" onClick={()=>ctrlPerf('close_vote')}>CHIUDI VOTAZIONE & NEXT</Button>
-                               </div>
+                               <div className="bg-yellow-500/20 p-6 rounded-xl border border-yellow-500/50 animate-pulse"><h3 className="text-2xl font-bold text-yellow-500 mb-4">VOTAZIONE IN CORSO</h3><Button size="lg" className="w-full bg-yellow-500 text-black font-bold" onClick={()=>ctrlPerf('close_vote')}>CHIUDI VOTAZIONE & NEXT</Button></div>
                            ) : (
-                               <div className="flex flex-col gap-4">
-                                   <div className="flex justify-center gap-4">
+                               <div className="flex flex-col gap-4"><div className="flex justify-center gap-4">
                                        {currentPerformance.status === 'live' && <Button size="lg" variant="outline" className="h-16 w-16 rounded-full" onClick={()=>ctrlPerf('pause')}><Pause className="w-6 h-6" /></Button>}
                                        {currentPerformance.status === 'paused' && <Button size="lg" className="h-16 w-16 rounded-full bg-green-500 text-black" onClick={()=>ctrlPerf('resume')}><Play className="w-6 h-6" /></Button>}
                                        <Button size="lg" variant="secondary" className="h-16 w-16 rounded-full" onClick={()=>ctrlPerf('restart')}><RotateCcw className="w-6 h-6" /></Button>
-                                       <Button size="lg" variant="outline" className="h-16 w-16 rounded-full border-blue-500 text-blue-500 hover:bg-blue-900/20" onClick={openManualVideoWindow} title="Apri Video Esterno"><ExternalLink className="w-6 h-6" /></Button>
-                                       <div className="flex gap-2 ml-4">
-                                           <Button size="lg" variant="destructive" className="h-16 px-6" onClick={()=>ctrlPerf('end_vote')}>STOP & VOTA</Button>
-                                           <Button size="lg" className="h-16 px-4 bg-zinc-700" onClick={()=>ctrlPerf('skip_next')}>SKIP</Button>
-                                       </div>
-                                   </div>
-                               </div>
+                                       <Button size="lg" variant="outline" className="h-16 w-16 rounded-full border-blue-500 text-blue-500 hover:bg-blue-900/20" onClick={openManualVideoWindow}><ExternalLink className="w-6 h-6" /></Button>
+                                       <div className="flex gap-2 ml-4"><Button size="lg" variant="destructive" className="h-16 px-6" onClick={()=>ctrlPerf('end_vote')}>STOP & VOTA</Button><Button size="lg" className="h-16 px-4 bg-zinc-700" onClick={()=>ctrlPerf('skip_next')}>SKIP</Button></div>
+                               </div></div>
                            )}
                         </div>
                      )}
@@ -574,43 +556,31 @@ export default function AdminDashboard() {
          </main>
       </div>
 
-      {/* --- MODALI --- */}
+      {/* MODALS */}
       <Dialog open={showMessageModal} onOpenChange={setShowMessageModal}>
-          <DialogContent className="bg-zinc-900 border-zinc-800">
-              <DialogHeader><DialogTitle>Messaggio Regia</DialogTitle></DialogHeader>
-              <div className="space-y-4 pt-4">
-                  <Textarea value={adminMessage} onChange={e=>setAdminMessage(e.target.value)} placeholder="Scrivi avviso..." className="bg-zinc-800 border-zinc-700 h-32"/>
-                  <Button className="w-full bg-cyan-600 font-bold" onClick={handleSendMessage}><Send className="w-4 h-4 mr-2"/> INVIA AGLI SCHERMI</Button>
-              </div>
-          </DialogContent>
+          <DialogContent className="bg-zinc-900 border-zinc-800"><DialogHeader><DialogTitle>Messaggio Regia</DialogTitle></DialogHeader><div className="space-y-4 pt-4"><Textarea value={adminMessage} onChange={e=>setAdminMessage(e.target.value)} placeholder="Scrivi avviso..." className="bg-zinc-800 border-zinc-700 h-32"/><Button className="w-full bg-cyan-600 font-bold" onClick={handleSendMessage}><Send className="w-4 h-4 mr-2"/> INVIA AGLI SCHERMI</Button></div></DialogContent>
       </Dialog>
       
       <Dialog open={showYoutubeModal} onOpenChange={setShowYoutubeModal}>
         <DialogContent className="bg-zinc-900 border-zinc-800 max-w-3xl">
           <DialogHeader><DialogTitle>Video per: {selectedRequest?.title}</DialogTitle></DialogHeader>
-          <div className="space-y-4 pt-4">
-              <div className="flex gap-2"><Input value={youtubeSearchQuery} onChange={e=>setYoutubeSearchQuery(e.target.value)} className="bg-zinc-800 border-zinc-700" placeholder="Cerca su YouTube..." onKeyDown={e=>e.key==='Enter'&&searchYouTube(youtubeSearchQuery)}/><Button onClick={() => searchYouTube(youtubeSearchQuery)} disabled={searchingYoutube} className="bg-zinc-700">{searchingYoutube?'...':'Cerca'}</Button></div>
-              <div className="max-h-60 overflow-y-auto space-y-2 custom-scrollbar">
-                  {youtubeSearchResults.map(vid => (
-                      <div key={vid.id.videoId} className="flex gap-3 p-2 hover:bg-white/5 cursor-pointer rounded transition" onClick={()=>{setYoutubeUrl(`https://www.youtube.com/watch?v=${vid.id.videoId}`); setYoutubeSearchResults([]);}}>
-                          <img src={vid.snippet.thumbnails.default.url} className="w-24 h-16 object-cover rounded" alt="thumb"/>
-                          <div className="flex-1"><div className="font-bold text-sm text-white">{vid.snippet.title}</div><div className="text-xs text-zinc-500">{vid.snippet.channelTitle}</div></div>
-                          <Button size="sm" variant="ghost" className="text-fuchsia-500">Seleziona</Button>
-                      </div>
-                  ))}
-              </div>
-              <div className="pt-4 border-t border-white/10"><p className="text-xs text-zinc-500 mb-2">URL:</p><Input value={youtubeUrl} onChange={e=>setYoutubeUrl(e.target.value)} className="bg-zinc-950 border-zinc-800 font-mono text-xs mb-4"/><Button className="w-full bg-green-600 h-12 text-lg font-bold" disabled={!youtubeUrl} onClick={startPerformance}><Play className="w-5 h-5 mr-2"/> MANDA IN ONDA</Button></div>
-          </div>
+          <div className="space-y-4 pt-4"><div className="flex gap-2"><Input value={youtubeSearchQuery} onChange={e=>setYoutubeSearchQuery(e.target.value)} className="bg-zinc-800 border-zinc-700" placeholder="Cerca su YouTube..." onKeyDown={e=>e.key==='Enter'&&searchYouTube(youtubeSearchQuery)}/><Button onClick={() => searchYouTube(youtubeSearchQuery)} disabled={searchingYoutube} className="bg-zinc-700">{searchingYoutube?'...':'Cerca'}</Button></div>
+              <div className="max-h-60 overflow-y-auto space-y-2 custom-scrollbar">{youtubeSearchResults.map(vid => (<div key={vid.id.videoId} className="flex gap-3 p-2 hover:bg-white/5 cursor-pointer rounded transition" onClick={()=>{setYoutubeUrl(`https://www.youtube.com/watch?v=${vid.id.videoId}`); setYoutubeSearchResults([]);}}><img src={vid.snippet.thumbnails.default.url} className="w-24 h-16 object-cover rounded" alt="thumb"/><div className="flex-1"><div className="font-bold text-sm text-white">{vid.snippet.title}</div><div className="text-xs text-zinc-500">{vid.snippet.channelTitle}</div></div><Button size="sm" variant="ghost" className="text-fuchsia-500">Seleziona</Button></div>))}</div>
+              <div className="pt-4 border-t border-white/10"><p className="text-xs text-zinc-500 mb-2">URL:</p><Input value={youtubeUrl} onChange={e=>setYoutubeUrl(e.target.value)} className="bg-zinc-950 border-zinc-800 font-mono text-xs mb-4"/><Button className="w-full bg-green-600 h-12 text-lg font-bold" disabled={!youtubeUrl} onClick={startPerformance}><Play className="w-5 h-5 mr-2"/> MANDA IN ONDA</Button></div></div>
         </DialogContent>
       </Dialog>
 
       <Dialog open={showCustomQuizModal} onOpenChange={setShowCustomQuizModal}>
-          <DialogContent className="bg-zinc-900 border-zinc-800">
-              <DialogHeader><DialogTitle>Crea Quiz</DialogTitle></DialogHeader>
+          <DialogContent className="bg-zinc-900 border-zinc-800"><DialogHeader><DialogTitle>Crea Quiz</DialogTitle></DialogHeader><div className="space-y-4 pt-4"><div><label className="text-xs text-zinc-500 mb-1">Domanda</label><Textarea value={quizQuestion} onChange={e=>setQuizQuestion(e.target.value)} className="bg-zinc-800 border-zinc-700"/></div><div className="space-y-2"><label className="text-xs text-zinc-500 mb-1">Opzioni</label>{quizOptions.map((opt, i) => (<div key={i} className="flex gap-2"><Input value={opt} onChange={e=>{const n=[...quizOptions]; n[i]=e.target.value; setQuizOptions(n)}} className="bg-zinc-800 border-zinc-700"/><Button size="icon" variant={quizCorrectIndex===i?'default':'outline'} className={quizCorrectIndex===i?'bg-green-600 border-none':''} onClick={()=>setQuizCorrectIndex(i)}><Check className="w-4 h-4"/></Button></div>))}</div><Button className="w-full bg-fuchsia-600 mt-4 h-12 text-lg font-bold" onClick={launchCustomQuiz}>LANCIA QUIZ</Button></div></DialogContent>
+      </Dialog>
+
+      <Dialog open={showImportModal} onOpenChange={setShowImportModal}>
+          <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
+              <DialogHeader><DialogTitle>Importa Script JSON</DialogTitle></DialogHeader>
               <div className="space-y-4 pt-4">
-                  <div><label className="text-xs text-zinc-500 mb-1">Domanda</label><Textarea value={quizQuestion} onChange={e=>setQuizQuestion(e.target.value)} className="bg-zinc-800 border-zinc-700"/></div>
-                  <div className="space-y-2"><label className="text-xs text-zinc-500 mb-1">Opzioni</label>{quizOptions.map((opt, i) => (<div key={i} className="flex gap-2"><Input value={opt} onChange={e=>{const n=[...quizOptions]; n[i]=e.target.value; setQuizOptions(n)}} className="bg-zinc-800 border-zinc-700"/><Button size="icon" variant={quizCorrectIndex===i?'default':'outline'} className={quizCorrectIndex===i?'bg-green-600 border-none':''} onClick={()=>setQuizCorrectIndex(i)}><Check className="w-4 h-4"/></Button></div>))}</div>
-                  <Button className="w-full bg-fuchsia-600 mt-4 h-12 text-lg font-bold" onClick={launchCustomQuiz}>LANCIA QUIZ</Button>
+                  <p className="text-xs text-zinc-500">Incolla qui il JSON generato dall'AI. Formato: <span className="font-mono text-yellow-500">[{`{ "category": "...", "question": "...", "options": ["A","B","C","D"], "correct_index": 0, "points": 10 }`}]</span></p>
+                  <Textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder='[ { "category": "Cinema", ... } ]' className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"/>
+                  <Button className="w-full bg-blue-600 font-bold" onClick={handleImportScript}><Download className="w-4 h-4 mr-2"/> IMPORTA NEL CATALOGO</Button>
               </div>
           </DialogContent>
       </Dialog>
