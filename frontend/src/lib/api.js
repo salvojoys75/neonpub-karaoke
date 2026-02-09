@@ -159,7 +159,6 @@ export const setEventModule = async (moduleId, specificContentId = null) => {
   if (moduleId === 'quiz' && specificContentId) {
     const { data: catalogItem } = await supabase.from('quiz_catalog').select('*').eq('id', specificContentId).single();
     if (catalogItem) {
-        // RESET E ATTIVAZIONE NUOVO QUIZ CON MEDIA
         await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
         await supabase.from('quizzes').insert({
           event_id: event.id, 
@@ -299,7 +298,6 @@ export const startPerformance = async (requestId, youtubeUrl) => {
   const { data: request } = await supabase.from('song_requests').select('*, participants(nickname)').eq('id', requestId).single()
   await supabase.from('performances').update({ status: 'ended' }).eq('event_id', request.event_id).neq('status', 'ended');
   
-  // Chiude anche eventuali quiz attivi
   await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', request.event_id).neq('status', 'ended');
 
   const { data: performance, error } = await supabase.from('performances').insert({
@@ -356,9 +354,11 @@ export const resumePerformance = async (performanceId) => {
 }
 
 export const restartPerformance = async (performanceId) => {
-  const { data, error } = await supabase.from('performances').update({ status: 'restarted', started_at: new Date().toISOString() }).eq('id', performanceId).select()
+  // MODIFICATO: Non cambia lo stato in 'restarted' (illegale), ma aggiorna started_at per forzare il seek
+  const { data, error } = await supabase.from('performances')
+      .update({ status: 'live', started_at: new Date().toISOString() })
+      .eq('id', performanceId).select();
   if (error) throw error;
-  await supabase.from('performances').update({ status: 'live' }).eq('id', performanceId);
   return { data };
 }
 
@@ -377,7 +377,7 @@ export const getCurrentPerformance = async () => {
   const { data, error } = await supabase.from('performances')
     .select('*, participants (nickname)')
     .eq('event_id', participant.event_id)
-    .in('status', ['live', 'voting', 'paused', 'restarted']) 
+    .in('status', ['live', 'voting', 'paused']) 
     .order('started_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -390,7 +390,7 @@ export const getAdminCurrentPerformance = async () => {
   const { data, error } = await supabase.from('performances')
     .select('*, participants (nickname)')
     .eq('event_id', event.id)
-    .in('status', ['live', 'voting', 'paused', 'restarted']) 
+    .in('status', ['live', 'voting', 'paused']) 
     .order('started_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -482,7 +482,6 @@ export const rejectMessage = async (id) => {
 export const startQuiz = async (data) => {
   const event = await getAdminEvent()
   
-  // Chiudi eventuali performance karaoke attive
   await supabase.from('performances').update({ status: 'ended' }).eq('event_id', event.id).in('status', ['live','paused']);
   await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
 
@@ -582,7 +581,7 @@ export const getAdminLeaderboard = async () => {
 export const getDisplayData = async (pubCode) => {
   const { data: event } = await supabase.from('events').select('*').eq('code', pubCode.toUpperCase()).single()
   const [perf, queue, lb, activeQuiz, msg] = await Promise.all([
-    supabase.from('performances').select('*, participants(nickname)').eq('event_id', event.id).in('status', ['live','voting','paused','restarted']).maybeSingle(),
+    supabase.from('performances').select('*, participants(nickname)').eq('event_id', event.id).in('status', ['live','voting','paused']).maybeSingle(),
     supabase.from('song_requests').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'queued').limit(10), 
     supabase.from('participants').select('nickname, score').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
     supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),

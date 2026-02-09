@@ -266,7 +266,7 @@ export default function AdminDashboard() {
       try {
         if(action==='pause') await api.pausePerformance(currentPerformance.id);
         if(action==='resume') await api.resumePerformance(currentPerformance.id);
-        if(action==='restart') await api.restartPerformance(currentPerformance.id);
+        if(action==='restart') await api.restartPerformance(currentPerformance.id); // Questo ora funziona grazie al fix in api.js
         if(action==='end_vote') await api.endPerformance(currentPerformance.id);
         if(action==='skip_next') { if(window.confirm("Chiudere senza voto?")) { await api.stopAndNext(currentPerformance.id); toast.info("Chiuso senza voto"); } }
         if(action==='close_vote') { await api.closeVoting(currentPerformance.id); toast.success("Votazione conclusa!"); }
@@ -287,7 +287,7 @@ export default function AdminDashboard() {
 
   const handleSendMessage = async () => {
       if(!adminMessage) return;
-      await api.sendMessage({ text: adminMessage }); 
+      await api.sendMessage({ text: adminMessage }); // Api ora approva automaticamente se è Regia
       setShowMessageModal(false); 
       setAdminMessage("");
       toast.success("Messaggio Inviato");
