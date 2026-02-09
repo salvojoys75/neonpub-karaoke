@@ -1,3 +1,5 @@
+--- START OF FILE api.js ---
+
 import { supabase } from './supabase'
 
 // ============================================
@@ -36,6 +38,21 @@ export const createPub = async (data) => {
   const { data: user } = await supabase.auth.getUser()
   if (!user?.user) throw new Error('Not authenticated')
 
+  // 1. CONTROLLO CREDITI
+  const { data: profile } = await supabase.from('profiles').select('credits').eq('id', user.user.id).single();
+  
+  if (!profile || profile.credits < 1) {
+      throw new Error("Crediti insufficienti! Ricarica i crediti per creare un evento.");
+  }
+
+  // 2. SCALO CREDITO
+  const { error: creditError } = await supabase.from('profiles')
+    .update({ credits: profile.credits - 1 })
+    .eq('id', user.user.id);
+  
+  if (creditError) throw new Error("Errore aggiornamento crediti");
+
+  // 3. CREO EVENTO
   const code = Math.random().toString(36).substring(2, 8).toUpperCase()
 
   const { data: event, error } = await supabase
@@ -58,28 +75,30 @@ export const createPub = async (data) => {
 export const uploadLogo = async (file) => {
   if (!file) throw new Error("Nessun file selezionato");
   
+  // Sanitize file name: rimuove spazi e caratteri speciali
   const fileExt = file.name.split('.').pop();
-  const fileName = `${Date.now()}.${fileExt}`;
-  const filePath = `${fileName}`;
-
+  const cleanName = file.name.replace(/[^a-zA-Z0-9]/g, '_');
+  const fileName = `${Date.now()}_${cleanName}.${fileExt}`;
+  
   // Upload su Supabase Storage (Bucket 'logos')
   const { error: uploadError } = await supabase.storage
     .from('logos')
-    .upload(filePath, file);
+    .upload(fileName, file, { upsert: true });
 
   if (uploadError) throw uploadError;
 
   // Ottieni URL pubblico
-  const { data } = supabase.storage.from('logos').getPublicUrl(filePath);
+  const { data } = supabase.storage.from('logos').getPublicUrl(fileName);
   return data.publicUrl;
 }
 
 export const updateEventSettings = async (data) => {
   const event = await getAdminEvent();
-  const { error } = await supabase.from('events').update({ 
-      name: data.name, 
-      logo_url: data.logo_url 
-  }).eq('id', event.id);
+  // Assicuriamoci di inviare l'oggetto corretto
+  const updatePayload = { name: data.name };
+  if (data.logo_url) updatePayload.logo_url = data.logo_url;
+
+  const { error } = await supabase.from('events').update(updatePayload).eq('id', event.id);
   if (error) throw error;
   return { data: 'ok' };
 }
@@ -112,29 +131,16 @@ export const getAllProfiles = async () => {
 }
 
 export const updateProfileCredits = async (id, credits) => {
-    const { error } = await supabase.from('profiles').update({ credits }).eq('id', id);
+    // Forza casting a numero intero
+    const val = parseInt(credits, 10);
+    const { error } = await supabase.from('profiles').update({ credits: val }).eq('id', id);
     if (error) throw error;
     return { data: 'ok' };
 }
 
-export const toggleOperatorStatus = async (id, isActive) => {
-    // Nota: Aggiungi colonna 'is_active' su DB se non esiste, o usa un campo note.
-    // Qui assumiamo che il ban sia gestito tramite un flag o ruolo. 
-    // Per ora simuliamo aggiornando un campo metadata se non esiste la colonna dedicata.
-    // Se la colonna 'status' esiste nei profili:
-    // const { error } = await supabase.from('profiles').update({ status: isActive ? 'active' : 'banned' }).eq('id', id);
-    return { data: 'ok' }; 
-}
+export const toggleOperatorStatus = async (id, isActive) => { return { data: 'ok' }; }
 
-export const createOperatorProfile = async (email, name, initialCredits) => {
-    // Crea un profilo "placeholder". L'utente reale si collegherà quando farà Signup con quella email.
-    // Generiamo un ID fittizio o usiamo l'email come riferimento se il DB lo permette, 
-    // ma idealmente Supabase crea il profilo al signup.
-    // Qui inseriamo un record in 'profiles' sperando che l'Auth lo agganci dopo (dipende dai trigger DB).
-    // Metodo alternativo client-side: Non possiamo creare Auth User. 
-    // Ci limitiamo a tornare OK per simulazione o invitare via email.
-    return { data: 'User invited (Simulation)' };
-}
+export const createOperatorProfile = async (email, name, initialCredits) => { return { data: 'User invited (Simulation)' }; }
 
 // ============================================
 // REGIA & STATO
@@ -164,7 +170,6 @@ export const setEventModule = async (moduleId, specificContentId = null) => {
 
 export const getQuizCatalog = async () => {
   const { data, error } = await supabase.from('quiz_catalog').select('*').order('category');
-  if (error && error.code !== '42P01') console.error("Errore catalogo", error); 
   return { data: data || [] };
 };
 
@@ -184,12 +189,10 @@ export const requestSong = async (data) => {
 
 export const getSongQueue = async () => {
   const participant = getParticipantFromToken()
-  // FIX: Il pubblico vede SOLO 'queued' (Approvate).
-  // Non deve vedere 'pending' (in attesa) e ASSOLUTAMENTE NON 'ended' o 'performing'.
   const { data, error } = await supabase.from('song_requests')
     .select('*, participants (nickname)')
     .eq('event_id', participant.event_id)
-    .eq('status', 'queued') 
+    .eq('status', 'queued') // SOLO APPROVATE
     .order('position', { ascending: true })
   
   if (error) throw error
@@ -204,8 +207,7 @@ export const getMyRequests = async () => {
 
 export const getAdminQueue = async () => {
   const event = await getAdminEvent()
-  // Admin vede Pending (da approvare) e Queued (in scaletta).
-  // Esclude Performing (che è Live) e Ended (finite).
+  // Admin vede Pending e Queued. performing e ended NON devono esserci qui.
   const { data, error } = await supabase.from('song_requests')
     .select('*, participants (nickname)')
     .eq('event_id', event.id)
@@ -233,7 +235,7 @@ export const rejectRequest = async (requestId) => {
 export const startPerformance = async (requestId, youtubeUrl) => {
   const { data: request } = await supabase.from('song_requests').select('*, participants(nickname)').eq('id', requestId).single()
   
-  // Chiudi eventuali performance vecchie rimaste appese
+  // Chiude eventuali performance attive
   await supabase.from('performances').update({ status: 'ended' }).eq('event_id', request.event_id).neq('status', 'ended');
 
   const { data: performance, error } = await supabase.from('performances').insert({
@@ -244,7 +246,7 @@ export const startPerformance = async (requestId, youtubeUrl) => {
   
   if (error) throw error
   
-  // Imposta status 'performing'. Sparisce dalla coda Admin e Public.
+  // Aggiorna richiesta a performing
   await supabase.from('song_requests').update({ status: 'performing' }).eq('id', requestId)
   await supabase.from('events').update({ active_module: 'karaoke' }).eq('id', request.event_id);
   
@@ -252,31 +254,44 @@ export const startPerformance = async (requestId, youtubeUrl) => {
 }
 
 export const endPerformance = async (performanceId) => {
-  const { data, error } = await supabase.from('performances').update({ status: 'voting', ended_at: new Date().toISOString() }).eq('id', performanceId).select();
+  // 1. Passa a stato Voting (gli utenti votano)
+  const { data, error } = await supabase.from('performances').update({ status: 'voting', ended_at: new Date().toISOString() }).eq('id', performanceId).select().single();
   if (error) throw error; 
-  
-  // IMPORTANTE: Segna la richiesta come 'ended' per non farla tornare in coda.
-  const { data: perf } = await supabase.from('performances').select('song_request_id').eq('id', performanceId).single();
-  if (perf?.song_request_id) {
-     await supabase.from('song_requests').update({ status: 'ended' }).eq('id', perf.song_request_id);
+
+  // 2. IMPORTANTE: Rimuovi dalla coda (song_request -> ended)
+  if (data?.song_request_id) {
+     await supabase.from('song_requests').update({ status: 'ended' }).eq('id', data.song_request_id);
   }
 
   return { data }
 }
 
 export const closeVoting = async (performanceId) => {
-  const { data, error } = await supabase.from('performances').update({ status: 'ended' }).eq('id', performanceId).select()
-  if (error) throw error; return { data }
+  // 1. Ottieni la performance per calcolare il voto finale
+  const { data: perf } = await supabase.from('performances').select('*, participants(score)').eq('id', performanceId).single();
+  
+  // 2. Chiudi la performance
+  const { data, error } = await supabase.from('performances').update({ status: 'ended' }).eq('id', performanceId).select();
+  if (error) throw error;
+  
+  // 3. AGGIORNA CLASSIFICA PARTECIPANTE
+  // Aggiunge la media voto allo score totale dell'utente
+  if (perf && perf.participant_id && perf.average_score > 0) {
+      const currentScore = perf.participants?.score || 0;
+      const newScore = currentScore + perf.average_score;
+      
+      await supabase.from('participants').update({ score: newScore }).eq('id', perf.participant_id);
+  }
+
+  return { data }
 }
 
 export const stopAndNext = async (performanceId) => {
-    // 1. Marca la richiesta originale come 'ended'
+    // Chiude senza voto
     const { data: perf } = await supabase.from('performances').select('song_request_id').eq('id', performanceId).single();
     if (perf?.song_request_id) {
         await supabase.from('song_requests').update({ status: 'ended' }).eq('id', perf.song_request_id);
     }
-
-    // 2. Chiudi la performance
     const { data, error } = await supabase.from('performances').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', performanceId).select()
     if (error) throw error; 
     return { data };
@@ -311,14 +326,28 @@ export const toggleMute = async (isMuted) => {
 
 export const getCurrentPerformance = async () => {
   const participant = getParticipantFromToken()
-  const { data, error } = await supabase.from('performances').select('*, participants (nickname)').eq('event_id', participant.event_id).in('status', ['live', 'voting', 'paused']).order('started_at', { ascending: false }).limit(1).maybeSingle()
+  const { data, error } = await supabase.from('performances')
+    .select('*, participants (nickname)')
+    .eq('event_id', participant.event_id)
+    .in('status', ['live', 'voting', 'paused', 'restarted']) // ESCLUDE 'ended'
+    .order('started_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  
   if (error) throw error
   return { data: data ? { ...data, user_nickname: data.participants?.nickname || 'Unknown' } : null }
 }
 
 export const getAdminCurrentPerformance = async () => {
   const event = await getAdminEvent()
-  const { data, error } = await supabase.from('performances').select('*, participants (nickname)').eq('event_id', event.id).in('status', ['live', 'voting', 'paused']).order('started_at', { ascending: false }).limit(1).maybeSingle()
+  const { data, error } = await supabase.from('performances')
+    .select('*, participants (nickname)')
+    .eq('event_id', event.id)
+    .in('status', ['live', 'voting', 'paused', 'restarted']) // ESCLUDE 'ended'
+    .order('started_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  
   if (error) throw error
   return { data: data ? { ...data, user_nickname: data.participants?.nickname || 'Unknown' } : null }
 }
@@ -329,31 +358,18 @@ export const getAdminCurrentPerformance = async () => {
 
 export const submitVote = async (data) => {
   const participant = getParticipantFromToken();
-  
-  // 1. Inserisci Voto
   const { data: vote, error } = await supabase.from('votes').insert({
       performance_id: data.performance_id, participant_id: participant.participant_id, score: data.score
     }).select().single();
   
-  if (error) { 
-      if (error.code === '23505') throw new Error('Hai già votato'); 
-      throw error; 
-  }
+  if (error) { if (error.code === '23505') throw new Error('Hai già votato'); throw error; }
   
-  // 2. AGGIORNAMENTO FORZATO DELLA PERFORMANCE
-  // Ricalcola la media e aggiorna la riga della performance.
-  // Questo scatena l'evento Realtime 'UPDATE' che il Display ascolta.
+  // Aggiorna media performance
   const { data: allVotes } = await supabase.from('votes').select('score').eq('performance_id', data.performance_id);
-  
   if (allVotes && allVotes.length > 0) {
       const total = allVotes.reduce((acc, v) => acc + v.score, 0);
       const avg = total / allVotes.length;
-      
-      const { error: perfError } = await supabase.from('performances')
-        .update({ average_score: avg })
-        .eq('id', data.performance_id);
-      
-      if(perfError) console.error("Errore aggiornamento media voto:", perfError);
+      await supabase.from('performances').update({ average_score: avg }).eq('id', data.performance_id);
   }
   return { data: vote };
 }
@@ -368,6 +384,7 @@ export const sendReaction = async (data) => {
 }
 
 export const sendMessage = async (data) => {
+  // Logic identica a prima...
   let participantId = null;
   let eventId = null;
   let status = data.status || 'pending';
@@ -411,6 +428,7 @@ export const rejectMessage = async (id) => {
 // ============================================
 // QUIZ & DISPLAY DATA
 // ============================================
+// (Sezioni Quiz identiche, tranne answerQuiz per punteggio score)
 
 export const startQuiz = async (data) => {
   const event = await getAdminEvent()
@@ -456,13 +474,18 @@ export const answerQuiz = async (data) => {
   if (quizError) throw quizError;
   const isCorrect = quiz.correct_index === data.answer_index;
   const pointsEarned = isCorrect ? quiz.points : 0;
+  
   const { data: ans, error } = await supabase.from('quiz_answers').insert({
     quiz_id: data.quiz_id, participant_id: participant.participant_id, answer_index: data.answer_index, is_correct: isCorrect
   }).select().single()
   if (error) { if (error.code==='23505') throw new Error('Già risposto'); throw error; }
+  
+  // AGGIORNA CLASSIFICA (SCORE)
   if (isCorrect) {
       const { data: p } = await supabase.from('participants').select('score').eq('id', participant.participant_id).single();
-      if (p) await supabase.from('participants').update({ score: p.score + pointsEarned }).eq('id', participant.participant_id);
+      if (p) {
+          await supabase.from('participants').update({ score: (p.score || 0) + pointsEarned }).eq('id', participant.participant_id);
+      }
   }
   return { data: { ...ans, points_earned: pointsEarned } }
 }
@@ -496,7 +519,6 @@ export const getQuizLeaderboard = async () => { return getAdminLeaderboard(); }
 export const getDisplayData = async (pubCode) => {
   const { data: event } = await supabase.from('events').select('*').eq('code', pubCode.toUpperCase()).single()
   
-  // FIX: Queue pubblica mostra solo 'queued'.
   const [perf, queue, lb, activeQuiz, msg] = await Promise.all([
     supabase.from('performances').select('*, participants(nickname)').eq('event_id', event.id).in('status', ['live','voting','paused','restarted']).maybeSingle(),
     supabase.from('song_requests').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'queued').limit(10), 
