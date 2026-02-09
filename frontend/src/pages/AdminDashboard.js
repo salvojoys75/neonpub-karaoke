@@ -266,7 +266,7 @@ export default function AdminDashboard() {
       try {
         if(action==='pause') await api.pausePerformance(currentPerformance.id);
         if(action==='resume') await api.resumePerformance(currentPerformance.id);
-        if(action==='restart') await api.restartPerformance(currentPerformance.id); // Questo ora funziona grazie al fix in api.js
+        if(action==='restart') await api.restartPerformance(currentPerformance.id);
         if(action==='end_vote') await api.endPerformance(currentPerformance.id);
         if(action==='skip_next') { if(window.confirm("Chiudere senza voto?")) { await api.stopAndNext(currentPerformance.id); toast.info("Chiuso senza voto"); } }
         if(action==='close_vote') { await api.closeVoting(currentPerformance.id); toast.success("Votazione conclusa!"); }
@@ -287,7 +287,7 @@ export default function AdminDashboard() {
 
   const handleSendMessage = async () => {
       if(!adminMessage) return;
-      await api.sendMessage({ text: adminMessage }); // Api ora approva automaticamente se è Regia
+      await api.sendMessage({ text: adminMessage });
       setShowMessageModal(false); 
       setAdminMessage("");
       toast.success("Messaggio Inviato");
@@ -313,6 +313,19 @@ export default function AdminDashboard() {
           await api.setEventModule('quiz', item.id);
           toast.success("Quiz Lanciato!");
           loadData();
+      }
+  };
+
+  // Funzione eliminazione quiz (soft delete)
+  const handleDeleteQuestion = async (e, item) => {
+      e.stopPropagation();
+      if(!confirm(`Sei sicuro di voler eliminare dal catalogo: "${item.question}"?`)) return;
+      try {
+          await api.deleteQuizQuestion(item.id);
+          toast.success("Domanda rimossa dal catalogo.");
+          loadData();
+      } catch(err) {
+          toast.error("Errore eliminazione: " + err.message);
       }
   };
 
@@ -504,18 +517,6 @@ export default function AdminDashboard() {
                                         <div className="font-bold text-lg leading-tight text-white mb-2">
                                             {activeQuizData?.question || "Caricamento..."}
                                         </div>
-                                        
-                                        {activeQuizData?.media_url && (
-                                            <div className="bg-black/50 p-2 rounded mb-2 border border-white/10">
-                                                <div className="text-[10px] text-zinc-400 mb-1">Preview Media (Regia)</div>
-                                                {activeQuizData.media_type === 'video' ? (
-                                                    <iframe src={activeQuizData.media_url.replace("watch?v=", "embed/")} className="w-full h-24 rounded" allowFullScreen title="preview"/>
-                                                ) : (
-                                                    <audio controls src={activeQuizData.media_url} className="w-full h-8"/>
-                                                )}
-                                                <div className="text-[10px] text-fuchsia-400 mt-1 truncate">{activeQuizData.media_url}</div>
-                                            </div>
-                                        )}
                                     </div>
 
                                     <div className="grid grid-cols-1 gap-2">
@@ -580,14 +581,22 @@ export default function AdminDashboard() {
                                                 className="group relative bg-zinc-800 hover:bg-zinc-700 border border-transparent hover:border-yellow-500 rounded p-3 cursor-pointer transition-all"
                                                 onClick={() => launchCatalogQuiz(item)}>
                                                 
-                                                <div className="absolute top-2 right-2 flex gap-1">
+                                                <div className="absolute top-2 right-2 flex gap-1 z-10">
                                                     {item.media_type === 'audio' && <span className="bg-yellow-500/20 text-yellow-500 p-1 rounded"><Music2 className="w-3 h-3"/></span>}
                                                     {item.media_type === 'video' && <span className="bg-blue-500/20 text-blue-500 p-1 rounded"><Film className="w-3 h-3"/></span>}
+                                                    
+                                                    {/* TASTO CESTINO (NUOVO) */}
+                                                    <Button 
+                                                        size="icon" 
+                                                        variant="ghost" 
+                                                        className="h-6 w-6 bg-red-900/50 hover:bg-red-600 text-white rounded-full ml-1"
+                                                        onClick={(e) => handleDeleteQuestion(e, item)}
+                                                    >
+                                                        <Trash2 className="w-3 h-3" />
+                                                    </Button>
                                                 </div>
 
                                                 <div className="text-[10px] font-bold text-fuchsia-500 uppercase tracking-wider mb-1 flex items-center gap-1">
-                                                    {item.category.includes('Intro') && <Music2 className="w-3 h-3"/>}
-                                                    {item.category.includes('Lyrics') && <Mic2 className="w-3 h-3"/>}
                                                     {item.category}
                                                 </div>
                                                 <div className="text-sm font-medium text-white pr-6 line-clamp-2">
@@ -596,12 +605,6 @@ export default function AdminDashboard() {
                                                 <div className="text-[10px] text-zinc-500 mt-2 flex gap-2">
                                                     <span>Risp: <b>{item.options[item.correct_index]}</b></span>
                                                     <span>• {item.points} Punti</span>
-                                                </div>
-                                                
-                                                <div className="absolute inset-0 bg-fuchsia-600/90 hidden group-hover:flex items-center justify-center rounded transition-opacity opacity-0 group-hover:opacity-100">
-                                                    <span className="text-white font-bold flex items-center">
-                                                        <MonitorPlay className="w-4 h-4 mr-2"/> LANCIA ORA
-                                                    </span>
                                                 </div>
                                             </div>
                                         ))

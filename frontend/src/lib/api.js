@@ -175,8 +175,14 @@ export const setEventModule = async (moduleId, specificContentId = null) => {
   }
 };
 
+// MODIFICATO: Filtra solo le domande is_active=true
 export const getQuizCatalog = async () => {
-  const { data: catalog, error } = await supabase.from('quiz_catalog').select('*').order('category');
+  const { data: catalog, error } = await supabase
+    .from('quiz_catalog')
+    .select('*')
+    .eq('is_active', true) 
+    .order('category');
+
   if (error) throw error;
 
   try {
@@ -202,6 +208,17 @@ export const getQuizCatalog = async () => {
   return { data: catalog || [] };
 };
 
+// NUOVO: Funzione per bannare (soft delete) una domanda
+export const deleteQuizQuestion = async (catalogId) => {
+    const { error } = await supabase
+        .from('quiz_catalog')
+        .update({ is_active: false })
+        .eq('id', catalogId);
+        
+    if (error) throw error;
+    return { data: 'ok' };
+}
+
 export const getChallengeCatalog = async () => {
   const { data, error } = await supabase.from('challenge_catalog').select('*');
   return { data: data || [] };
@@ -222,7 +239,8 @@ export const importQuizCatalog = async (jsonString) => {
                  correct_index: item.correct_index ?? 0,
                  points: item.points || 10,
                  media_url: item.media_url || null,
-                 media_type: item.media_type || 'text'
+                 media_type: item.media_type || 'text',
+                 is_active: true
              };
         });
 
@@ -354,7 +372,6 @@ export const resumePerformance = async (performanceId) => {
 }
 
 export const restartPerformance = async (performanceId) => {
-  // MODIFICATO: Non cambia lo stato in 'restarted' (illegale), ma aggiorna started_at per forzare il seek
   const { data, error } = await supabase.from('performances')
       .update({ status: 'live', started_at: new Date().toISOString() })
       .eq('id', performanceId).select();
@@ -611,5 +628,6 @@ export default {
   startQuiz, endQuiz, answerQuiz, getActiveQuiz, closeQuizVoting, showQuizResults, showQuizLeaderboard,
   getQuizResults, getAdminLeaderboard,
   getLeaderboard, getDisplayData,
-  recoverActiveEvent
+  recoverActiveEvent,
+  deleteQuizQuestion
 }
