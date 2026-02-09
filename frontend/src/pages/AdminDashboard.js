@@ -24,10 +24,12 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const { isAuthenticated, logout } = useAuth();
   
+  // --- STATI GLOBALI ---
   const [appState, setAppState] = useState("loading");
   const [profile, setProfile] = useState(null);
   const [pubCode, setPubCode] = useState(localStorage.getItem("neonpub_pub_code"));
   
+  // --- STATI DASHBOARD ---
   const [eventState, setEventState] = useState({ active_module: 'karaoke', active_module_id: null });
   const [queue, setQueue] = useState([]);
   const [currentPerformance, setCurrentPerformance] = useState(null);
@@ -35,45 +37,58 @@ export default function AdminDashboard() {
   const [isMuted, setIsMuted] = useState(false);
   
   const [libraryTab, setLibraryTab] = useState("karaoke"); 
+
+  // --- STATI CATALOGHI ---
   const [quizCatalog, setQuizCatalog] = useState([]);
-  const [quizCategoryFilter, setQuizCategoryFilter] = useState("all");
+  const [quizCategoryFilter, setQuizCategoryFilter] = useState("all"); // Nuovo filtro
   const [challenges, setChallenges] = useState([]);
 
+  // --- STATI SUPER ADMIN ---
   const [userList, setUserList] = useState([]);
   const [showCreateUserModal, setShowCreateUserModal] = useState(false);
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserName, setNewUserName] = useState("");
 
+  // --- IMPOSTAZIONI EVENTO ---
   const [venueName, setVenueName] = useState("");
   const [venueLogo, setVenueLogo] = useState("");
   const [uploadingLogo, setUploadingLogo] = useState(false);
 
+  // --- STATI QUIZ & MODALI ---
   const [activeQuizId, setActiveQuizId] = useState(null);
-  const [activeQuizData, setActiveQuizData] = useState(null);
+  const [activeQuizData, setActiveQuizData] = useState(null); // Nuovo: dati completi quiz attivo
   const [quizStatus, setQuizStatus] = useState(null); 
   const [quizResults, setQuizResults] = useState(null); 
   
   const [showYoutubeModal, setShowYoutubeModal] = useState(false);
   const [showCustomQuizModal, setShowCustomQuizModal] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
+  
   const [showImportModal, setShowImportModal] = useState(false);
   const [importText, setImportText] = useState("");
 
+  // --- YOUTUBE VARS ---
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [youtubeSearchQuery, setYoutubeSearchQuery] = useState("");
   const [youtubeSearchResults, setYoutubeSearchResults] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [searchingYoutube, setSearchingYoutube] = useState(false);
 
+  // --- CUSTOM QUIZ VARS ---
   const [quizQuestion, setQuizQuestion] = useState("");
   const [quizOptions, setQuizOptions] = useState(["", "", "", ""]);
   const [quizCorrectIndex, setQuizCorrectIndex] = useState(0);
 
+  // --- MESSAGGI VARS ---
   const [adminMessage, setAdminMessage] = useState("");
+
+  // --- SETUP ---
   const [newEventName, setNewEventName] = useState("");
   const [creatingEvent, setCreatingEvent] = useState(false);
+
   const pollIntervalRef = useRef(null);
 
+  // 1. INIT
   useEffect(() => { checkUserProfile(); }, [isAuthenticated]);
 
   const checkUserProfile = async () => {
@@ -82,19 +97,35 @@ export default function AdminDashboard() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       let { data: userProfile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-      if (!userProfile && user.email === 'admin@neonpub.com') userProfile = { id: user.id, email: user.email, role: 'super_admin', credits: 9999 };
-      if (!userProfile) userProfile = (await supabase.from('profiles').insert([{ id: user.id, email: user.email, role: 'operator', credits: 0 }]).select().single()).data;
+      
+      if (user.email === 'admin@neonpub.com' && (!userProfile || userProfile.role !== 'super_admin')) {
+          const { error } = await supabase.from('profiles').upsert({ id: user.id, email: user.email, role: 'super_admin', credits: 9999 });
+          if(!error) userProfile = { id: user.id, email: user.email, role: 'super_admin', credits: 9999 };
+      }
+      if (!userProfile) {
+         const { data: newProfile } = await supabase.from('profiles').insert([{ id: user.id, email: user.email, role: 'operator', credits: 0 }]).select().single();
+         userProfile = newProfile;
+      }
       setProfile(userProfile);
       
       if (userProfile.role === 'super_admin') { 
-          setAppState("super_admin"); loadSuperAdminData(); 
+          setAppState("super_admin"); 
+          loadSuperAdminData(); 
       } else {
         const storedCode = localStorage.getItem("neonpub_pub_code");
-        if (storedCode) { setPubCode(storedCode); setAppState("dashboard"); } 
-        else {
+        if (storedCode) { 
+            setPubCode(storedCode); 
+            setAppState("dashboard"); 
+        } else {
             const activeEvent = await api.recoverActiveEvent();
-            if (activeEvent) { localStorage.setItem("neonpub_pub_code", activeEvent.code); setPubCode(activeEvent.code); setAppState("dashboard"); toast.success("Evento ripristinato"); } 
-            else { setAppState("setup"); }
+            if (activeEvent) {
+                localStorage.setItem("neonpub_pub_code", activeEvent.code);
+                setPubCode(activeEvent.code);
+                setAppState("dashboard");
+                toast.success("Evento ripristinato (Nessun credito scalato)");
+            } else {
+                setAppState("setup"); 
+            }
         }
       }
     } catch (error) { console.error(error); }
@@ -102,14 +133,17 @@ export default function AdminDashboard() {
 
   const handleLogout = () => { localStorage.removeItem("neonpub_pub_code"); logout(); navigate("/"); };
 
+  // 2. SETUP & LOAD DATA
   const handleStartEvent = async (e) => {
     e.preventDefault();
-    if (!newEventName) return toast.error("Inserisci nome");
+    if (!newEventName) return toast.error("Inserisci nome evento");
     setCreatingEvent(true);
     try {
-        const { data } = await createPub({ name: newEventName });
-        localStorage.setItem("neonpub_pub_code", data.code); setPubCode(data.code); setAppState("dashboard");
-        toast.success("Evento Iniziato!");
+        const { data: pubData } = await createPub({ name: newEventName });
+        localStorage.setItem("neonpub_pub_code", pubData.code);
+        setPubCode(pubData.code);
+        setAppState("dashboard");
+        toast.success("Evento Iniziato! (-1 Credito)");
     } catch (error) { toast.error(error.message); } finally { setCreatingEvent(false); }
   };
 
@@ -120,53 +154,112 @@ export default function AdminDashboard() {
       if(stateData) setEventState(stateData);
 
       const [qRes, perfRes, msgRes, activeQuizRes, pubRes, quizCatRes, challRes] = await Promise.all([
-        api.getAdminQueue(), api.getAdminCurrentPerformance(), api.getAdminPendingMessages(), api.getActiveQuiz(),
-        api.getPub(pubCode), api.getQuizCatalog(), api.getChallengeCatalog()
+        api.getAdminQueue(),
+        api.getAdminCurrentPerformance(),
+        api.getAdminPendingMessages(),
+        api.getActiveQuiz(),
+        api.getPub(pubCode),
+        api.getQuizCatalog(),
+        api.getChallengeCatalog()
       ]);
 
-      setQueue(qRes.data || []); setCurrentPerformance(perfRes.data); setPendingMessages(msgRes.data || []);
-      setQuizCatalog(quizCatRes.data || []); setChallenges(challRes.data || []);
+      setQueue(qRes.data || []);
+      setCurrentPerformance(perfRes.data);
+      setPendingMessages(msgRes.data || []);
+      setQuizCatalog(quizCatRes.data || []);
+      setChallenges(challRes.data || []);
+
       if(pubRes.data && !venueName) { setVenueName(pubRes.data.name); setVenueLogo(pubRes.data.logo_url || ""); }
       
       if(activeQuizRes.data) {
-         setActiveQuizId(activeQuizRes.data.id); setActiveQuizData(activeQuizRes.data); setQuizStatus(activeQuizRes.data.status);
+         setActiveQuizId(activeQuizRes.data.id);
+         setActiveQuizData(activeQuizRes.data); // Salva tutto l'oggetto quiz per media_url
+         setQuizStatus(activeQuizRes.data.status);
          if(activeQuizRes.data.status === 'showing_results' || activeQuizRes.data.status === 'leaderboard') {
-             const res = await api.getQuizResults(activeQuizRes.data.id); setQuizResults(res.data);
+             const resData = await api.getQuizResults(activeQuizRes.data.id);
+             setQuizResults(resData.data);
          }
-      } else { setActiveQuizId(null); setActiveQuizData(null); setQuizStatus(null); setQuizResults(null); }
+      } else {
+         setActiveQuizId(null); setActiveQuizData(null); setQuizStatus(null); setQuizResults(null);
+      }
     } catch (error) { console.error(error); }
   }, [pubCode, appState, venueName]);
 
   useEffect(() => {
     if (appState === 'dashboard') {
-      loadData(); pollIntervalRef.current = setInterval(loadData, 3000);
+      loadData();
+      pollIntervalRef.current = setInterval(loadData, 3000);
       return () => clearInterval(pollIntervalRef.current);
     }
   }, [appState, loadData]);
 
+  // SUPER ADMIN FUNCTIONS
   const loadSuperAdminData = async () => { const { data } = await api.getAllProfiles(); setUserList(data || []); };
-  const addCredits = async (userId, amount) => { await api.updateProfileCredits(userId, (userList.find(u=>u.id===userId)?.credits||0)+amount); loadSuperAdminData(); };
-  const handleCreateOperator = async () => { await api.createOperatorProfile(); setShowCreateUserModal(false); toast.success("Fatto"); };
-
-  const handleOpenDisplay = () => window.open(`/display/${pubCode}`, 'NeonPubDisplay', `popup=yes,width=1280,height=720`);
-  const handleToggleMute = async () => { setIsMuted(!isMuted); await api.toggleMute(!isMuted); };
-  const handleLogoUpload = async (e) => {
-      const file = e.target.files[0]; if (!file) return; setUploadingLogo(true);
-      try { const url = await api.uploadLogo(file); setVenueLogo(url); toast.success("Logo OK"); } catch { toast.error("Errore logo"); } finally { setUploadingLogo(false); }
+  const addCredits = async (userId, amount) => {
+      const user = userList.find(u => u.id === userId);
+      if(!user) return;
+      const current = user.credits || 0;
+      await api.updateProfileCredits(userId, current + amount);
+      toast.success("Crediti aggiornati"); loadSuperAdminData();
   };
-  const handleSaveSettings = async () => { await updateEventSettings({ name: venueName, logo_url: venueLogo }); toast.success("Salvataggio OK"); };
+  const handleCreateOperator = async () => {
+      if(!newUserEmail) return toast.error("Inserisci email");
+      await api.createOperatorProfile(newUserEmail, newUserName, 0);
+      setShowCreateUserModal(false); toast.success("Invito inviato."); loadSuperAdminData();
+  };
+
+  // --- ACTIONS ---
+  const handleOpenDisplay = () => {
+    const width = 1280; const height = 720;
+    const left = (window.screen.width - width) / 2; const top = (window.screen.height - height) / 2;
+    window.open(`/display/${pubCode}`, 'NeonPubDisplay', `popup=yes,width=${width},height=${height},top=${top},left=${left},toolbar=no,menubar=no`);
+  };
+
+  const handleToggleMute = async () => {
+      const newState = !isMuted;
+      setIsMuted(newState); 
+      await api.toggleMute(newState);
+  };
+
+  const handleLogoUpload = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      setUploadingLogo(true);
+      try {
+          const url = await api.uploadLogo(file);
+          setVenueLogo(url);
+          toast.success("Logo caricato! Clicca Salva per confermare.");
+      } catch(err) {
+          toast.error("Errore caricamento logo.");
+          console.error(err);
+      } finally { setUploadingLogo(false); }
+  };
+
+  const handleSaveSettings = async () => {
+      try {
+          await updateEventSettings({ name: venueName, logo_url: venueLogo });
+          toast.success("Impostazioni salvate");
+      } catch (e) { toast.error("Errore salvataggio: " + e.message); }
+  };
 
   const searchYouTube = async (manualQuery = null) => {
-    const q = manualQuery || youtubeSearchQuery; if (!q.trim()) return; setSearchingYoutube(true);
+    const q = manualQuery || youtubeSearchQuery;
+    if (!q.trim()) return;
+    setSearchingYoutube(true);
     try {
-      const res = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(q)}&type=video&maxResults=5&key=${process.env.REACT_APP_YOUTUBE_API_KEY}`);
-      const data = await res.json(); setYoutubeSearchResults(data.items || []);
-    } catch { toast.error("Errore YT"); } finally { setSearchingYoutube(false); }
+      const apiKey = process.env.REACT_APP_YOUTUBE_API_KEY; 
+      const response = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(q)}&type=video&maxResults=5&key=${apiKey}`);
+      const data = await response.json();
+      setYoutubeSearchResults(data.items || []);
+    } catch (error) { toast.error("Errore ricerca YT."); } finally { setSearchingYoutube(false); }
   };
 
   const startPerformance = async () => {
     if (!selectedRequest || !youtubeUrl) return toast.error("Manca URL");
-    try { const { data } = await api.startPerformance(selectedRequest.id, youtubeUrl); setCurrentPerformance(data); setShowYoutubeModal(false); toast.success("Karaoke OK"); loadData(); } catch(e) { toast.error(e.message); }
+    try {
+        const { data: newPerf } = await api.startPerformance(selectedRequest.id, youtubeUrl);
+        setCurrentPerformance(newPerf); setShowYoutubeModal(false); toast.success("Karaoke Avviato!"); loadData();
+    } catch(e) { toast.error(e.message); }
   };
 
   const ctrlPerf = async (action) => {
@@ -176,106 +269,412 @@ export default function AdminDashboard() {
         if(action==='resume') await api.resumePerformance(currentPerformance.id);
         if(action==='restart') await api.restartPerformance(currentPerformance.id);
         if(action==='end_vote') await api.endPerformance(currentPerformance.id);
-        if(action==='skip_next') { if(window.confirm("Chiudere senza voto?")) await api.stopAndNext(currentPerformance.id); }
-        if(action==='close_vote') await api.closeVoting(currentPerformance.id);
+        if(action==='skip_next') { if(window.confirm("Chiudere senza voto?")) { await api.stopAndNext(currentPerformance.id); toast.info("Chiuso senza voto"); } }
+        if(action==='close_vote') { await api.closeVoting(currentPerformance.id); toast.success("Votazione conclusa!"); }
         loadData();
-      } catch(e) { toast.error("Errore comando"); }
+      } catch(e) { toast.error("Errore comando: " + e.message); }
   };
 
-  const deleteRequest = async (id) => { if(confirm("Eliminare?")) { await api.deleteRequest(id); loadData(); } };
+  const deleteRequest = async (id) => {
+      if(!confirm("Eliminare definitivamente dalla scaletta?")) return;
+      try { await api.deleteRequest(id); toast.success("Cancellato"); loadData(); } catch(e) { toast.error("Errore cancellazione"); }
+  };
 
-  const handleSendMessage = async () => { await api.sendMessage({ text: adminMessage }); setShowMessageModal(false); setAdminMessage(""); toast.success("Inviato"); };
+  const openManualVideoWindow = () => {
+      const urlToOpen = currentPerformance?.youtube_url || youtubeUrl;
+      if (urlToOpen) window.open(urlToOpen, '_blank');
+      else toast.error("Nessun video attivo");
+  };
+
+  const handleSendMessage = async () => {
+      if(!adminMessage) return;
+      await api.sendMessage({ text: adminMessage }); // Api ora gestisce l'auto-approval
+      setShowMessageModal(false); 
+      setAdminMessage("");
+      toast.success("Messaggio Inviato");
+  };
 
   const launchCustomQuiz = async () => {
-      try { await api.startQuiz({ category: "custom", question: quizQuestion, options: quizOptions, correct_index: quizCorrectIndex, points: 10 }); setShowCustomQuizModal(false); toast.success("Quiz OK"); loadData(); } catch(e) { toast.error("Errore"); }
+      try {
+          await api.startQuiz({
+              category: "custom", question: quizQuestion, options: quizOptions, correct_index: quizCorrectIndex, points: 10
+          });
+          setShowCustomQuizModal(false); toast.success("Quiz Custom Lanciato!"); loadData();
+      } catch(e) { toast.error("Errore quiz custom"); }
   };
 
   const launchCatalogQuiz = async (item) => {
-      if(window.confirm(`Lanciare: ${item.question}?`)) { await api.setEventModule('quiz', item.id); toast.success("Quiz Lanciato!"); loadData(); }
+      if(window.confirm(`Lanciare: ${item.question}?`)) {
+          await api.setEventModule('quiz', item.id);
+          toast.success("Quiz Lanciato!");
+          loadData();
+      }
   };
 
-  // --- FIXATO ---
   const ctrlQuiz = async (action) => {
       if(!activeQuizId) return;
       try {
           if(action==='close_vote') await api.closeQuizVoting(activeQuizId);
           if(action==='show_results') await api.showQuizResults(activeQuizId);
           if(action==='leaderboard') await api.showQuizLeaderboard(activeQuizId);
-          if(action==='end') { 
-              await api.restoreKaraokeMode(); // PULIZIA TOTALE
-              toast.info("Tornati al Karaoke"); 
-              setActiveQuizId(null); setQuizStatus(null);
-          }
+          if(action==='end') { await api.endQuiz(activeQuizId); await api.setEventModule('karaoke'); toast.info("Tornati al Karaoke"); }
           loadData();
       } catch(e) { toast.error("Errore comando quiz"); }
   };
 
   const handleImportScript = async () => {
-      try { const res = await api.importQuizCatalog(importText); toast.success(`${res.count} Quiz importati!`); setShowImportModal(false); setImportText(""); loadData(); } catch(e) { toast.error(e.message); }
+      if(!importText) return;
+      try {
+          const res = await api.importQuizCatalog(importText);
+          toast.success(`${res.count} Quiz importati con successo!`);
+          setShowImportModal(false);
+          setImportText("");
+          loadData();
+      } catch(e) {
+          toast.error(e.message);
+      }
   };
 
+  // --- FILTRO CATALOGO PER CATEGORIA ---
   const filteredCatalog = quizCatalog.filter(item => {
       if (quizCategoryFilter === 'all') return true;
+      // Normalizziamo le categorie per il filtro
       const cat = item.category.toLowerCase();
       if (quizCategoryFilter === 'intro' && (cat.includes('intro') || item.media_type === 'audio')) return true;
       if (quizCategoryFilter === 'video' && (cat.includes('cinema') || cat.includes('video') || item.media_type === 'video')) return true;
       if (quizCategoryFilter === 'lyrics' && (cat.includes('testo') || cat.includes('lyrics'))) return true;
+      if (quizCategoryFilter === 'general' && !cat.includes('intro') && !cat.includes('video') && !cat.includes('lyrics')) return true;
       return false;
   });
 
+  // --- RENDER ---
   if (appState === 'loading') return <div className="bg-black h-screen text-white flex items-center justify-center">Caricamento...</div>;
-  if (appState === 'super_admin') return <div className="h-screen bg-zinc-950 text-white p-8"><h1>SUPER ADMIN</h1><div className="grid gap-4">{userList.map(u=><div key={u.id}>{u.email}: {u.credits} <button onClick={()=>addCredits(u.id,10)}>+10</button></div>)}</div></div>;
-  if (appState === 'setup') return <div className="h-screen bg-zinc-950 flex items-center justify-center"><Card className="w-96 bg-zinc-900 text-white"><CardContent className="pt-6"><Input placeholder="Nome Evento" value={newEventName} onChange={e=>setNewEventName(e.target.value)} /><Button onClick={handleStartEvent} className="w-full mt-4 bg-fuchsia-600">START</Button></CardContent></Card></div>;
+
+  if (appState === 'super_admin') {
+      return (
+        <div className="h-screen bg-zinc-950 text-white flex flex-col p-8 overflow-auto">
+            <header className="flex justify-between items-center mb-8 border-b border-zinc-800 pb-4">
+                <h1 className="text-3xl font-bold text-fuchsia-500">SUPER ADMIN DASHBOARD</h1>
+                <Button variant="ghost" onClick={handleLogout}><LogOut className="w-4 h-4 mr-2"/> Esci</Button>
+            </header>
+            <div className="mb-6"><Button onClick={()=>setShowCreateUserModal(true)} className="bg-green-600"><UserPlus className="w-4 h-4 mr-2"/> Nuovo Operatore</Button></div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {userList.map(user => (
+                    <Card key={user.id} className="bg-zinc-900 border-zinc-800">
+                        <CardHeader><CardTitle className="text-white text-sm">{user.email} <span className="text-xs text-zinc-400">({user.role})</span></CardTitle></CardHeader>
+                        <CardContent>
+                            <div className="flex justify-between items-center mb-4"><span className="text-zinc-500">Crediti:</span><span className="text-2xl font-bold text-yellow-500">{user.credits || 0}</span></div>
+                            <div className="flex gap-2"><Button size="sm" onClick={()=>addCredits(user.id, 1)} className="flex-1 bg-zinc-800">+1</Button><Button size="sm" onClick={()=>addCredits(user.id, 10)} className="flex-1 bg-yellow-600 text-black">+10</Button></div>
+                        </CardContent>
+                    </Card>
+                ))}
+            </div>
+            <Dialog open={showCreateUserModal} onOpenChange={setShowCreateUserModal}>
+                <DialogContent className="bg-zinc-900 border-zinc-800">
+                    <DialogHeader><DialogTitle>Invita Operatore</DialogTitle></DialogHeader>
+                    <div className="space-y-4 pt-4">
+                        <Input placeholder="Email" value={newUserEmail} onChange={e=>setNewUserEmail(e.target.value)} className="bg-zinc-800"/>
+                        <Button className="w-full bg-green-600" onClick={handleCreateOperator}>Invita</Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+        </div>
+      );
+  }
+
+  if (appState === 'setup') {
+      return (
+        <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center p-4">
+            <Card className="w-full max-w-md bg-zinc-900 border-zinc-800">
+                <CardHeader><CardTitle className="text-center text-white">Nuovo Evento</CardTitle><div className="text-center text-yellow-500 text-sm">Crediti: {profile?.credits || 0}</div></CardHeader>
+                <CardContent className="space-y-4">
+                    <Input placeholder="Nome Evento" value={newEventName} onChange={e=>setNewEventName(e.target.value)} className="bg-zinc-950 text-center" />
+                    <Button onClick={handleStartEvent} disabled={creatingEvent} className="w-full bg-fuchsia-600 h-12">LANCIA EVENTO (1 Credit)</Button>
+                    <Button variant="ghost" onClick={handleLogout} className="w-full text-zinc-500">Esci</Button>
+                </CardContent>
+            </Card>
+        </div>
+      );
+  }
 
   const pendingReqs = queue.filter(r => r.status === 'pending');
   const queuedReqs = queue.filter(r => r.status === 'queued');
 
   return (
     <div className="h-screen bg-[#050505] text-white flex flex-col overflow-hidden">
-      <header className="h-14 border-b border-white/10 flex items-center justify-between px-4 bg-zinc-900"><div className="flex gap-4"><h1 className="font-bold text-fuchsia-400">NEONPUB OS</h1><span className="bg-zinc-800 px-2 rounded text-zinc-400">{pubCode}</span></div><div className="flex gap-4"><span className="text-yellow-500 flex gap-2"><Gem className="w-4 h-4"/>{profile?.credits||0}</span><Button size="sm" onClick={handleOpenDisplay} variant="outline">DISPLAY</Button><Button size="sm" variant="ghost" onClick={handleLogout}><LogOut/></Button></div></header>
+      
+      <header className="h-14 border-b border-white/10 flex items-center justify-between px-4 bg-zinc-900">
+         <div className="flex items-center gap-4">
+            <h1 className="font-bold text-lg text-fuchsia-400">NEONPUB OS</h1>
+            <span className="text-xs px-2 py-1 bg-zinc-800 rounded font-mono text-zinc-400">{pubCode}</span>
+         </div>
+         <div className="flex items-center gap-4">
+             <div className="text-yellow-500 font-bold text-sm flex gap-2"><Gem className="w-4 h-4"/>{profile?.credits || 0}</div>
+             <Button variant="outline" size="sm" onClick={handleOpenDisplay} className="bg-cyan-900/20 text-cyan-400 border-cyan-800"><Tv className="w-4 h-4 mr-2" /> DISPLAY</Button>
+             <Button variant="ghost" size="sm" onClick={() => { if(confirm("Chiudere sessione? (L'evento resta attivo)")) { localStorage.removeItem("neonpub_pub_code"); setPubCode(null); setAppState("setup"); } }}><LogOut className="w-4 h-4" /></Button>
+         </div>
+      </header>
 
       <div className="flex-1 grid grid-cols-12 gap-0 overflow-hidden">
          <aside className="col-span-4 border-r border-white/10 bg-zinc-900/50 flex flex-col">
-            <div className="p-2 border-b border-white/5"><Tabs value={libraryTab} onValueChange={setLibraryTab} className="w-full"><TabsList className="grid w-full grid-cols-5 bg-zinc-950 p-1"><TabsTrigger value="karaoke"><ListMusic/></TabsTrigger><TabsTrigger value="quiz"><BrainCircuit/></TabsTrigger><TabsTrigger value="challenges"><Swords/></TabsTrigger><TabsTrigger value="messages"><MessageSquare/></TabsTrigger><TabsTrigger value="settings"><Settings/></TabsTrigger></TabsList></Tabs></div>
+            <div className="p-2 border-b border-white/5">
+               <Tabs value={libraryTab} onValueChange={setLibraryTab} className="w-full">
+                  <TabsList className="grid w-full grid-cols-5 bg-zinc-950 p-1">
+                     <TabsTrigger value="karaoke" className="text-xs px-1"><ListMusic className="w-3 h-3" /></TabsTrigger>
+                     <TabsTrigger value="quiz" className="text-xs px-1"><BrainCircuit className="w-3 h-3" /></TabsTrigger>
+                     <TabsTrigger value="challenges" className="text-xs px-1"><Swords className="w-3 h-3" /></TabsTrigger>
+                     <TabsTrigger value="messages" className="text-xs px-1 relative">
+                        <MessageSquare className="w-3 h-3" />
+                        {pendingMessages.length > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>}
+                     </TabsTrigger>
+                     <TabsTrigger value="settings" className="text-xs px-1"><Settings className="w-3 h-3" /></TabsTrigger>
+                  </TabsList>
+               </Tabs>
+            </div>
+            
             <ScrollArea className="flex-1 p-3">
-               {libraryTab === 'karaoke' && (<div className="space-y-4">{pendingReqs.map(r=><div key={r.id} className="p-2 bg-yellow-900/10 border border-yellow-900/30 rounded flex justify-between"><div className="truncate w-2/3">{r.title}</div><div className="flex gap-1"><Button size="icon" variant="ghost" className="text-green-500" onClick={()=>api.approveRequest(r.id)}><Check/></Button><Button size="icon" variant="ghost" className="text-red-500" onClick={()=>api.rejectRequest(r.id)}><X/></Button></div></div>)}{queuedReqs.map((r,i)=><div key={r.id} className="p-3 bg-zinc-800 rounded flex justify-between group"><div className="w-2/3 truncate">{i+1}. {r.title}</div><div className="flex gap-2"><Button size="icon" onClick={()=>deleteRequest(r.id)}><Trash2/></Button><Button size="sm" className="bg-fuchsia-600" onClick={()=>{setSelectedRequest(r); setYoutubeSearchResults([]); setYoutubeUrl(r.youtube_url||""); setShowYoutubeModal(true); if(!r.youtube_url) setTimeout(()=>searchYouTube(`${r.title} ${r.artist} karaoke`),100);}}><Play/></Button></div></div>)}</div>)}
-               
+               {libraryTab === 'karaoke' && (
+                  <div className="space-y-4">
+                     {pendingReqs.length > 0 && (
+                        <div className="space-y-2">
+                            <h3 className="text-xs font-bold text-yellow-500 uppercase">Da Approvare ({pendingReqs.length})</h3>
+                            {pendingReqs.map(req => (
+                                <div key={req.id} className="p-2 bg-yellow-900/10 border border-yellow-900/30 rounded flex justify-between items-center">
+                                    <div className="truncate w-2/3"><div className="font-bold text-sm truncate">{req.title}</div><div className="text-xs text-zinc-400">{req.user_nickname}</div></div>
+                                    <div className="flex gap-1">
+                                        <Button size="icon" variant="ghost" className="h-6 w-6 text-green-500" onClick={()=>api.approveRequest(req.id)}><Check className="w-4 h-4"/></Button>
+                                        <Button size="icon" variant="ghost" className="h-6 w-6 text-red-500" onClick={()=>api.rejectRequest(req.id)}><X className="w-4 h-4"/></Button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                     )}
+                     <div className="space-y-2">
+                        <h3 className="text-xs font-bold text-zinc-500 uppercase">In Scaletta ({queuedReqs.length})</h3>
+                        {queuedReqs.map((req, i) => (
+                           <div key={req.id} className="p-3 bg-zinc-800 rounded flex justify-between items-center group hover:bg-zinc-700 transition">
+                              <div className="flex items-center gap-3 overflow-hidden w-2/3">
+                                  <span className="text-zinc-500 font-mono text-sm">{i+1}</span>
+                                  <div className="truncate">
+                                      <div className="font-bold text-sm truncate">{req.title}</div>
+                                      <div className="text-xs text-zinc-400 truncate">{req.artist} • {req.user_nickname}</div>
+                                  </div>
+                              </div>
+                              <div className="flex gap-2">
+                                  <Button size="icon" variant="ghost" className="h-7 w-7 text-zinc-500 hover:text-red-500 hover:bg-red-900/20" onClick={() => deleteRequest(req.id)}><Trash2 className="w-3 h-3" /></Button>
+                                  <Button size="sm" className="bg-fuchsia-600 h-7" onClick={() => { 
+                                      setSelectedRequest(req); setYoutubeSearchResults([]); setYoutubeUrl(req.youtube_url || ""); setShowYoutubeModal(true);
+                                      if(!req.youtube_url) setTimeout(() => searchYouTube(`${req.title} ${req.artist} karaoke`), 100);
+                                  }}><Play className="w-3 h-3 mr-1" /> LIVE</Button>
+                              </div>
+                           </div>
+                        ))}
+                     </div>
+                  </div>
+               )}
+
                {libraryTab === 'quiz' && (
                     <div className="flex flex-col h-full">
-                        <div className="grid grid-cols-2 gap-2 mb-4"><Button onClick={()=>setShowCustomQuizModal(true)} variant="outline"><Plus/></Button><Button onClick={()=>setShowImportModal(true)} className="bg-blue-600"><Download/></Button></div>
+                        {/* HEADER CONTROLLI */}
+                        <div className="grid grid-cols-2 gap-2 mb-4">
+                            <Button className="bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-xs" onClick={()=>setShowCustomQuizModal(true)}>
+                                <Plus className="w-3 h-3 mr-1"/> Crea Manuale
+                            </Button>
+                            <Button className="bg-blue-600 hover:bg-blue-500 text-xs" onClick={()=>setShowImportModal(true)}>
+                                <Download className="w-3 h-3 mr-1"/> Importa JSON
+                            </Button>
+                        </div>
+
+                        {/* --- REGIA LIVE (Se c'è un quiz attivo) --- */}
                         {activeQuizId && quizStatus !== 'ended' ? (
-                            <Card className="bg-zinc-900 border-2 border-fuchsia-600 mb-6">
-                                <CardHeader className="py-2 bg-fuchsia-900/20"><CardTitle className="text-sm flex justify-between">IN ONDA <span className="bg-black px-2 rounded">{quizStatus}</span></CardTitle></CardHeader>
+                            <Card className="bg-zinc-900 border-2 border-fuchsia-600 mb-6 shadow-2xl shadow-fuchsia-900/20">
+                                <CardHeader className="pb-2 border-b border-white/10 bg-fuchsia-900/20">
+                                    <CardTitle className="text-sm font-bold text-white flex justify-between items-center">
+                                        <span className="flex items-center gap-2">
+                                            <Gamepad2 className="w-4 h-4 text-fuchsia-400"/> IN ONDA
+                                        </span>
+                                        <span className="text-xs font-mono px-2 py-1 bg-black rounded text-fuchsia-300">
+                                            STATUS: {quizStatus?.toUpperCase()}
+                                        </span>
+                                    </CardTitle>
+                                </CardHeader>
                                 <CardContent className="pt-4 space-y-4">
-                                    <div className="text-center font-bold text-lg">{activeQuizData?.question}</div>
-                                    {activeQuizData?.media_url && (<div className="bg-black/50 p-2 rounded text-center">{activeQuizData.media_type==='video'?<iframe src={activeQuizData.media_url.replace("watch?v=","embed/")} className="w-full h-24"/>:<audio controls src={activeQuizData.media_url} className="w-full"/>}</div>)}
-                                    <div className="grid gap-2">
-                                        {quizStatus==='active'&&<Button className="bg-red-600 animate-pulse" onClick={()=>ctrlQuiz('close_vote')}>STOP VOTO</Button>}
-                                        {quizStatus==='closed'&&<Button className="bg-blue-600" onClick={()=>ctrlQuiz('show_results')}>MOSTRA RISPOSTA</Button>}
-                                        {(quizStatus==='showing_results'||quizStatus==='leaderboard')&&(<><Button className="bg-yellow-600 text-black" onClick={()=>ctrlQuiz('leaderboard')}>CLASSIFICA</Button><Button variant="destructive" onClick={()=>ctrlQuiz('end')}>CHIUDI</Button></>)}
+                                    {/* INFO DOMANDA */}
+                                    <div className="text-center">
+                                        <div className="text-xs text-zinc-400 uppercase tracking-widest mb-1">Domanda Attuale</div>
+                                        <div className="font-bold text-lg leading-tight text-white mb-2">
+                                            {activeQuizData?.question || "Caricamento..."}
+                                        </div>
+                                        
+                                        {/* PREVIEW MEDIA PER LA REGIA */}
+                                        {activeQuizData?.media_url && (
+                                            <div className="bg-black/50 p-2 rounded mb-2 border border-white/10">
+                                                <div className="text-[10px] text-zinc-400 mb-1">Preview Media (Regia)</div>
+                                                {activeQuizData.media_type === 'video' ? (
+                                                    <iframe src={activeQuizData.media_url.replace("watch?v=", "embed/") + "?autoplay=0"} className="w-full h-24 rounded" allowFullScreen title="preview"/>
+                                                ) : (
+                                                    <audio controls src={activeQuizData.media_url} className="w-full h-8"/>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* PULSANTIERA DI REGIA (Workflow sequenziale) */}
+                                    <div className="grid grid-cols-1 gap-2">
+                                        {quizStatus === 'active' && (
+                                            <Button className="w-full bg-red-600 hover:bg-red-500 h-10 font-bold animate-pulse" 
+                                                onClick={() => ctrlQuiz('close_vote')}>
+                                                <StopCircle className="w-4 h-4 mr-2"/> STOP AL TELEVOTO
+                                            </Button>
+                                        )}
+                                        
+                                        {quizStatus === 'closed' && (
+                                            <div className="grid grid-cols-1 gap-2">
+                                                <Button className="bg-blue-600 hover:bg-blue-500" onClick={() => ctrlQuiz('show_results')}>
+                                                    <Eye className="w-4 h-4 mr-2"/> MOSTRA RISPOSTA
+                                                </Button>
+                                            </div>
+                                        )}
+
+                                        {(quizStatus === 'showing_results' || quizStatus === 'leaderboard') && (
+                                            <div className="grid grid-cols-1 gap-2">
+                                                {quizStatus !== 'leaderboard' && (
+                                                    <Button className="bg-yellow-600 hover:bg-yellow-500 text-black font-bold" 
+                                                        onClick={() => ctrlQuiz('leaderboard')}>
+                                                        <ListOrdered className="w-4 h-4 mr-2"/> MOSTRA CLASSIFICA
+                                                    </Button>
+                                                )}
+                                                <Button variant="destructive" onClick={() => ctrlQuiz('end')}>
+                                                    <MonitorPlay className="w-4 h-4 mr-2"/> CHIUDI E TORNA AL KARAOKE
+                                                </Button>
+                                            </div>
+                                        )}
                                     </div>
                                 </CardContent>
                             </Card>
-                        ) : <div className="text-center text-zinc-500 p-4 border border-dashed border-zinc-700">NESSUN QUIZ ATTIVO</div>}
-                        <div className="flex gap-1 mb-2"><Button size="sm" variant={quizCategoryFilter==='all'?'secondary':'ghost'} onClick={()=>setQuizCategoryFilter('all')}>All</Button><Button size="sm" variant={quizCategoryFilter==='video'?'secondary':'ghost'} onClick={()=>setQuizCategoryFilter('video')}>Video</Button></div>
-                        <div className="space-y-2">{filteredCatalog.map(item=><div key={item.id} className="p-3 bg-zinc-800 rounded hover:bg-zinc-700 cursor-pointer" onClick={()=>launchCatalogQuiz(item)}><div className="text-xs text-fuchsia-500 font-bold">{item.category}</div><div className="text-sm">{item.question}</div></div>)}</div>
+                        ) : (
+                            <div className="p-4 bg-zinc-900/50 border border-dashed border-zinc-700 rounded mb-4 text-center text-zinc-500 text-xs">
+                                NESSUN QUIZ ATTIVO. SELEZIONA DAL CATALOGO.
+                            </div>
+                        )}
+
+                        {/* --- CATEGORIE GIOCO "KARAOKE BASTARDO STYLE" --- */}
+                        <div className="flex gap-1 mb-2 bg-zinc-950 p-1 rounded">
+                            <Button size="sm" variant={quizCategoryFilter==='all'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('all')}>Tutti</Button>
+                            <Button size="sm" variant={quizCategoryFilter==='intro'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('intro')}>Intro</Button>
+                            <Button size="sm" variant={quizCategoryFilter==='lyrics'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('lyrics')}>Testi</Button>
+                            <Button size="sm" variant={quizCategoryFilter==='video'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('video')}>Video</Button>
+                        </div>
+
+                        {/* --- CATALOGO DOMANDE FILTRATO --- */}
+                        <div className="flex-1 overflow-hidden flex flex-col">
+                            <h3 className="text-xs font-bold text-zinc-500 uppercase mb-2 flex justify-between items-center">
+                                Catalogo ({filteredCatalog.length})
+                            </h3>
+                            
+                            <ScrollArea className="flex-1 pr-2">
+                                <div className="space-y-2 pb-20">
+                                    {filteredCatalog.length === 0 ? (
+                                        <p className="text-xs text-zinc-600 text-center py-8">
+                                            Nessuna domanda disponibile in questa categoria (o tutte già giocate).
+                                        </p>
+                                    ) : (
+                                        filteredCatalog.map((item, index) => (
+                                            <div key={item.id || index} 
+                                                className="group relative bg-zinc-800 hover:bg-zinc-700 border border-transparent hover:border-yellow-500 rounded p-3 cursor-pointer transition-all"
+                                                onClick={() => launchCatalogQuiz(item)}>
+                                                
+                                                <div className="absolute top-2 right-2 flex gap-1">
+                                                    {item.media_type === 'audio' && <span className="bg-yellow-500/20 text-yellow-500 p-1 rounded"><Music2 className="w-3 h-3"/></span>}
+                                                    {item.media_type === 'video' && <span className="bg-blue-500/20 text-blue-500 p-1 rounded"><Film className="w-3 h-3"/></span>}
+                                                </div>
+
+                                                <div className="text-[10px] font-bold text-fuchsia-500 uppercase tracking-wider mb-1 flex items-center gap-1">
+                                                    {item.category.includes('Intro') && <Music2 className="w-3 h-3"/>}
+                                                    {item.category.includes('Lyrics') && <Mic2 className="w-3 h-3"/>}
+                                                    {item.category}
+                                                </div>
+                                                <div className="text-sm font-medium text-white pr-6 line-clamp-2">
+                                                    {item.question}
+                                                </div>
+                                                <div className="text-[10px] text-zinc-500 mt-2 flex gap-2">
+                                                    <span>Risp: <b>{item.options[item.correct_index]}</b></span>
+                                                    <span>• {item.points} Punti</span>
+                                                </div>
+                                                
+                                                <div className="absolute inset-0 bg-fuchsia-600/90 hidden group-hover:flex items-center justify-center rounded transition-opacity opacity-0 group-hover:opacity-100">
+                                                    <span className="text-white font-bold flex items-center">
+                                                        <MonitorPlay className="w-4 h-4 mr-2"/> LANCIA ORA
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </ScrollArea>
+                        </div>
                     </div>
                )}
-               {libraryTab === 'messages' && (<div className="space-y-2"><Button className="w-full mb-4" onClick={()=>setShowMessageModal(true)}>Scrivi</Button>{pendingMessages.map(m=><div key={m.id} className="p-2 bg-zinc-800 rounded border-l-2 border-blue-500"><p>{m.text}</p><div className="flex gap-2 justify-end mt-2"><Button size="sm" onClick={()=>api.rejectMessage(m.id)}>Rifiuta</Button><Button size="sm" className="bg-green-600" onClick={()=>api.approveMessage(m.id)}>Approva</Button></div></div>)}</div>)}
-               {libraryTab === 'settings' && (<div className="space-y-4"><Input value={venueName} onChange={e=>setVenueName(e.target.value)}/><Input type="file" onChange={handleLogoUpload}/><Button className="w-full" onClick={handleSaveSettings}>Salva</Button></div>)}
+
+               {libraryTab === 'challenges' && (
+                   <div className="space-y-3">
+                       <h3 className="text-xs font-bold text-zinc-500 uppercase">Catalogo Sfide</h3>
+                       {challenges.length === 0 ? <p className="text-xs text-zinc-600">Nessuna sfida.</p> : challenges.map(c => (
+                           <div key={c.id} className="p-3 bg-zinc-800 rounded flex flex-col gap-1 hover:bg-zinc-700 cursor-pointer border-l-2 border-red-500" onClick={() => toast.info(`Sfida "${c.title}" lanciata! (In arrivo)`)}>
+                               <div className="flex justify-between"><span className="font-bold text-sm text-white">{c.title}</span><Swords className="w-3 h-3 text-red-500" /></div>
+                               <p className="text-xs text-zinc-400">{c.description}</p>
+                           </div>
+                       ))}
+                   </div>
+               )}
+
+               {libraryTab === 'messages' && (
+                   <div className="space-y-4 pt-2">
+                       <Button className="w-full bg-cyan-600 hover:bg-cyan-500 mb-4" onClick={()=>setShowMessageModal(true)}><MessageSquare className="w-4 h-4 mr-2"/> Scrivi Messaggio Regia</Button>
+                       <h3 className="text-xs font-bold text-zinc-500 uppercase">In Attesa ({pendingMessages.length})</h3>
+                       {pendingMessages.map(msg => (
+                           <div key={msg.id} className="bg-zinc-800 p-3 rounded border-l-2 border-blue-500">
+                               <div className="flex justify-between mb-2"><span className="font-bold text-sm">{msg.user_nickname || 'Anonimo'}</span><span className="text-xs text-zinc-500">App: {msg.participant_id ? 'Utente' : 'Regia'}</span></div>
+                               <p className="text-sm bg-black/20 p-2 rounded mb-2">{msg.text}</p>
+                               <div className="flex gap-2 justify-end"><Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-900/20 h-7" onClick={async()=>{await api.rejectMessage(msg.id); loadData();}}>Rifiuta</Button><Button size="sm" className="bg-green-600 h-7 hover:bg-green-500" onClick={async()=>{await api.approveMessage(msg.id); loadData();}}>Approva</Button></div>
+                           </div>
+                       ))}
+                   </div>
+               )}
+
+               {libraryTab === 'settings' && (
+                   <div className="space-y-4 pt-2">
+                       <div className="space-y-2"><label className="text-xs text-zinc-500">Nome Locale</label><Input value={venueName} onChange={e=>setVenueName(e.target.value)} className="bg-zinc-800"/></div>
+                       <div className="space-y-2"><label className="text-xs text-zinc-500">Logo (File)</label><div className="flex gap-2"><Input type="file" onChange={handleLogoUpload} className="bg-zinc-800 text-xs" accept="image/*" disabled={uploadingLogo}/>{uploadingLogo && <span className="text-yellow-500 text-xs animate-pulse">...</span>}</div></div>
+                       <Button className="w-full bg-zinc-700" onClick={handleSaveSettings}><Save className="w-4 h-4 mr-2"/> Salva Impostazioni</Button>
+                   </div>
+               )}
             </ScrollArea>
          </aside>
 
-         <main className="col-span-8 bg-black flex flex-col">
-            <div className="h-10 border-b border-white/10 flex items-center px-4 justify-between bg-zinc-950"><span className="text-xs font-mono">LIVE</span><Button size="sm" variant="ghost" onClick={handleToggleMute}>{isMuted?<VolumeX/>:<Volume2/>}</Button></div>
+         <main className="col-span-8 bg-black relative flex flex-col">
+            <div className="h-10 border-b border-white/10 flex items-center px-4 justify-between bg-zinc-950">
+               <span className="text-xs font-mono text-zinc-500">PROGRAMMA LIVE</span>
+               <Button size="sm" variant="ghost" onClick={handleToggleMute} className={isMuted?'text-red-500':'text-zinc-400'}>{isMuted ? <VolumeX className="w-4 h-4"/> : <Volume2 className="w-4 h-4"/>}</Button>
+            </div>
             <div className="flex-1 p-6 flex items-center justify-center bg-gradient-to-b from-zinc-900 to-black">
                {eventState.active_module === 'karaoke' && (
                   <div className="w-full max-w-3xl text-center">
-                     {!currentPerformance ? <div className="text-zinc-600 opacity-50">In Attesa...</div> : (
+                     {!currentPerformance ? (
+                        <div className="text-zinc-600 flex flex-col items-center opacity-50"><ListMusic className="w-24 h-24 mb-4" /><h2 className="text-2xl font-bold">In Attesa...</h2></div>
+                     ) : (
                         <div className="bg-zinc-900/80 border border-white/10 p-8 rounded-2xl shadow-2xl relative">
-                           <div className="mb-6"><h2 className="text-4xl font-black">{currentPerformance.song_title}</h2><p className="text-2xl text-fuchsia-400">{currentPerformance.song_artist}</p><div className="mt-4">🎤 {currentPerformance.user_nickname}</div></div>
-                           {currentPerformance.status === 'voting' ? <div className="bg-yellow-500/20 p-6 rounded animate-pulse">VOTAZIONE IN CORSO<Button className="w-full mt-4 bg-yellow-500 text-black" onClick={()=>ctrlPerf('close_vote')}>CHIUDI</Button></div> : (
-                               <div className="flex justify-center gap-4">{currentPerformance.status==='live'?<Button size="icon" onClick={()=>ctrlPerf('pause')}><Pause/></Button>:<Button size="icon" onClick={()=>ctrlPerf('resume')}><Play/></Button>}<Button size="icon" onClick={()=>ctrlPerf('restart')}><RotateCcw/></Button><Button variant="destructive" onClick={()=>ctrlPerf('end_vote')}>STOP</Button></div>
+                           <div className="mb-6"><h2 className="text-4xl font-black text-white">{currentPerformance.song_title}</h2><p className="text-2xl text-fuchsia-400">{currentPerformance.song_artist}</p><div className="mt-4 text-zinc-300">🎤 {currentPerformance.user_nickname}</div></div>
+                           {currentPerformance.status === 'voting' ? (
+                               <div className="bg-yellow-500/20 p-6 rounded-xl border border-yellow-500/50 animate-pulse"><h3 className="text-2xl font-bold text-yellow-500 mb-4">VOTAZIONE IN CORSO</h3><Button size="lg" className="w-full bg-yellow-500 text-black font-bold" onClick={()=>ctrlPerf('close_vote')}>CHIUDI VOTAZIONE & NEXT</Button></div>
+                           ) : (
+                               <div className="flex flex-col gap-4"><div className="flex justify-center gap-4">
+                                       {currentPerformance.status === 'live' && <Button size="lg" variant="outline" className="h-16 w-16 rounded-full" onClick={()=>ctrlPerf('pause')}><Pause className="w-6 h-6" /></Button>}
+                                       {currentPerformance.status === 'paused' && <Button size="lg" className="h-16 w-16 rounded-full bg-green-500 text-black" onClick={()=>ctrlPerf('resume')}><Play className="w-6 h-6" /></Button>}
+                                       <Button size="lg" variant="secondary" className="h-16 w-16 rounded-full" onClick={()=>ctrlPerf('restart')}><RotateCcw className="w-6 h-6" /></Button>
+                                       <Button size="lg" variant="outline" className="h-16 w-16 rounded-full border-blue-500 text-blue-500 hover:bg-blue-900/20" onClick={openManualVideoWindow}><ExternalLink className="w-6 h-6" /></Button>
+                                       <div className="flex gap-2 ml-4"><Button size="lg" variant="destructive" className="h-16 px-6" onClick={()=>ctrlPerf('end_vote')}>STOP & VOTA</Button><Button size="lg" className="h-16 px-4 bg-zinc-700" onClick={()=>ctrlPerf('skip_next')}>SKIP</Button></div>
+                               </div></div>
                            )}
                         </div>
                      )}
@@ -284,12 +683,35 @@ export default function AdminDashboard() {
             </div>
          </main>
       </div>
-      
+
       {/* MODALS */}
-      <Dialog open={showMessageModal} onOpenChange={setShowMessageModal}><DialogContent className="bg-zinc-900"><Textarea value={adminMessage} onChange={e=>setAdminMessage(e.target.value)}/><Button onClick={handleSendMessage}>Invia</Button></DialogContent></Dialog>
-      <Dialog open={showYoutubeModal} onOpenChange={setShowYoutubeModal}><DialogContent className="bg-zinc-900 max-w-3xl"><div className="flex gap-2"><Input value={youtubeSearchQuery} onChange={e=>setYoutubeSearchQuery(e.target.value)}/><Button onClick={()=>searchYouTube()}>Cerca</Button></div><div className="max-h-60 overflow-y-auto">{youtubeSearchResults.map(v=><div key={v.id.videoId} onClick={()=>{setYoutubeUrl(`https://www.youtube.com/watch?v=${v.id.videoId}`); setYoutubeSearchResults([]);}} className="p-2 hover:bg-white/10 cursor-pointer">{v.snippet.title}</div>)}</div><Input value={youtubeUrl} onChange={e=>setYoutubeUrl(e.target.value)}/><Button onClick={startPerformance} disabled={!youtubeUrl}>MANDA IN ONDA</Button></DialogContent></Dialog>
-      <Dialog open={showCustomQuizModal} onOpenChange={setShowCustomQuizModal}><DialogContent className="bg-zinc-900"><Textarea value={quizQuestion} onChange={e=>setQuizQuestion(e.target.value)} placeholder="Domanda"/><Button onClick={launchCustomQuiz}>Lancia</Button></DialogContent></Dialog>
-      <Dialog open={showImportModal} onOpenChange={setShowImportModal}><DialogContent className="bg-zinc-900"><Textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder="JSON"/><Button onClick={handleImportScript}>Importa</Button></DialogContent></Dialog>
+      <Dialog open={showMessageModal} onOpenChange={setShowMessageModal}>
+          <DialogContent className="bg-zinc-900 border-zinc-800"><DialogHeader><DialogTitle>Messaggio Regia</DialogTitle></DialogHeader><div className="space-y-4 pt-4"><Textarea value={adminMessage} onChange={e=>setAdminMessage(e.target.value)} placeholder="Scrivi avviso..." className="bg-zinc-800 border-zinc-700 h-32"/><Button className="w-full bg-cyan-600 font-bold" onClick={handleSendMessage}><Send className="w-4 h-4 mr-2"/> INVIA AGLI SCHERMI</Button></div></DialogContent>
+      </Dialog>
+      
+      <Dialog open={showYoutubeModal} onOpenChange={setShowYoutubeModal}>
+        <DialogContent className="bg-zinc-900 border-zinc-800 max-w-3xl">
+          <DialogHeader><DialogTitle>Video per: {selectedRequest?.title}</DialogTitle></DialogHeader>
+          <div className="space-y-4 pt-4"><div className="flex gap-2"><Input value={youtubeSearchQuery} onChange={e=>setYoutubeSearchQuery(e.target.value)} className="bg-zinc-800 border-zinc-700" placeholder="Cerca su YouTube..." onKeyDown={e=>e.key==='Enter'&&searchYouTube(youtubeSearchQuery)}/><Button onClick={() => searchYouTube(youtubeSearchQuery)} disabled={searchingYoutube} className="bg-zinc-700">{searchingYoutube?'...':'Cerca'}</Button></div>
+              <div className="max-h-60 overflow-y-auto space-y-2 custom-scrollbar">{youtubeSearchResults.map(vid => (<div key={vid.id.videoId} className="flex gap-3 p-2 hover:bg-white/5 cursor-pointer rounded transition" onClick={()=>{setYoutubeUrl(`https://www.youtube.com/watch?v=${vid.id.videoId}`); setYoutubeSearchResults([]);}}><img src={vid.snippet.thumbnails.default.url} className="w-24 h-16 object-cover rounded" alt="thumb"/><div className="flex-1"><div className="font-bold text-sm text-white">{vid.snippet.title}</div><div className="text-xs text-zinc-500">{vid.snippet.channelTitle}</div></div><Button size="sm" variant="ghost" className="text-fuchsia-500">Seleziona</Button></div>))}</div>
+              <div className="pt-4 border-t border-white/10"><p className="text-xs text-zinc-500 mb-2">URL:</p><Input value={youtubeUrl} onChange={e=>setYoutubeUrl(e.target.value)} className="bg-zinc-950 border-zinc-800 font-mono text-xs mb-4"/><Button className="w-full bg-green-600 h-12 text-lg font-bold" disabled={!youtubeUrl} onClick={startPerformance}><Play className="w-5 h-5 mr-2"/> MANDA IN ONDA</Button></div></div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showCustomQuizModal} onOpenChange={setShowCustomQuizModal}>
+          <DialogContent className="bg-zinc-900 border-zinc-800"><DialogHeader><DialogTitle>Crea Quiz</DialogTitle></DialogHeader><div className="space-y-4 pt-4"><div><label className="text-xs text-zinc-500 mb-1">Domanda</label><Textarea value={quizQuestion} onChange={e=>setQuizQuestion(e.target.value)} className="bg-zinc-800 border-zinc-700"/></div><div className="space-y-2"><label className="text-xs text-zinc-500 mb-1">Opzioni</label>{quizOptions.map((opt, i) => (<div key={i} className="flex gap-2"><Input value={opt} onChange={e=>{const n=[...quizOptions]; n[i]=e.target.value; setQuizOptions(n)}} className="bg-zinc-800 border-zinc-700"/><Button size="icon" variant={quizCorrectIndex===i?'default':'outline'} className={quizCorrectIndex===i?'bg-green-600 border-none':''} onClick={()=>setQuizCorrectIndex(i)}><Check className="w-4 h-4"/></Button></div>))}</div><Button className="w-full bg-fuchsia-600 mt-4 h-12 text-lg font-bold" onClick={launchCustomQuiz}>LANCIA QUIZ</Button></div></DialogContent>
+      </Dialog>
+
+      <Dialog open={showImportModal} onOpenChange={setShowImportModal}>
+          <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
+              <DialogHeader><DialogTitle>Importa Script JSON</DialogTitle></DialogHeader>
+              <div className="space-y-4 pt-4">
+                  <p className="text-xs text-zinc-500">Incolla qui il JSON con categorie (Es: Intro, Lyrics, Video).</p>
+                  <Textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder='[ { "category": "Intro - 90s", ... } ]' className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"/>
+                  <Button className="w-full bg-blue-600 font-bold" onClick={handleImportScript}><Download className="w-4 h-4 mr-2"/> IMPORTA NEL CATALOGO</Button>
+              </div>
+          </DialogContent>
+      </Dialog>
     </div>
   );
 }
