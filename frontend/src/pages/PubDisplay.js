@@ -124,9 +124,10 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
 };
 
 // ===========================================
-// COMPONENTE: QUIZ SCREEN
+// COMPONENTE: QUIZ SCREEN (LAYOUT OTTIMIZZATO)
 // ===========================================
 const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
+    // 1. Schermata Classifica
     if (quiz.status === 'leaderboard') {
         return (
             <div className="absolute inset-0 bg-zinc-900 z-50 flex flex-col p-8 overflow-hidden animate-fade-in">
@@ -148,45 +149,89 @@ const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
         );
     }
 
-    return (
-        <div className="absolute inset-0 bg-gradient-to-b from-purple-900 to-black z-40 flex flex-col items-center justify-center p-10">
-            <QuizMediaFixed mediaUrl={quiz.media_url} mediaType={quiz.media_type} isResult={!!quizResults} />
+    // 2. Determina se siamo in "Modalità Video" per layout diverso
+    const hasVideo = quiz.media_type === 'video' || (quiz.media_url && quiz.media_url.includes('youtu'));
+    const isShowingResult = !!quizResults;
 
-            <div className="z-10 w-full max-w-6xl text-center">
-                {!quizResults ? (
-                    <div className="animate-zoom-in">
-                        <div className="mb-8">
-                             <span className={`px-12 py-4 rounded-full text-4xl font-black uppercase tracking-widest shadow-[0_0_30px_rgba(217,70,239,0.6)] ${quiz.status === 'closed' ? 'bg-red-600 text-white' : 'bg-fuchsia-600 text-white animate-pulse'}`}>
-                                {quiz.status === 'closed' ? "STOP AL TELEVOTO!" : "QUIZ IN ONDA"}
-                             </span>
+    return (
+        <div className="absolute inset-0 bg-black z-40 overflow-hidden">
+            {/* BACKGROUND LAYER (VIDEO/AUDIO/IMAGE) */}
+            <QuizMediaFixed mediaUrl={quiz.media_url} mediaType={quiz.media_type} isResult={isShowingResult} />
+
+            {/* CONTENT LAYER */}
+            {!isShowingResult ? (
+                // --- FASE DOMANDA ---
+                hasVideo ? (
+                    // *** LAYOUT "GAME SHOW" (Video al centro, Domanda su, Risposte giù) ***
+                    <div className="absolute inset-0 z-10 flex flex-col justify-between pointer-events-none">
+                        {/* Top Bar: Domanda */}
+                        <div className="bg-black/80 backdrop-blur-md p-6 border-b border-white/10 animate-slide-down">
+                            <div className="flex justify-between items-center mb-2">
+                                <span className={`px-4 py-1 rounded text-xl font-bold uppercase tracking-widest ${quiz.status === 'closed' ? 'bg-red-600 text-white' : 'bg-fuchsia-600 text-white animate-pulse'}`}>
+                                    {quiz.status === 'closed' ? "STOP TELEVOTO" : "IN ONDA"}
+                                </span>
+                                <span className="text-zinc-400 text-xl font-mono">{quiz.category}</span>
+                            </div>
+                            <h2 className="text-5xl font-black text-white leading-tight text-center drop-shadow-xl">
+                                {quiz.question}
+                            </h2>
                         </div>
-                        <h2 className="text-7xl font-black text-white mb-16 leading-tight drop-shadow-2xl bg-black/40 p-6 rounded-3xl backdrop-blur-sm border border-white/10">
-                            {quiz.question}
-                        </h2>
-                        <div className="grid grid-cols-2 gap-8">
-                            {quiz.options.map((opt, i) => (
-                                <div key={i} className={`p-8 rounded-3xl text-5xl font-bold border-4 transition-all transform ${quiz.status === 'closed' ? 'border-zinc-700 text-zinc-500 bg-black/60' : 'border-white/20 bg-white/10 text-white shadow-xl'}`}>
-                                    <span className="text-fuchsia-500 mr-4">{String.fromCharCode(65+i)}.</span> {opt}
-                                </div>
-                            ))}
+
+                        {/* Middle: Video Space (Trasparente) */}
+                        <div className="flex-1"></div>
+
+                        {/* Bottom Bar: Opzioni */}
+                        <div className="bg-gradient-to-t from-black via-black/90 to-transparent p-8 pb-12 animate-slide-up">
+                            <div className="grid grid-cols-4 gap-6 max-w-[95%] mx-auto">
+                                {quiz.options.map((opt, i) => (
+                                    <div key={i} className={`p-6 rounded-2xl text-3xl font-bold border-2 text-center transition-all ${quiz.status === 'closed' ? 'border-zinc-700 bg-zinc-900/80 text-zinc-500' : 'border-white/30 bg-black/60 text-white shadow-lg'}`}>
+                                        <span className="text-fuchsia-500 block text-xl mb-1">{String.fromCharCode(65+i)}</span>
+                                        {opt}
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 ) : (
-                    <div className="animate-zoom-in bg-black/60 backdrop-blur-md p-12 rounded-[3rem] border border-white/20">
+                    // *** LAYOUT STANDARD (Tutto centrato per testo/audio) ***
+                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-10 bg-gradient-to-b from-purple-900/80 to-black/80">
+                         <div className="w-full max-w-6xl text-center animate-zoom-in">
+                            <div className="mb-8">
+                                <span className={`px-12 py-4 rounded-full text-4xl font-black uppercase tracking-widest shadow-[0_0_30px_rgba(217,70,239,0.6)] ${quiz.status === 'closed' ? 'bg-red-600 text-white' : 'bg-fuchsia-600 text-white animate-pulse'}`}>
+                                    {quiz.status === 'closed' ? "STOP AL TELEVOTO!" : "QUIZ IN ONDA"}
+                                </span>
+                            </div>
+                            <h2 className="text-7xl font-black text-white mb-16 leading-tight drop-shadow-2xl bg-black/40 p-6 rounded-3xl backdrop-blur-sm border border-white/10">
+                                {quiz.question}
+                            </h2>
+                            <div className="grid grid-cols-2 gap-8">
+                                {quiz.options.map((opt, i) => (
+                                    <div key={i} className={`p-8 rounded-3xl text-5xl font-bold border-4 transition-all transform ${quiz.status === 'closed' ? 'border-zinc-700 text-zinc-500 bg-black/60' : 'border-white/20 bg-white/10 text-white shadow-xl'}`}>
+                                        <span className="text-fuchsia-500 mr-4">{String.fromCharCode(65+i)}.</span> {opt}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                )
+            ) : (
+                // --- FASE RISULTATO ---
+                <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/80 backdrop-blur-xl animate-fade-in">
+                    <div className="bg-black/60 p-12 rounded-[3rem] border border-white/20 text-center max-w-5xl w-full shadow-2xl">
                         <Trophy className="w-40 h-40 text-yellow-400 mx-auto mb-8 animate-bounce" />
                         <h2 className="text-6xl font-black text-white mb-6">RISPOSTA ESATTA</h2>
-                        <div className="bg-green-600 text-white px-16 py-8 rounded-3xl mb-12 transform scale-110">
+                        <div className="bg-green-600 text-white px-16 py-8 rounded-3xl mb-12 transform scale-110 shadow-[0_0_50px_rgba(22,163,74,0.5)]">
                             <p className="text-7xl font-bold">{quizResults.correct_option}</p>
                         </div>
                         <div className="text-center">
                             <p className="text-2xl text-green-300 uppercase tracking-widest mb-4">I Più Veloci</p>
-                            <p className="text-4xl text-white font-medium max-w-5xl leading-relaxed">
+                            <p className="text-4xl text-white font-medium leading-relaxed">
                                 {quizResults.winners.length > 0 ? quizResults.winners.slice(0, 5).join(' • ') : "Nessuno ha indovinato!"}
                             </p>
                         </div>
                     </div>
-                )}
-            </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -208,6 +253,8 @@ export default function PubDisplay() {
   const loadDisplayData = useCallback(async () => {
     try {
       const { data } = await api.getDisplayData(pubCode);
+      if(!data) return; // Gestione caso display vuoto o errore
+      
       setDisplayData(data);
       
       if (data.queue?.length > 0) {
@@ -229,6 +276,7 @@ export default function PubDisplay() {
     return () => clearInterval(interval);
   }, [loadDisplayData]);
 
+  // Realtime Logic
   useEffect(() => {
     if (!displayData?.pub?.id) return;
     
@@ -273,7 +321,15 @@ export default function PubDisplay() {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${displayData.pub.id}` }, 
             async (payload) => {
                 const updatedQuiz = payload.new;
-                setDisplayData(prev => ({ ...prev, active_quiz: updatedQuiz }));
+                
+                // Aggiorna lo stato solo se necessario per evitare re-render eccessivi
+                setDisplayData(prev => {
+                    // Se l'ID e lo status sono identici, non aggiornare per evitare flicker
+                    if (prev.active_quiz?.id === updatedQuiz.id && prev.active_quiz?.status === updatedQuiz.status) {
+                        return prev;
+                    }
+                    return { ...prev, active_quiz: updatedQuiz };
+                });
                 
                 if (updatedQuiz.status === 'active' || updatedQuiz.status === 'closed') { 
                     setQuizResults(null); 
@@ -420,6 +476,10 @@ export default function PubDisplay() {
         @keyframes zoomIn { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
         .animate-fade-in { animation: fadeIn 0.5s ease-out; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .animate-slide-down { animation: slideDown 0.6s ease-out; }
+        @keyframes slideDown { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+        .animate-slide-up { animation: slideUp 0.6s ease-out; }
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #444; border-radius: 10px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
