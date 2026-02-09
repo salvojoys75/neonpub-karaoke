@@ -5,7 +5,7 @@ import {
   Music, Play, Square, Trophy, Tv, Check, X, MessageSquare, 
   LogOut, SkipForward, Pause, RotateCcw, Search, Plus, ArrowLeft,
   ListMusic, BrainCircuit, Swords, Send, Star, VolumeX, Volume2, ExternalLink,
-  Users, Coins, Settings, Save, LayoutDashboard, Gem, Upload, UserPlus, Ban
+  Users, Coins, Settings, Save, LayoutDashboard, Gem, Upload, UserPlus, Ban, Trash2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,10 +14,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
-import api, { createPub, updateEventSettings, uploadLogo } from "@/lib/api";
+import api, { createPub, updateEventSettings } from "@/lib/api";
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -48,23 +47,8 @@ export default function AdminDashboard() {
   const [venueLogo, setVenueLogo] = useState("");
   const [uploadingLogo, setUploadingLogo] = useState(false);
 
-  // --- MODULO SFIDE & SCRIPT ---
-  const [challengeScripts, setChallengeScripts] = useState([
-      { id: 'ai-001', type: 'physical', theme: 'party', title: 'Gara di Shot', content: 'Chi finisce prima 3 shot vince 50 punti.' },
-      { id: 'ai-002', type: 'physical', theme: 'party', title: 'Limbo', content: 'Gara di Limbo. Il pubblico vota il migliore.' },
-      { id: 'ai-003', type: 'social', theme: 'love', title: 'Abbraccio Collettivo', content: 'Tutti devono abbracciare il vicino.' },
-      { id: 'ai-004', type: 'quiz', theme: 'cinema', title: 'Citazioni Film', content: 'Indovina il film dalla citazione.' },
-      { id: 'ai-005', type: 'audio', theme: '80s', title: 'Indovina la Intro', content: '5 secondi di intro anni 80.' }
-  ]);
-  const [challengeFilterType, setChallengeFilterType] = useState("all");
-  const [challengeFilterTheme, setChallengeFilterTheme] = useState("all");
-
-  // --- STATI QUIZ ---
+  // --- STATI QUIZ & MODALI ---
   const [activeQuizId, setActiveQuizId] = useState(null);
-  const [quizStatus, setQuizStatus] = useState(null);
-  const [quizResults, setQuizResults] = useState(null);
-
-  // --- MODALI ---
   const [showYoutubeModal, setShowYoutubeModal] = useState(false);
   const [showCustomQuizModal, setShowCustomQuizModal] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
@@ -91,55 +75,39 @@ export default function AdminDashboard() {
   const pollIntervalRef = useRef(null);
 
   // 1. INIT
-  useEffect(() => {
-    checkUserProfile();
-  }, [isAuthenticated]);
+  useEffect(() => { checkUserProfile(); }, [isAuthenticated]);
 
   const checkUserProfile = async () => {
     if (!isAuthenticated) return; 
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-
       let { data: userProfile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-
-      if (user.email === 'admin@neonpub.com') {
-          if (!userProfile || userProfile.role !== 'super_admin') {
-              const { error } = await supabase.from('profiles').upsert({ id: user.id, email: user.email, role: 'super_admin', credits: 9999 });
-              if(!error) userProfile = { id: user.id, email: user.email, role: 'super_admin', credits: 9999 };
-          }
+      
+      // Auto-promote admin@neonpub.com
+      if (user.email === 'admin@neonpub.com' && (!userProfile || userProfile.role !== 'super_admin')) {
+          const { error } = await supabase.from('profiles').upsert({ id: user.id, email: user.email, role: 'super_admin', credits: 9999 });
+          if(!error) userProfile = { id: user.id, email: user.email, role: 'super_admin', credits: 9999 };
       }
-
+      
       if (!userProfile) {
          const { data: newProfile } = await supabase.from('profiles').insert([{ id: user.id, email: user.email, role: 'operator', credits: 0 }]).select().single();
          userProfile = newProfile;
       }
       setProfile(userProfile);
-
-      if (userProfile.role === 'super_admin') {
-        setAppState("super_admin");
-        loadSuperAdminData();
-      } else {
+      
+      if (userProfile.role === 'super_admin') { setAppState("super_admin"); loadSuperAdminData(); } 
+      else {
         const storedCode = localStorage.getItem("neonpub_pub_code");
-        if (storedCode) {
-          setPubCode(storedCode);
-          setAppState("dashboard");
-        } else {
-          setAppState("setup");
-        }
+        if (storedCode) { setPubCode(storedCode); setAppState("dashboard"); } 
+        else { setAppState("setup"); }
       }
-    } catch (error) {
-      console.error(error);
-    }
+    } catch (error) { console.error(error); }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("neonpub_pub_code");
-    logout();
-    navigate("/");
-  };
+  const handleLogout = () => { localStorage.removeItem("neonpub_pub_code"); logout(); navigate("/"); };
 
-  // 2. SETUP EVENTO
+  // 2. SETUP & LOAD DATA
   const handleStartEvent = async (e) => {
     e.preventDefault();
     if (!newEventName) return toast.error("Inserisci nome evento");
@@ -153,28 +121,6 @@ export default function AdminDashboard() {
     } catch (error) { toast.error(error.message); } finally { setCreatingEvent(false); }
   };
 
-  const handleLogoUpload = async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      setUploadingLogo(true);
-      try {
-          const url = await api.uploadLogo(file);
-          setVenueLogo(url);
-          toast.success("Logo caricato con successo!");
-      } catch(err) {
-          toast.error("Errore caricamento logo. Controlla che il bucket 'logos' esista e sia pubblico.");
-          console.error(err);
-      } finally { setUploadingLogo(false); }
-  };
-
-  const handleSaveSettings = async () => {
-      try {
-          await updateEventSettings({ name: venueName, logo_url: venueLogo });
-          toast.success("Impostazioni salvate");
-      } catch (e) { toast.error("Errore salvataggio: " + e.message); }
-  };
-
-  // 3. LOAD DATA
   const loadData = useCallback(async () => {
     if (!pubCode || appState !== 'dashboard') return;
     try {
@@ -190,54 +136,12 @@ export default function AdminDashboard() {
       ]);
 
       setQueue(qRes.data || []);
-      
-      // Se non c'è performance attiva (es. è ended), setCurrentPerformance null
       setCurrentPerformance(perfRes.data);
-      
       setPendingMessages(msgRes.data || []);
-      
-      if(pubRes.data && !venueName) {
-          setVenueName(pubRes.data.name);
-          setVenueLogo(pubRes.data.logo_url || "");
-      }
-      
-      if(activeQuizRes.data) {
-         setActiveQuizId(activeQuizRes.data.id);
-         setQuizStatus(activeQuizRes.data.status);
-         if(activeQuizRes.data.status === 'showing_results') {
-             const resData = await api.getQuizResults(activeQuizRes.data.id);
-             setQuizResults(resData.data);
-         }
-      } else {
-         setActiveQuizId(null); setQuizStatus(null); setQuizResults(null);
-      }
+      if(pubRes.data && !venueName) { setVenueName(pubRes.data.name); setVenueLogo(pubRes.data.logo_url || ""); }
+      if(activeQuizRes.data) { setActiveQuizId(activeQuizRes.data.id); } else { setActiveQuizId(null); }
     } catch (error) { console.error(error); }
   }, [pubCode, appState, venueName]);
-
-  // SUPER ADMIN FUNCTIONS
-  const loadSuperAdminData = async () => {
-      const { data } = await api.getAllProfiles();
-      setUserList(data || []);
-  };
-
-  const addCredits = async (userId, amount) => {
-      const user = userList.find(u => u.id === userId);
-      if(!user) return;
-      const newAmount = (user.credits || 0) + amount;
-      await api.updateProfileCredits(userId, newAmount);
-      toast.success(`Crediti aggiornati a ${newAmount}`);
-      loadSuperAdminData();
-  };
-
-  const handleCreateOperator = async () => {
-      if(!newUserEmail) return toast.error("Inserisci email");
-      try {
-          await api.createOperatorProfile(newUserEmail, newUserName, 0);
-          setShowCreateUserModal(false);
-          toast.success("Invito simulato inviato.");
-          loadSuperAdminData();
-      } catch(e) { toast.error("Errore creazione"); }
-  };
 
   useEffect(() => {
     if (appState === 'dashboard') {
@@ -247,28 +151,25 @@ export default function AdminDashboard() {
     }
   }, [appState, loadData]);
 
-  // --- ACTIONS ---
-
-  const handleOpenDisplay = () => {
-    const width = 1280; 
-    const height = 720; 
-    const left = (window.screen.width - width) / 2; 
-    const top = (window.screen.height - height) / 2;
-    window.open(`/display/${pubCode}`, 'NeonPubDisplay', `popup=yes,width=${width},height=${height},top=${top},left=${left},toolbar=no,menubar=no,scrollbars=no,status=no`);
+  // SUPER ADMIN FUNCTIONS
+  const loadSuperAdminData = async () => { const { data } = await api.getAllProfiles(); setUserList(data || []); };
+  const addCredits = async (userId, amount) => {
+      const user = userList.find(u => u.id === userId);
+      if(!user) return;
+      await api.updateProfileCredits(userId, (user.credits || 0) + amount);
+      toast.success("Crediti aggiornati"); loadSuperAdminData();
+  };
+  const handleCreateOperator = async () => {
+      if(!newUserEmail) return toast.error("Inserisci email");
+      await api.createOperatorProfile(newUserEmail, newUserName, 0);
+      setShowCreateUserModal(false); toast.success("Invito inviato."); loadSuperAdminData();
   };
 
-  const handleStartLivePre = (req) => {
-    setSelectedRequest(req);
-    setYoutubeSearchResults([]);
-    setYoutubeUrl(req.youtube_url || "");
-    if(req.youtube_url) {
-        setShowYoutubeModal(true);
-    } else {
-        const query = `${req.title} ${req.artist} karaoke`;
-        setYoutubeSearchQuery(query);
-        setShowYoutubeModal(true);
-        setTimeout(() => searchYouTube(query), 100);
-    }
+  // --- ACTIONS ---
+  const handleOpenDisplay = () => {
+    const width = 1280; const height = 720;
+    const left = (window.screen.width - width) / 2; const top = (window.screen.height - height) / 2;
+    window.open(`/display/${pubCode}`, 'NeonPubDisplay', `popup=yes,width=${width},height=${height},top=${top},left=${left},toolbar=no,menubar=no`);
   };
 
   const searchYouTube = async (manualQuery = null) => {
@@ -277,25 +178,20 @@ export default function AdminDashboard() {
     setSearchingYoutube(true);
     try {
       const apiKey = process.env.REACT_APP_YOUTUBE_API_KEY; 
-      if(!apiKey) throw new Error("Manca API Key");
       const response = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(q)}&type=video&maxResults=5&key=${apiKey}`);
       const data = await response.json();
       setYoutubeSearchResults(data.items || []);
-    } catch (error) { toast.error("Errore ricerca YT automatico."); } finally { setSearchingYoutube(false); }
+    } catch (error) { toast.error("Errore ricerca YT."); } finally { setSearchingYoutube(false); }
   };
 
   const startPerformance = async () => {
     if (!selectedRequest || !youtubeUrl) return toast.error("Manca URL");
     try {
         const { data: newPerf } = await api.startPerformance(selectedRequest.id, youtubeUrl);
-        setCurrentPerformance(newPerf);
-        setShowYoutubeModal(false);
-        toast.success("Karaoke Avviato!");
-        loadData();
+        setCurrentPerformance(newPerf); setShowYoutubeModal(false); toast.success("Karaoke Avviato!"); loadData();
     } catch(e) { toast.error(e.message); }
   };
 
-  // --- MEDIA CONTROLS ---
   const ctrlPerf = async (action) => {
       if(!currentPerformance) return;
       try {
@@ -313,78 +209,47 @@ export default function AdminDashboard() {
                 toast.info("Chiuso senza voto");
             }
         }
-        
-        // Chiudi votazione finale (Aggiorna Score Utente)
+        // Chiudi votazione finale
         if(action==='close_vote') {
              await api.closeVoting(currentPerformance.id);
-             toast.success("Votazione conclusa e classifica aggiornata!");
+             toast.success("Votazione conclusa!");
         }
-        
         loadData();
-      } catch(e) { toast.error("Errore comando"); }
+      } catch(e) { toast.error("Errore comando: " + e.message); }
   };
 
-  const toggleMute = async () => {
-      const newState = !isMuted;
-      setIsMuted(newState);
-      await api.toggleMute(newState);
-      toast.success(newState ? "Audio Disattivato" : "Audio Attivo");
+  // NUOVA FUNZIONE PER IL CESTINO
+  const deleteRequest = async (id) => {
+      if(!confirm("Eliminare definitivamente dalla scaletta?")) return;
+      try {
+          await api.deleteRequest(id);
+          toast.success("Cancellato");
+          loadData();
+      } catch(e) { toast.error("Errore cancellazione"); }
   };
 
   const openManualVideoWindow = () => {
       const urlToOpen = currentPerformance?.youtube_url || youtubeUrl;
-      if (urlToOpen) {
-          window.open(urlToOpen, '_blank');
-      } else {
-          toast.error("Nessun video attivo");
-      }
+      if (urlToOpen) window.open(urlToOpen, '_blank');
+      else toast.error("Nessun video attivo");
   };
 
-  // --- QUIZ & SFIDE ---
-  const filterScripts = () => {
-      return challengeScripts.filter(s => {
-          const typeMatch = challengeFilterType === 'all' || s.type === challengeFilterType;
-          const themeMatch = challengeFilterTheme === 'all' || s.theme === challengeFilterTheme;
-          return typeMatch && themeMatch;
-      });
+  const handleSendMessage = async () => {
+      if(!adminMessage) return;
+      await api.sendMessage({ text: adminMessage }); // Usa l'API aggiornata che imposta approved per admin
+      setShowMessageModal(false); 
+      setAdminMessage("");
+      toast.success("Messaggio Inviato");
   };
 
-  const launchChallenge = async (script) => {
-      if(window.confirm(`Lanciare sfida: ${script.title}?`)) {
-          toast.success(`Sfida "${script.title}" inviata agli schermi (Simulazione)`);
-      }
-  };
-
-  const launchCustomQuiz = async (e) => {
-      e.preventDefault();
+  const launchCustomQuiz = async () => {
       try {
           await api.startQuiz({
-              category: "custom",
-              question: quizQuestion,
-              options: quizOptions,
-              correct_index: quizCorrectIndex,
-              points: 10
+              category: "custom", question: quizQuestion, options: quizOptions, correct_index: quizCorrectIndex, points: 10
           });
-          setShowCustomQuizModal(false);
-          toast.success("Quiz Custom Lanciato!");
-          loadData();
+          setShowCustomQuizModal(false); toast.success("Quiz Custom Lanciato!"); loadData();
       } catch(e) { toast.error("Errore quiz custom"); }
   };
-
-  const ctrlQuiz = async (action) => {
-      if(!activeQuizId) return;
-      try {
-          if(action==='close_vote') await api.closeQuizVoting(activeQuizId);
-          if(action==='show_results') await api.showQuizResults(activeQuizId);
-          if(action==='end') {
-              await api.endQuiz(activeQuizId);
-              await api.setEventModule('karaoke'); 
-              toast.info("Tornati al Karaoke");
-          }
-          loadData();
-      } catch(e) { toast.error("Errore comando quiz"); }
-  };
-
 
   // --- RENDER ---
   if (appState === 'loading') return <div className="bg-black h-screen text-white flex items-center justify-center">Caricamento...</div>;
@@ -395,50 +260,26 @@ export default function AdminDashboard() {
         <div className="h-screen bg-zinc-950 text-white flex flex-col p-8 overflow-auto">
             <header className="flex justify-between items-center mb-8 border-b border-zinc-800 pb-4">
                 <h1 className="text-3xl font-bold text-fuchsia-500">SUPER ADMIN DASHBOARD</h1>
-                <div className="flex items-center gap-4">
-                    <span className="text-zinc-400">admin@neonpub.com</span>
-                    <Button variant="ghost" onClick={handleLogout}><LogOut className="w-4 h-4 mr-2"/> Esci</Button>
-                </div>
+                <Button variant="ghost" onClick={handleLogout}><LogOut className="w-4 h-4 mr-2"/> Esci</Button>
             </header>
-            
-            <div className="mb-6">
-                <Button onClick={()=>setShowCreateUserModal(true)} className="bg-green-600 hover:bg-green-500"><UserPlus className="w-4 h-4 mr-2"/> Nuovo Operatore</Button>
-            </div>
-
+            <div className="mb-6"><Button onClick={()=>setShowCreateUserModal(true)} className="bg-green-600"><UserPlus className="w-4 h-4 mr-2"/> Nuovo Operatore</Button></div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {userList.map(user => (
                     <Card key={user.id} className="bg-zinc-900 border-zinc-800">
-                        <CardHeader>
-                            <CardTitle className="text-white truncate flex justify-between">
-                                {user.email}
-                                <span className="text-xs bg-zinc-800 px-2 py-1 rounded text-zinc-400">{user.role}</span>
-                            </CardTitle>
-                        </CardHeader>
+                        <CardHeader><CardTitle className="text-white text-sm">{user.email} <span className="text-xs text-zinc-400">({user.role})</span></CardTitle></CardHeader>
                         <CardContent>
-                            <div className="flex justify-between items-center mb-4">
-                                <span className="text-zinc-500">Crediti:</span>
-                                <span className="text-2xl font-bold text-yellow-500">{user.credits || 0}</span>
-                            </div>
-                            <div className="flex gap-2 mb-4">
-                                <Button size="sm" onClick={()=>addCredits(user.id, 1)} className="flex-1 bg-zinc-800 hover:bg-zinc-700">+1</Button>
-                                <Button size="sm" onClick={()=>addCredits(user.id, 5)} className="flex-1 bg-zinc-800 hover:bg-zinc-700">+5</Button>
-                                <Button size="sm" onClick={()=>addCredits(user.id, 10)} className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-black font-bold">+10</Button>
-                            </div>
-                            <Button size="sm" variant="destructive" className="w-full" onClick={()=>toast.info("Funzione Ban in arrivo")}>
-                                <Ban className="w-4 h-4 mr-2"/> Disattiva
-                            </Button>
+                            <div className="flex justify-between items-center mb-4"><span className="text-zinc-500">Crediti:</span><span className="text-2xl font-bold text-yellow-500">{user.credits || 0}</span></div>
+                            <div className="flex gap-2"><Button size="sm" onClick={()=>addCredits(user.id, 1)} className="flex-1 bg-zinc-800">+1</Button><Button size="sm" onClick={()=>addCredits(user.id, 10)} className="flex-1 bg-yellow-600 text-black">+10</Button></div>
                         </CardContent>
                     </Card>
                 ))}
             </div>
-
             {/* Modal Creazione User */}
             <Dialog open={showCreateUserModal} onOpenChange={setShowCreateUserModal}>
                 <DialogContent className="bg-zinc-900 border-zinc-800">
                     <DialogHeader><DialogTitle>Invita Operatore</DialogTitle></DialogHeader>
                     <div className="space-y-4 pt-4">
-                        <Input placeholder="Email Operatore" value={newUserEmail} onChange={e=>setNewUserEmail(e.target.value)} className="bg-zinc-800"/>
-                        <p className="text-xs text-zinc-500">L'operatore dovrà registrarsi su NeonPub usando questa email.</p>
+                        <Input placeholder="Email" value={newUserEmail} onChange={e=>setNewUserEmail(e.target.value)} className="bg-zinc-800"/>
                         <Button className="w-full bg-green-600" onClick={handleCreateOperator}>Invita</Button>
                     </div>
                 </DialogContent>
@@ -452,12 +293,9 @@ export default function AdminDashboard() {
       return (
         <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center p-4">
             <Card className="w-full max-w-md bg-zinc-900 border-zinc-800">
-                <CardHeader>
-                   <CardTitle className="text-center text-white">Nuovo Evento</CardTitle>
-                   <div className="text-center text-yellow-500 text-sm mt-2">Crediti disponibili: {profile?.credits || 0}</div>
-                </CardHeader>
+                <CardHeader><CardTitle className="text-center text-white">Nuovo Evento</CardTitle><div className="text-center text-yellow-500 text-sm">Crediti: {profile?.credits || 0}</div></CardHeader>
                 <CardContent className="space-y-4">
-                    <Input placeholder="Nome Evento" value={newEventName} onChange={e=>setNewEventName(e.target.value)} className="bg-zinc-950 text-center text-lg" />
+                    <Input placeholder="Nome Evento" value={newEventName} onChange={e=>setNewEventName(e.target.value)} className="bg-zinc-950 text-center" />
                     <Button onClick={handleStartEvent} disabled={creatingEvent} className="w-full bg-fuchsia-600 h-12">LANCIA EVENTO (1 Credit)</Button>
                     <Button variant="ghost" onClick={handleLogout} className="w-full text-zinc-500">Esci</Button>
                 </CardContent>
@@ -468,7 +306,6 @@ export default function AdminDashboard() {
 
   // --- OPERATOR DASHBOARD ---
   const pendingReqs = queue.filter(r => r.status === 'pending');
-  // Filtriamo anche lato client per sicurezza
   const queuedReqs = queue.filter(r => r.status === 'queued');
 
   return (
@@ -477,18 +314,13 @@ export default function AdminDashboard() {
       {/* HEADER */}
       <header className="h-14 border-b border-white/10 flex items-center justify-between px-4 bg-zinc-900">
          <div className="flex items-center gap-4">
-            <h1 className="font-bold text-lg bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-400 to-cyan-400">NEONPUB OS</h1>
+            <h1 className="font-bold text-lg text-fuchsia-400">NEONPUB OS</h1>
             <span className="text-xs px-2 py-1 bg-zinc-800 rounded font-mono text-zinc-400">{pubCode}</span>
          </div>
          <div className="flex items-center gap-4">
-             {/* CREDITI OPERATORE */}
-             <div className="flex items-center gap-2 px-3 py-1 bg-yellow-950/20 border border-yellow-700/30 rounded text-yellow-500 font-bold text-sm">
-                 <Gem className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-                 <span>{profile?.credits || 0}</span>
-             </div>
-
-             <Button variant="outline" size="sm" onClick={handleOpenDisplay} className="bg-cyan-900/20 text-cyan-400 border-cyan-800 hover:bg-cyan-900/40"><Tv className="w-4 h-4 mr-2" /> APRI DISPLAY</Button>
-             <Button variant="ghost" size="sm" onClick={() => { if(confirm("Chiudere evento?")) { localStorage.removeItem("neonpub_pub_code"); setPubCode(null); setAppState("setup"); } }}><ArrowLeft className="w-4 h-4" /> Chiudi</Button>
+             <div className="text-yellow-500 font-bold text-sm flex gap-2"><Gem className="w-4 h-4"/>{profile?.credits || 0}</div>
+             <Button variant="outline" size="sm" onClick={handleOpenDisplay} className="bg-cyan-900/20 text-cyan-400 border-cyan-800"><Tv className="w-4 h-4 mr-2" /> DISPLAY</Button>
+             <Button variant="ghost" size="sm" onClick={() => { if(confirm("Chiudere evento?")) { localStorage.removeItem("neonpub_pub_code"); setPubCode(null); setAppState("setup"); } }}><LogOut className="w-4 h-4" /></Button>
          </div>
       </header>
 
@@ -500,11 +332,14 @@ export default function AdminDashboard() {
             <div className="p-2 border-b border-white/5">
                <Tabs value={libraryTab} onValueChange={setLibraryTab} className="w-full">
                   <TabsList className="grid w-full grid-cols-5 bg-zinc-950 p-1">
-                     <TabsTrigger value="karaoke" className="text-xs px-1"><ListMusic className="w-3 h-3 mr-1" />Coda</TabsTrigger>
-                     <TabsTrigger value="quiz" className="text-xs px-1"><BrainCircuit className="w-3 h-3 mr-1" />Quiz</TabsTrigger>
-                     <TabsTrigger value="challenges" className="text-xs px-1"><Swords className="w-3 h-3 mr-1" />Sfide</TabsTrigger>
-                     <TabsTrigger value="messages" className="text-xs px-1"><MessageSquare className="w-3 h-3 mr-1" />Msg</TabsTrigger>
-                     <TabsTrigger value="settings" className="text-xs px-1"><Settings className="w-3 h-3 mr-1" />Set</TabsTrigger>
+                     <TabsTrigger value="karaoke" className="text-xs px-1"><ListMusic className="w-3 h-3" /></TabsTrigger>
+                     <TabsTrigger value="quiz" className="text-xs px-1"><BrainCircuit className="w-3 h-3" /></TabsTrigger>
+                     <TabsTrigger value="challenges" className="text-xs px-1"><Swords className="w-3 h-3" /></TabsTrigger>
+                     <TabsTrigger value="messages" className="text-xs px-1 relative">
+                        <MessageSquare className="w-3 h-3" />
+                        {pendingMessages.length > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>}
+                     </TabsTrigger>
+                     <TabsTrigger value="settings" className="text-xs px-1"><Settings className="w-3 h-3" /></TabsTrigger>
                   </TabsList>
                </Tabs>
             </div>
@@ -521,8 +356,8 @@ export default function AdminDashboard() {
                                 <div key={req.id} className="p-2 bg-yellow-900/10 border border-yellow-900/30 rounded flex justify-between items-center">
                                     <div className="truncate w-2/3"><div className="font-bold text-sm truncate">{req.title}</div><div className="text-xs text-zinc-400">{req.user_nickname}</div></div>
                                     <div className="flex gap-1">
-                                        <Button size="icon" variant="ghost" className="h-6 w-6 text-green-500 hover:bg-green-500/20" onClick={()=>api.approveRequest(req.id)}><Check className="w-4 h-4"/></Button>
-                                        <Button size="icon" variant="ghost" className="h-6 w-6 text-red-500 hover:bg-red-500/20" onClick={()=>api.rejectRequest(req.id)}><X className="w-4 h-4"/></Button>
+                                        <Button size="icon" variant="ghost" className="h-6 w-6 text-green-500" onClick={()=>api.approveRequest(req.id)}><Check className="w-4 h-4"/></Button>
+                                        <Button size="icon" variant="ghost" className="h-6 w-6 text-red-500" onClick={()=>api.rejectRequest(req.id)}><X className="w-4 h-4"/></Button>
                                     </div>
                                 </div>
                             ))}
@@ -540,41 +375,71 @@ export default function AdminDashboard() {
                                       <div className="text-xs text-zinc-400 truncate">{req.artist} • {req.user_nickname}</div>
                                   </div>
                               </div>
-                              <Button size="sm" className="bg-fuchsia-600 h-7 opacity-0 group-hover:opacity-100 transition" onClick={() => handleStartLivePre(req)}>
-                                 <Play className="w-3 h-3 mr-1" /> LIVE
-                              </Button>
+                              <div className="flex gap-2">
+                                  {/* TASTO ELIMINA */}
+                                  <Button size="icon" variant="ghost" className="h-7 w-7 text-zinc-500 hover:text-red-500 hover:bg-red-900/20" onClick={() => deleteRequest(req.id)}>
+                                     <Trash2 className="w-3 h-3" />
+                                  </Button>
+                                  <Button size="sm" className="bg-fuchsia-600 h-7" onClick={() => { 
+                                      setSelectedRequest(req); 
+                                      setYoutubeSearchResults([]);
+                                      setYoutubeUrl(req.youtube_url || "");
+                                      setShowYoutubeModal(true);
+                                      if(!req.youtube_url) setTimeout(() => searchYouTube(`${req.title} ${req.artist} karaoke`), 100);
+                                  }}>
+                                     <Play className="w-3 h-3 mr-1" /> LIVE
+                                  </Button>
+                              </div>
                            </div>
                         ))}
-                        {queuedReqs.length === 0 && <p className="text-center text-zinc-600 text-xs py-4">Nessuna canzone in coda.</p>}
                      </div>
                   </div>
                )}
 
-               {/* ... (ALTRE TAB IDENTICHE) ... */}
+               {/* 2. QUIZ */}
+               {libraryTab === 'quiz' && (
+                   <div className="space-y-4">
+                       <Button className="w-full bg-fuchsia-600" onClick={()=>setShowCustomQuizModal(true)}><Plus className="w-4 h-4 mr-2"/> Nuovo Quiz</Button>
+                       {activeQuizId ? (
+                           <div className="p-4 bg-green-900/20 border border-green-500 rounded text-center">
+                               <h3 className="text-green-500 font-bold mb-2">QUIZ ATTIVO</h3>
+                               <Button className="w-full bg-red-600" onClick={()=>api.endQuiz(activeQuizId)}>Termina Quiz</Button>
+                           </div>
+                       ) : <p className="text-center text-zinc-500 py-4">Nessun quiz attivo</p>}
+                   </div>
+               )}
+
+               {/* 4. MESSAGGI */}
+               {libraryTab === 'messages' && (
+                   <div className="space-y-4 pt-2">
+                       <Button className="w-full bg-cyan-600 hover:bg-cyan-500 mb-4" onClick={()=>setShowMessageModal(true)}>
+                           <MessageSquare className="w-4 h-4 mr-2"/> Scrivi Messaggio Regia
+                       </Button>
+                       
+                       <h3 className="text-xs font-bold text-zinc-500 uppercase">In Attesa ({pendingMessages.length})</h3>
+                       {pendingMessages.length === 0 && <p className="text-zinc-600 text-xs">Nessun messaggio in coda.</p>}
+                       {pendingMessages.map(msg => (
+                           <div key={msg.id} className="bg-zinc-800 p-3 rounded border-l-2 border-blue-500">
+                               <div className="flex justify-between mb-2">
+                                   <span className="font-bold text-sm">{msg.user_nickname || 'Anonimo'}</span>
+                                   <span className="text-xs text-zinc-500">App: {msg.participant_id ? 'Utente' : 'Regia'}</span>
+                               </div>
+                               <p className="text-sm bg-black/20 p-2 rounded mb-2">{msg.text}</p>
+                               <div className="flex gap-2 justify-end">
+                                   <Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-900/20 h-7" onClick={async()=>{await api.rejectMessage(msg.id); loadData();}}>Rifiuta</Button>
+                                   <Button size="sm" className="bg-green-600 h-7 hover:bg-green-500" onClick={async()=>{await api.approveMessage(msg.id); loadData();}}>Approva</Button>
+                               </div>
+                           </div>
+                       ))}
+                   </div>
+               )}
+
                {/* 5. SETTINGS */}
                {libraryTab === 'settings' && (
                    <div className="space-y-4 pt-2">
-                       <div className="space-y-2">
-                           <label className="text-xs text-zinc-500">Nome Locale</label>
-                           <Input value={venueName} onChange={e=>setVenueName(e.target.value)} className="bg-zinc-800" placeholder="Es. Mario's Pub"/>
-                       </div>
-                       
-                       <div className="space-y-2">
-                           <label className="text-xs text-zinc-500">Logo (File Upload)</label>
-                           <div className="flex gap-2">
-                               <Input type="file" onChange={handleLogoUpload} className="bg-zinc-800" accept="image/*" disabled={uploadingLogo}/>
-                               {uploadingLogo && <span className="text-xs text-yellow-500 self-center">...</span>}
-                           </div>
-                       </div>
-
-                       <div className="space-y-2">
-                           <label className="text-xs text-zinc-500">Oppure URL Logo</label>
-                           <Input value={venueLogo} onChange={e=>setVenueLogo(e.target.value)} className="bg-zinc-800" placeholder="https://..."/>
-                       </div>
-
-                       <Button className="w-full bg-zinc-700 hover:bg-zinc-600" onClick={handleSaveSettings}>
-                           <Save className="w-4 h-4 mr-2"/> Salva Impostazioni
-                       </Button>
+                       <div className="space-y-2"><label className="text-xs text-zinc-500">Nome Locale</label><Input value={venueName} onChange={e=>setVenueName(e.target.value)} className="bg-zinc-800"/></div>
+                       <div className="space-y-2"><label className="text-xs text-zinc-500">Logo URL</label><Input value={venueLogo} onChange={e=>setVenueLogo(e.target.value)} className="bg-zinc-800"/></div>
+                       <Button className="w-full bg-zinc-700" onClick={async()=>{await updateEventSettings({name:venueName, logo_url:venueLogo}); toast.success("Salvato");}}>Salva</Button>
                    </div>
                )}
             </ScrollArea>
@@ -582,62 +447,50 @@ export default function AdminDashboard() {
 
          {/* DESTRA: LIVE DECK */}
          <main className="col-span-8 bg-black relative flex flex-col">
-            
-            {/* Live Status Bar */}
-            <div className="h-10 border-b border-white/10 flex items-center px-4 justify-between bg-zinc-950 select-none">
+            {/* Header Deck */}
+            <div className="h-10 border-b border-white/10 flex items-center px-4 justify-between bg-zinc-950">
                <span className="text-xs font-mono text-zinc-500">PROGRAMMA LIVE</span>
-               <div className="flex items-center gap-4">
-                  <Button size="sm" variant="ghost" className={`h-6 w-6 p-0 ${isMuted?'text-red-500':'text-zinc-400'}`} onClick={toggleMute}>
-                      {isMuted ? <VolumeX className="w-4 h-4"/> : <Volume2 className="w-4 h-4"/>}
-                  </Button>
-                  <div className="flex items-center gap-2">
-                     <div className={`w-2 h-2 rounded-full ${eventState.active_module !== 'idle' ? 'bg-red-500 animate-pulse' : 'bg-zinc-600'}`}></div>
-                     <span className="uppercase font-bold tracking-wider text-sm text-red-500">{eventState.active_module}</span>
-                  </div>
-               </div>
+               <Button size="sm" variant="ghost" onClick={()=>api.toggleMute(!isMuted)} className={isMuted?'text-red-500':'text-zinc-400'}>
+                   {isMuted ? <VolumeX className="w-4 h-4"/> : <Volume2 className="w-4 h-4"/>}
+               </Button>
             </div>
 
-            {/* Deck Content */}
-            <div className="flex-1 p-6 flex items-center justify-center bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-zinc-900 via-black to-black">
-               
-               {/* SCENA: KARAOKE */}
+            <div className="flex-1 p-6 flex items-center justify-center bg-gradient-to-b from-zinc-900 to-black">
                {eventState.active_module === 'karaoke' && (
                   <div className="w-full max-w-3xl text-center">
                      {!currentPerformance ? (
                         <div className="text-zinc-600 flex flex-col items-center opacity-50">
                            <ListMusic className="w-24 h-24 mb-4" />
-                           <h2 className="text-2xl font-bold mb-2">Deck Karaoke Libero</h2>
-                           <p>Scegli una canzone dalla libreria per andare in onda.</p>
+                           <h2 className="text-2xl font-bold">In Attesa...</h2>
                         </div>
                      ) : (
-                        <div className="bg-zinc-900/80 backdrop-blur border border-white/10 p-8 rounded-2xl shadow-2xl relative overflow-hidden">
+                        <div className="bg-zinc-900/80 border border-white/10 p-8 rounded-2xl shadow-2xl relative">
                            <div className="mb-6">
-                               <h2 className="text-4xl font-black text-white mb-2 leading-tight">{currentPerformance.song_title}</h2>
+                               <h2 className="text-4xl font-black text-white">{currentPerformance.song_title}</h2>
                                <p className="text-2xl text-fuchsia-400">{currentPerformance.song_artist}</p>
-                               <div className="mt-4 inline-block bg-white/10 px-4 py-1 rounded-full text-sm text-zinc-300">🎤 {currentPerformance.user_nickname}</div>
+                               <div className="mt-4 text-zinc-300">🎤 {currentPerformance.user_nickname}</div>
                            </div>
 
-                           {/* Controls */}
                            {currentPerformance.status === 'voting' ? (
                                <div className="bg-yellow-500/20 p-6 rounded-xl border border-yellow-500/50 animate-pulse">
                                    <h3 className="text-2xl font-bold text-yellow-500 mb-4">VOTAZIONE IN CORSO</h3>
-                                   <div className="flex items-center justify-center gap-4 mb-4">
-                                       <Star className="w-8 h-8 text-yellow-500 fill-yellow-500"/>
-                                       <span className="text-4xl font-bold text-white">{(currentPerformance.average_score || 0).toFixed(1)}</span>
-                                   </div>
-                                   <Button size="lg" className="w-full bg-yellow-500 text-black hover:bg-yellow-400 font-bold" onClick={()=>ctrlPerf('close_vote')}>CHIUDI VOTAZIONE & NEXT</Button>
+                                   <Button size="lg" className="w-full bg-yellow-500 text-black font-bold" onClick={()=>ctrlPerf('close_vote')}>CHIUDI VOTAZIONE & NEXT</Button>
                                </div>
                            ) : (
                                <div className="flex flex-col gap-4">
                                    <div className="flex justify-center gap-4">
-                                       {currentPerformance.status === 'live' && <Button size="lg" variant="outline" className="h-16 w-16 rounded-full border-zinc-700 hover:bg-zinc-800" onClick={()=>ctrlPerf('pause')}><Pause className="w-6 h-6" /></Button>}
-                                       {currentPerformance.status === 'paused' && <Button size="lg" className="h-16 w-16 rounded-full bg-green-500 hover:bg-green-400 text-black" onClick={()=>ctrlPerf('resume')}><Play className="w-6 h-6" /></Button>}
-                                       <Button size="lg" variant="secondary" className="h-16 w-16 rounded-full bg-zinc-800 hover:bg-zinc-700" onClick={()=>ctrlPerf('restart')}><RotateCcw className="w-6 h-6" /></Button>
+                                       {currentPerformance.status === 'live' && <Button size="lg" variant="outline" className="h-16 w-16 rounded-full" onClick={()=>ctrlPerf('pause')}><Pause className="w-6 h-6" /></Button>}
+                                       {currentPerformance.status === 'paused' && <Button size="lg" className="h-16 w-16 rounded-full bg-green-500 text-black" onClick={()=>ctrlPerf('resume')}><Play className="w-6 h-6" /></Button>}
+                                       <Button size="lg" variant="secondary" className="h-16 w-16 rounded-full" onClick={()=>ctrlPerf('restart')}><RotateCcw className="w-6 h-6" /></Button>
                                        
-                                       {/* Tasti Chiusura Differenziati */}
+                                       {/* TASTO LINK ESTERNO */}
+                                       <Button size="lg" variant="outline" className="h-16 w-16 rounded-full border-blue-500 text-blue-500 hover:bg-blue-900/20" onClick={openManualVideoWindow} title="Apri Video Esterno">
+                                           <ExternalLink className="w-6 h-6" />
+                                       </Button>
+
                                        <div className="flex gap-2 ml-4">
-                                           <Button size="lg" variant="destructive" className="h-16 px-6" onClick={()=>ctrlPerf('end_vote')}><Square className="w-6 h-6 mr-2" /> STOP & VOTA</Button>
-                                           <Button size="lg" className="h-16 px-4 bg-zinc-700 hover:bg-zinc-600" onClick={()=>ctrlPerf('skip_next')} title="Chiudi senza votare"><SkipForward className="w-6 h-6" /></Button>
+                                           <Button size="lg" variant="destructive" className="h-16 px-6" onClick={()=>ctrlPerf('end_vote')}>STOP & VOTA</Button>
+                                           <Button size="lg" className="h-16 px-4 bg-zinc-700" onClick={()=>ctrlPerf('skip_next')}>SKIP</Button>
                                        </div>
                                    </div>
                                </div>
@@ -646,16 +499,25 @@ export default function AdminDashboard() {
                      )}
                   </div>
                )}
-               
-               {/* ... (SCENA QUIZ E MODALI RIMANGONO INVARIATE) ... */}
-
             </div>
          </main>
       </div>
 
-      {/* --- MODALS (Youtube, Quiz, Msg - Invariati, assicurati che siano presenti come nel file originale) --- */}
-      {/* (Ho omesso i modali per brevità ma devono essere presenti nel file completo) */}
-       <Dialog open={showYoutubeModal} onOpenChange={setShowYoutubeModal}>
+      {/* --- MODALI --- */}
+      
+      {/* 1. MESSAGGIO REGIA */}
+      <Dialog open={showMessageModal} onOpenChange={setShowMessageModal}>
+          <DialogContent className="bg-zinc-900 border-zinc-800">
+              <DialogHeader><DialogTitle>Messaggio Regia</DialogTitle></DialogHeader>
+              <div className="space-y-4 pt-4">
+                  <Textarea value={adminMessage} onChange={e=>setAdminMessage(e.target.value)} placeholder="Scrivi avviso per gli schermi..." className="bg-zinc-800 border-zinc-700 h-32 text-lg"/>
+                  <Button className="w-full bg-cyan-600 font-bold" onClick={handleSendMessage}><Send className="w-4 h-4 mr-2"/> INVIA AGLI SCHERMI</Button>
+              </div>
+          </DialogContent>
+      </Dialog>
+      
+      {/* 2. YOUTUBE SEARCH */}
+      <Dialog open={showYoutubeModal} onOpenChange={setShowYoutubeModal}>
         <DialogContent className="bg-zinc-900 border-zinc-800 max-w-3xl">
           <DialogHeader><DialogTitle>Video per: {selectedRequest?.title}</DialogTitle></DialogHeader>
           <div className="space-y-4 pt-4">
@@ -680,6 +542,8 @@ export default function AdminDashboard() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* 3. CUSTOM QUIZ */}
       <Dialog open={showCustomQuizModal} onOpenChange={setShowCustomQuizModal}>
           <DialogContent className="bg-zinc-900 border-zinc-800">
               <DialogHeader><DialogTitle>Crea Quiz al Volo</DialogTitle></DialogHeader>
@@ -698,15 +562,7 @@ export default function AdminDashboard() {
               </div>
           </DialogContent>
       </Dialog>
-      <Dialog open={showMessageModal} onOpenChange={setShowMessageModal}>
-          <DialogContent className="bg-zinc-900 border-zinc-800">
-              <DialogHeader><DialogTitle>Messaggio Regia</DialogTitle></DialogHeader>
-              <div className="space-y-4 pt-4">
-                  <Textarea value={adminMessage} onChange={e=>setAdminMessage(e.target.value)} placeholder="Scrivi avviso per gli schermi..." className="bg-zinc-800 border-zinc-700 h-32 text-lg"/>
-                  <Button className="w-full bg-cyan-600 hover:bg-cyan-500 h-12 font-bold" onClick={async () => { await api.sendMessage({ text: adminMessage, status: 'approved' }); setShowMessageModal(false); toast.success("Inviato"); }}><Send className="w-4 h-4 mr-2"/> INVIA AGLI SCHERMI</Button>
-              </div>
-          </DialogContent>
-      </Dialog>
+
     </div>
   );
 }

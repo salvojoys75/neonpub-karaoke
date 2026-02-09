@@ -73,26 +73,22 @@ export const createPub = async (data) => {
 export const uploadLogo = async (file) => {
   if (!file) throw new Error("Nessun file selezionato");
   
-  // Sanitize file name: rimuove spazi e caratteri speciali
   const fileExt = file.name.split('.').pop();
   const cleanName = file.name.replace(/[^a-zA-Z0-9]/g, '_');
   const fileName = `${Date.now()}_${cleanName}.${fileExt}`;
   
-  // Upload su Supabase Storage (Bucket 'logos')
   const { error: uploadError } = await supabase.storage
     .from('logos')
     .upload(fileName, file, { upsert: true });
 
   if (uploadError) throw uploadError;
 
-  // Ottieni URL pubblico
   const { data } = supabase.storage.from('logos').getPublicUrl(fileName);
   return data.publicUrl;
 }
 
 export const updateEventSettings = async (data) => {
   const event = await getAdminEvent();
-  // Assicuriamoci di inviare l'oggetto corretto
   const updatePayload = { name: data.name };
   if (data.logo_url) updatePayload.logo_url = data.logo_url;
 
@@ -102,6 +98,7 @@ export const updateEventSettings = async (data) => {
 }
 
 export const getPub = async (pubCode) => {
+  if (!pubCode) return { data: null };
   const { data, error } = await supabase.from('events').select('*').eq('code', pubCode.toUpperCase()).eq('status', 'active').single()
   if (error) throw error
   return { data }
@@ -129,7 +126,6 @@ export const getAllProfiles = async () => {
 }
 
 export const updateProfileCredits = async (id, credits) => {
-    // Forza casting a numero intero
     const val = parseInt(credits, 10);
     const { error } = await supabase.from('profiles').update({ credits: val }).eq('id', id);
     if (error) throw error;
@@ -137,7 +133,6 @@ export const updateProfileCredits = async (id, credits) => {
 }
 
 export const toggleOperatorStatus = async (id, isActive) => { return { data: 'ok' }; }
-
 export const createOperatorProfile = async (email, name, initialCredits) => { return { data: 'User invited (Simulation)' }; }
 
 // ============================================
@@ -226,6 +221,14 @@ export const rejectRequest = async (requestId) => {
   if (error) throw error; return { data }
 }
 
+// *** NUOVA FUNZIONE: Per il tasto cestino in AdminDashboard ***
+export const deleteRequest = async (requestId) => {
+    // La impostiamo come 'rejected' così sparisce dalle liste
+    const { data, error } = await supabase.from('song_requests').update({ status: 'rejected' }).eq('id', requestId).select();
+    if (error) throw error;
+    return { data };
+}
+
 // ============================================
 // PERFORMANCES (ADMIN ACTIONS)
 // ============================================
@@ -252,32 +255,32 @@ export const startPerformance = async (requestId, youtubeUrl) => {
 }
 
 export const endPerformance = async (performanceId) => {
-  // 1. Passa a stato Voting (gli utenti votano)
+  // Passa a stato Voting (gli utenti votano)
   const { data, error } = await supabase.from('performances').update({ status: 'voting', ended_at: new Date().toISOString() }).eq('id', performanceId).select().single();
   if (error) throw error; 
-
-  // 2. IMPORTANTE: Rimuovi dalla coda (song_request -> ended)
-  if (data?.song_request_id) {
-     await supabase.from('song_requests').update({ status: 'ended' }).eq('id', data.song_request_id);
-  }
-
   return { data }
 }
 
+// *** FUNZIONE AGGIORNATA: Pulisce anche la scaletta ***
 export const closeVoting = async (performanceId) => {
-  // 1. Ottieni la performance per calcolare il voto finale
+  // 1. Ottieni la performance
   const { data: perf } = await supabase.from('performances').select('*, participants(score)').eq('id', performanceId).single();
   
+  if (!perf) throw new Error("Performance not found");
+
   // 2. Chiudi la performance
-  const { data, error } = await supabase.from('performances').update({ status: 'ended' }).eq('id', performanceId).select();
+  const { data, error } = await supabase.from('performances').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', performanceId).select();
   if (error) throw error;
   
-  // 3. AGGIORNA CLASSIFICA PARTECIPANTE
-  // Aggiunge la media voto allo score totale dell'utente
-  if (perf && perf.participant_id && perf.average_score > 0) {
+  // 3. AGGIORNA LA RICHIESTA ORIGINALE (Così sparisce dai banner)
+  if (perf.song_request_id) {
+      await supabase.from('song_requests').update({ status: 'ended' }).eq('id', perf.song_request_id);
+  }
+  
+  // 4. AGGIORNA PUNTEGGIO UTENTE
+  if (perf.participant_id && perf.average_score > 0) {
       const currentScore = perf.participants?.score || 0;
       const newScore = currentScore + perf.average_score;
-      
       await supabase.from('participants').update({ score: newScore }).eq('id', perf.participant_id);
   }
 
@@ -327,7 +330,7 @@ export const getCurrentPerformance = async () => {
   const { data, error } = await supabase.from('performances')
     .select('*, participants (nickname)')
     .eq('event_id', participant.event_id)
-    .in('status', ['live', 'voting', 'paused', 'restarted']) // ESCLUDE 'ended'
+    .in('status', ['live', 'voting', 'paused', 'restarted']) 
     .order('started_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -341,7 +344,7 @@ export const getAdminCurrentPerformance = async () => {
   const { data, error } = await supabase.from('performances')
     .select('*, participants (nickname)')
     .eq('event_id', event.id)
-    .in('status', ['live', 'voting', 'paused', 'restarted']) // ESCLUDE 'ended'
+    .in('status', ['live', 'voting', 'paused', 'restarted']) 
     .order('started_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -381,27 +384,43 @@ export const sendReaction = async (data) => {
   return { data: reaction }
 }
 
+// *** FUNZIONE AGGIORNATA: Gestisce sia Admin che Utente ***
 export const sendMessage = async (data) => {
-  // Logic identica a prima...
   let participantId = null;
   let eventId = null;
-  let status = data.status || 'pending';
-  try {
-     const p = getParticipantFromToken();
-     participantId = p.participant_id;
-     eventId = p.event_id;
-  } catch (e) {
-     const pubCode = localStorage.getItem('neonpub_pub_code');
-     if(pubCode) {
-        const { data: event } = await supabase.from('events').select('id').eq('code', pubCode).single();
-        if(event) eventId = event.id;
-     }
+  
+  // 1. Tenta di recuperare il contesto ADMIN (dalla dashboard)
+  const pubCode = localStorage.getItem('neonpub_pub_code');
+  if (pubCode) {
+     const { data: event } = await supabase.from('events').select('id').eq('code', pubCode).single();
+     if(event) eventId = event.id;
   }
+
+  // 2. Tenta di recuperare il contesto UTENTE (dal token)
+  // Se esiste un token valido, sovrascrive eventId e imposta participantId
+  try {
+     const token = localStorage.getItem('neonpub_token');
+     if(token) {
+        const p = JSON.parse(atob(token));
+        participantId = p.participant_id;
+        eventId = p.event_id;
+     }
+  } catch (e) { /* Ignora errore se è admin */ }
+
   if (!eventId) throw new Error("Errore contesto evento");
+  
+  // LOGICA: Se è admin (participantId è null), il messaggio è subito APPROVATO.
+  // Se è utente, è PENDING.
+  const status = participantId ? 'pending' : 'approved'; 
   const text = typeof data === 'string' ? data : (data.text || data.message);
+
   const { data: message, error } = await supabase.from('messages').insert({
-      event_id: eventId, participant_id: participantId, text: text, status: status
+      event_id: eventId, 
+      participant_id: participantId, 
+      text: text, 
+      status: status
     }).select().single()
+  
   if (error) throw error
   return { data: message }
 }
@@ -426,7 +445,6 @@ export const rejectMessage = async (id) => {
 // ============================================
 // QUIZ & DISPLAY DATA
 // ============================================
-// (Sezioni Quiz identiche, tranne answerQuiz per punteggio score)
 
 export const startQuiz = async (data) => {
   const event = await getAdminEvent()
@@ -478,7 +496,6 @@ export const answerQuiz = async (data) => {
   }).select().single()
   if (error) { if (error.code==='23505') throw new Error('Già risposto'); throw error; }
   
-  // AGGIORNA CLASSIFICA (SCORE)
   if (isCorrect) {
       const { data: p } = await supabase.from('participants').select('score').eq('id', participant.participant_id).single();
       if (p) {
@@ -541,7 +558,7 @@ export default {
   createPub, updateEventSettings, uploadLogo, getPub, joinPub, adminLogin, getMe,
   getAllProfiles, updateProfileCredits, toggleOperatorStatus, createOperatorProfile,
   getEventState, setEventModule, getQuizCatalog,
-  requestSong, getSongQueue, getMyRequests, getAdminQueue, approveRequest, rejectRequest,
+  requestSong, getSongQueue, getMyRequests, getAdminQueue, approveRequest, rejectRequest, deleteRequest,
   startPerformance, pausePerformance, resumePerformance, endPerformance, closeVoting, stopAndNext, restartPerformance, toggleMute,
   getCurrentPerformance, getAdminCurrentPerformance,
   submitVote, sendReaction,
