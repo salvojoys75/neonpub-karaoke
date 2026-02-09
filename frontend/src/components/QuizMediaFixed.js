@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Music2, Film, Loader2 } from "lucide-react";
+import { Music2, Film, Loader2, VolumeX } from "lucide-react";
 
+// Helper interni
 const getYoutubeId = (url) => {
     if (!url) return null;
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
@@ -10,7 +11,7 @@ const getYoutubeId = (url) => {
 
 const getMediaType = (url, type) => {
     if (type === 'video' || (url && (url.includes('youtube.com') || url.includes('youtu.be')))) return 'youtube';
-    if (type === 'audio') return 'audio_file'; // O gestibile via youtube
+    if (type === 'audio') return 'audio_file'; 
     return 'unknown';
 };
 
@@ -19,6 +20,8 @@ const QuizMediaFixed = ({ mediaUrl, mediaType, isResult }) => {
     const currentVideoIdRef = useRef(null);
     const hasStartedRef = useRef(false);
     const [isLoading, setIsLoading] = useState(true);
+    // Stato per gestire il blocco audio del browser
+    const [audioBlocked, setAudioBlocked] = useState(false);
 
     const detectedType = getMediaType(mediaUrl, mediaType);
 
@@ -38,6 +41,7 @@ const QuizMediaFixed = ({ mediaUrl, mediaType, isResult }) => {
 
             currentVideoIdRef.current = videoId;
             setIsLoading(true);
+            setAudioBlocked(false);
 
             const initPlayer = () => {
                 if (playerRef.current) {
@@ -57,14 +61,29 @@ const QuizMediaFixed = ({ mediaUrl, mediaType, isResult }) => {
                         modestbranding: 1,
                         rel: 0,
                         showinfo: 0,
-                        mute: 0,
+                        mute: 0, // Tenta di partire con audio
                         origin: window.location.origin
                     },
                     events: {
                         onReady: (event) => {
+                            // FORZA AUDIO AL MASSIMO E UNMUTE
+                            event.target.setVolume(100);
+                            event.target.unMute(); 
+                            
+                            // Verifica se è mutato nonostante il comando (succede se il browser blocca)
+                            if (event.target.isMuted()) {
+                                setAudioBlocked(true);
+                            }
+
                             event.target.playVideo();
                             hasStartedRef.current = true;
                             setIsLoading(false);
+                        },
+                        onStateChange: (event) => {
+                            // Se l'utente clicca per sbloccare l'audio, nascondi l'avviso
+                            if (event.data === 1 && !event.target.isMuted()) {
+                                setAudioBlocked(false);
+                            }
                         }
                     }
                 });
@@ -93,6 +112,21 @@ const QuizMediaFixed = ({ mediaUrl, mediaType, isResult }) => {
                 
                 {isLoading && (
                     <div className="absolute z-10 text-fuchsia-500 animate-spin"><Loader2 size={64} /></div>
+                )}
+
+                {/* AVVISO BLOCCA AUDIO: Appare solo se il browser blocca l'autoplay con suono */}
+                {audioBlocked && (
+                    <div className="absolute top-10 right-10 z-50 bg-red-600 text-white p-4 rounded-full animate-bounce cursor-pointer shadow-lg border-4 border-white"
+                         onClick={() => {
+                             if(playerRef.current) {
+                                 playerRef.current.unMute();
+                                 setAudioBlocked(false);
+                             }
+                         }}>
+                        <div className="flex items-center gap-2 font-bold text-xl">
+                            <VolumeX size={32} /> CLICCA QUI PER ATTIVARE L'AUDIO
+                        </div>
+                    </div>
                 )}
 
                 {isAudioMode && (

@@ -175,7 +175,6 @@ export const setEventModule = async (moduleId, specificContentId = null) => {
   }
 };
 
-// MODIFICATO: Filtra solo le domande is_active=true
 export const getQuizCatalog = async () => {
   const { data: catalog, error } = await supabase
     .from('quiz_catalog')
@@ -208,7 +207,6 @@ export const getQuizCatalog = async () => {
   return { data: catalog || [] };
 };
 
-// NUOVO: Funzione per bannare (soft delete) una domanda
 export const deleteQuizQuestion = async (catalogId) => {
     const { error } = await supabase
         .from('quiz_catalog')
@@ -224,15 +222,24 @@ export const getChallengeCatalog = async () => {
   return { data: data || [] };
 };
 
+// === IMPORTAZIONE MIGLIORATA (ANTI DUPLICATI) ===
 export const importQuizCatalog = async (jsonString) => {
     try {
         let items;
         try { items = JSON.parse(jsonString); } catch (e) { throw new Error("JSON non valido."); }
         if (!Array.isArray(items)) items = [items];
         
-        const cleanItems = items.map(item => {
-             if(!item.question || !item.options) throw new Error("Dati mancanti nel JSON");
-             return {
+        // 1. Scarica tutte le domande esistenti per controllare duplicati
+        const { data: existingQuestions } = await supabase
+            .from('quiz_catalog')
+            .select('question');
+            
+        const existingSet = new Set(existingQuestions?.map(q => q.question) || []);
+        
+        // 2. Filtra solo le domande NUOVE
+        const newItems = items
+            .filter(item => item.question && item.options && !existingSet.has(item.question))
+            .map(item => ({
                  category: item.category || 'Generale',
                  question: item.question,
                  options: item.options,
@@ -241,14 +248,19 @@ export const importQuizCatalog = async (jsonString) => {
                  media_url: item.media_url || null,
                  media_type: item.media_type || 'text',
                  is_active: true
-             };
-        });
+             }));
 
-        const { error } = await supabase.from('quiz_catalog').insert(cleanItems);
+        if (newItems.length === 0) {
+            return { success: true, count: 0, message: "Nessuna nuova domanda. Tutte già presenti." };
+        }
+
+        const { error } = await supabase.from('quiz_catalog').insert(newItems);
         if(error) throw error;
-        return { success: true, count: cleanItems.length };
+        
+        return { success: true, count: newItems.length };
     } catch (e) { throw new Error("Errore Importazione: " + e.message); }
 }
+// =================================================
 
 // ============================================
 // SONG REQUESTS
