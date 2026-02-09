@@ -1,3 +1,5 @@
+--- START OF FILE AdminDashboard.js ---
+
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -7,7 +9,7 @@ import {
   ListMusic, BrainCircuit, Swords, Send, Star, VolumeX, Volume2, ExternalLink,
   Users, Coins, Settings, Save, LayoutDashboard, Gem, Upload, UserPlus, Ban, Trash2, Image as ImageIcon,
   FileJson, Download, Gamepad2, StopCircle, Eye, EyeOff, ListOrdered, MonitorPlay, 
-  Music2, Film, Mic2
+  Music2, Film, Mic2, Clock, Unlock, Lock
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
@@ -36,6 +38,7 @@ export default function AdminDashboard() {
   const [currentPerformance, setCurrentPerformance] = useState(null);
   const [pendingMessages, setPendingMessages] = useState([]);
   const [isMuted, setIsMuted] = useState(false);
+  const [timeRemaining, setTimeRemaining] = useState(null);
   
   const [libraryTab, setLibraryTab] = useState("karaoke"); 
 
@@ -48,6 +51,7 @@ export default function AdminDashboard() {
   const [userList, setUserList] = useState([]);
   const [showCreateUserModal, setShowCreateUserModal] = useState(false);
   const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState(""); // Aggiunto stato password
   const [newUserName, setNewUserName] = useState("");
 
   // --- IMPOSTAZIONI EVENTO ---
@@ -85,11 +89,13 @@ export default function AdminDashboard() {
   // --- MESSAGGI VARS ---
   const [adminMessage, setAdminMessage] = useState("");
 
-  // --- SETUP ---
+  // --- SETUP & MULTI EVENTO ---
   const [newEventName, setNewEventName] = useState("");
   const [creatingEvent, setCreatingEvent] = useState(false);
+  const [activeEventsList, setActiveEventsList] = useState([]); // Lista eventi attivi dell'operatore
 
   const pollIntervalRef = useRef(null);
+  const timerIntervalRef = useRef(null);
 
   useEffect(() => { checkUserProfile(); }, [isAuthenticated]);
 
@@ -100,37 +106,55 @@ export default function AdminDashboard() {
       if (!user) return;
       let { data: userProfile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
       
+      // Auto-promote admin (dev logic)
       if (user.email === 'admin@neonpub.com' && (!userProfile || userProfile.role !== 'super_admin')) {
-          const { error } = await supabase.from('profiles').upsert({ id: user.id, email: user.email, role: 'super_admin', credits: 9999 });
-          if(!error) userProfile = { id: user.id, email: user.email, role: 'super_admin', credits: 9999 };
+          const { error } = await supabase.from('profiles').upsert({ id: user.id, email: user.email, role: 'super_admin', credits: 9999, is_active: true });
+          if(!error) userProfile = { id: user.id, email: user.email, role: 'super_admin', credits: 9999, is_active: true };
       }
+      // Create generic operator if missing
       if (!userProfile) {
-         const { data: newProfile } = await supabase.from('profiles').insert([{ id: user.id, email: user.email, role: 'operator', credits: 0 }]).select().single();
+         const { data: newProfile } = await supabase.from('profiles').insert([{ id: user.id, email: user.email, role: 'operator', credits: 0, is_active: true }]).select().single();
          userProfile = newProfile;
       }
+
+      if (!userProfile.is_active) {
+          toast.error("Account disabilitato. Contatta l'amministratore.");
+          logout();
+          return;
+      }
+
       setProfile(userProfile);
       
       if (userProfile.role === 'super_admin') { 
           setAppState("super_admin"); 
           loadSuperAdminData(); 
       } else {
+        // Logica Operatore
         const storedCode = localStorage.getItem("neonpub_pub_code");
+        
+        // Verifica se il codice salvato è ancora valido (non scaduto)
         if (storedCode) { 
-            setPubCode(storedCode); 
-            setAppState("dashboard"); 
-        } else {
-            const activeEvent = await api.recoverActiveEvent();
-            if (activeEvent) {
-                localStorage.setItem("neonpub_pub_code", activeEvent.code);
-                setPubCode(activeEvent.code);
-                setAppState("dashboard");
-                toast.success("Evento ripristinato (Nessun credito scalato)");
+            const pubData = await api.getPub(storedCode);
+            if (pubData.data && new Date(pubData.data.expires_at) > new Date()) {
+                setPubCode(storedCode); 
+                setAppState("dashboard"); 
             } else {
-                setAppState("setup"); 
+                localStorage.removeItem("neonpub_pub_code");
+                setPubCode(null);
+                loadActiveEvents(); // Carica lista eventi per il setup
+                setAppState("setup");
             }
+        } else {
+            loadActiveEvents();
+            setAppState("setup"); 
         }
       }
     } catch (error) { console.error(error); }
+  };
+
+  const loadActiveEvents = async () => {
+      const events = await api.getActiveEventsForUser();
+      setActiveEventsList(events || []);
   };
 
   const handleLogout = () => { localStorage.removeItem("neonpub_pub_code"); logout(); navigate("/"); };
@@ -138,28 +162,61 @@ export default function AdminDashboard() {
   const handleStartEvent = async (e) => {
     e.preventDefault();
     if (!newEventName) return toast.error("Inserisci nome evento");
+    if ((profile?.credits || 0) < 1) return toast.error("Crediti insufficienti!");
+
     setCreatingEvent(true);
     try {
         const { data: pubData } = await createPub({ name: newEventName });
         localStorage.setItem("neonpub_pub_code", pubData.code);
         setPubCode(pubData.code);
+        
+        // Aggiorna crediti locali per UI veloce
+        setProfile(prev => ({...prev, credits: prev.credits - 1}));
+        
         setAppState("dashboard");
-        toast.success("Evento Iniziato! (-1 Credito)");
+        toast.success("Evento Iniziato! (-1 Credito, Valido 8 ore)");
     } catch (error) { toast.error(error.message); } finally { setCreatingEvent(false); }
+  };
+
+  const handleResumeEvent = (code) => {
+      localStorage.setItem("neonpub_pub_code", code);
+      setPubCode(code);
+      setAppState("dashboard");
+      toast.success("Evento ripreso!");
   };
 
   const loadData = useCallback(async () => {
     if (!pubCode || appState !== 'dashboard') return;
     try {
+      const pubRes = await api.getPub(pubCode);
+      if (!pubRes.data) {
+          toast.error("Evento scaduto o inesistente.");
+          localStorage.removeItem("neonpub_pub_code");
+          setAppState("setup");
+          loadActiveEvents();
+          return;
+      }
+      
+      // Calcolo tempo rimanente
+      const expires = new Date(pubRes.data.expires_at);
+      const now = new Date();
+      const diff = expires - now;
+      if (diff <= 0) {
+           setTimeRemaining("SCADUTO");
+      } else {
+           const hours = Math.floor(diff / (1000 * 60 * 60));
+           const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+           setTimeRemaining(`${hours}h ${minutes}m`);
+      }
+
       const stateData = await api.getEventState();
       if(stateData) setEventState(stateData);
 
-      const [qRes, perfRes, msgRes, activeQuizRes, pubRes, quizCatRes, challRes] = await Promise.all([
+      const [qRes, perfRes, msgRes, activeQuizRes, quizCatRes, challRes] = await Promise.all([
         api.getAdminQueue(),
         api.getAdminCurrentPerformance(),
         api.getAdminPendingMessages(),
         api.getActiveQuiz(),
-        api.getPub(pubCode),
         api.getQuizCatalog(),
         api.getChallengeCatalog()
       ]);
@@ -194,7 +251,9 @@ export default function AdminDashboard() {
     }
   }, [appState, loadData]);
 
+  // --- SUPER ADMIN LOGIC ---
   const loadSuperAdminData = async () => { const { data } = await api.getAllProfiles(); setUserList(data || []); };
+  
   const addCredits = async (userId, amount) => {
       const user = userList.find(u => u.id === userId);
       if(!user) return;
@@ -202,12 +261,29 @@ export default function AdminDashboard() {
       await api.updateProfileCredits(userId, current + amount);
       toast.success("Crediti aggiornati"); loadSuperAdminData();
   };
-  const handleCreateOperator = async () => {
-      if(!newUserEmail) return toast.error("Inserisci email");
-      await api.createOperatorProfile(newUserEmail, newUserName, 0);
-      setShowCreateUserModal(false); toast.success("Invito inviato."); loadSuperAdminData();
+
+  const toggleUserStatus = async (userId, currentStatus) => {
+      try {
+          await api.toggleUserStatus(userId, !currentStatus);
+          toast.success(`Utente ${!currentStatus ? 'Attivato' : 'Disabilitato'}`);
+          loadSuperAdminData();
+      } catch (e) { toast.error("Errore modifica stato"); }
   };
 
+  const handleCreateOperator = async () => {
+      if(!newUserEmail || !newUserPassword) return toast.error("Email e Password richieste");
+      try {
+        await api.createOperatorProfile(newUserEmail, newUserName, newUserPassword, 0);
+        setShowCreateUserModal(false); 
+        setNewUserEmail(""); setNewUserPassword(""); setNewUserName("");
+        toast.success("Operatore creato e invitato."); 
+        loadSuperAdminData();
+      } catch (e) {
+        toast.error("Errore creazione: " + e.message);
+      }
+  };
+
+  // --- DASHBOARD ACTIONS ---
   const handleOpenDisplay = () => {
     const width = 1280; const height = 720;
     const left = (window.screen.width - width) / 2; const top = (window.screen.height - height) / 2;
@@ -316,7 +392,6 @@ export default function AdminDashboard() {
       }
   };
 
-  // Funzione eliminazione quiz (soft delete)
   const handleDeleteQuestion = async (e, item) => {
       e.stopPropagation();
       if(!confirm(`Sei sicuro di voler eliminare dal catalogo: "${item.question}"?`)) return;
@@ -365,6 +440,7 @@ export default function AdminDashboard() {
 
   if (appState === 'loading') return <div className="bg-black h-screen text-white flex items-center justify-center">Caricamento...</div>;
 
+  // --- VIEW: SUPER ADMIN ---
   if (appState === 'super_admin') {
       return (
         <div className="h-screen bg-zinc-950 text-white flex flex-col p-8 overflow-auto">
@@ -375,21 +451,43 @@ export default function AdminDashboard() {
             <div className="mb-6"><Button onClick={()=>setShowCreateUserModal(true)} className="bg-green-600"><UserPlus className="w-4 h-4 mr-2"/> Nuovo Operatore</Button></div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {userList.map(user => (
-                    <Card key={user.id} className="bg-zinc-900 border-zinc-800">
-                        <CardHeader><CardTitle className="text-white text-sm">{user.email} <span className="text-xs text-zinc-400">({user.role})</span></CardTitle></CardHeader>
+                    <Card key={user.id} className={`border-zinc-800 ${!user.is_active ? 'bg-red-950/20 opacity-70' : 'bg-zinc-900'}`}>
+                        <CardHeader className="flex flex-row justify-between items-start">
+                            <CardTitle className="text-white text-sm truncate w-2/3">{user.email}</CardTitle>
+                            <span className={`text-[10px] uppercase px-2 py-1 rounded ${user.role==='super_admin'?'bg-fuchsia-900 text-fuchsia-300':'bg-zinc-800 text-zinc-400'}`}>{user.role}</span>
+                        </CardHeader>
                         <CardContent>
-                            <div className="flex justify-between items-center mb-4"><span className="text-zinc-500">Crediti:</span><span className="text-2xl font-bold text-yellow-500">{user.credits || 0}</span></div>
-                            <div className="flex gap-2"><Button size="sm" onClick={()=>addCredits(user.id, 1)} className="flex-1 bg-zinc-800">+1</Button><Button size="sm" onClick={()=>addCredits(user.id, 10)} className="flex-1 bg-yellow-600 text-black">+10</Button></div>
+                            <div className="flex justify-between items-center mb-4">
+                                <span className="text-zinc-500">Crediti:</span>
+                                <span className="text-2xl font-bold text-yellow-500">{user.credits || 0}</span>
+                            </div>
+                            <div className="flex gap-2 mb-4">
+                                <Button size="sm" onClick={()=>addCredits(user.id, 1)} className="flex-1 bg-zinc-800 border border-white/10">+1</Button>
+                                <Button size="sm" onClick={()=>addCredits(user.id, 10)} className="flex-1 bg-yellow-600 text-black font-bold">+10</Button>
+                            </div>
+                            <div className="border-t border-white/10 pt-4 flex justify-between items-center">
+                                <span className="text-xs text-zinc-500">Stato: {user.is_active ? 'Attivo' : 'Disabilitato'}</span>
+                                {user.role !== 'super_admin' && (
+                                    <Button size="sm" variant={user.is_active ? "destructive" : "secondary"} onClick={() => toggleUserStatus(user.id, user.is_active)}>
+                                        {user.is_active ? <Ban className="w-4 h-4" /> : <Check className="w-4 h-4"/>}
+                                    </Button>
+                                )}
+                            </div>
                         </CardContent>
                     </Card>
                 ))}
             </div>
+            
+            {/* MODALE CREAZIONE USER */}
             <Dialog open={showCreateUserModal} onOpenChange={setShowCreateUserModal}>
                 <DialogContent className="bg-zinc-900 border-zinc-800">
-                    <DialogHeader><DialogTitle>Invita Operatore</DialogTitle></DialogHeader>
+                    <DialogHeader><DialogTitle>Crea Operatore</DialogTitle></DialogHeader>
                     <div className="space-y-4 pt-4">
-                        <Input placeholder="Email" value={newUserEmail} onChange={e=>setNewUserEmail(e.target.value)} className="bg-zinc-800"/>
-                        <Button className="w-full bg-green-600" onClick={handleCreateOperator}>Invita</Button>
+                        <Input placeholder="Email Utente" value={newUserEmail} onChange={e=>setNewUserEmail(e.target.value)} className="bg-zinc-800"/>
+                        <Input placeholder="Password Generata" value={newUserPassword} onChange={e=>setNewUserPassword(e.target.value)} className="bg-zinc-800"/>
+                        <Input placeholder="Nome (Opzionale)" value={newUserName} onChange={e=>setNewUserName(e.target.value)} className="bg-zinc-800"/>
+                        <p className="text-xs text-zinc-500">Fornisci queste credenziali all'operatore.</p>
+                        <Button className="w-full bg-green-600 font-bold" onClick={handleCreateOperator}>Crea Account</Button>
                     </div>
                 </DialogContent>
             </Dialog>
@@ -397,21 +495,80 @@ export default function AdminDashboard() {
       );
   }
 
+  // --- VIEW: SETUP (OPERATOR) ---
   if (appState === 'setup') {
       return (
-        <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center p-4">
-            <Card className="w-full max-w-md bg-zinc-900 border-zinc-800">
-                <CardHeader><CardTitle className="text-center text-white">Nuovo Evento</CardTitle><div className="text-center text-yellow-500 text-sm">Crediti: {profile?.credits || 0}</div></CardHeader>
-                <CardContent className="space-y-4">
-                    <Input placeholder="Nome Evento" value={newEventName} onChange={e=>setNewEventName(e.target.value)} className="bg-zinc-950 text-center" />
-                    <Button onClick={handleStartEvent} disabled={creatingEvent} className="w-full bg-fuchsia-600 h-12">LANCIA EVENTO (1 Credit)</Button>
-                    <Button variant="ghost" onClick={handleLogout} className="w-full text-zinc-500">Esci</Button>
-                </CardContent>
-            </Card>
+        <div className="min-h-screen bg-zinc-950 text-white flex flex-col items-center justify-center p-4">
+            <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-8">
+                
+                {/* COLONNA 1: NUOVO EVENTO */}
+                <Card className="bg-zinc-900 border-zinc-800 border-2 border-fuchsia-900/50 shadow-2xl">
+                    <CardHeader>
+                        <CardTitle className="text-center text-white flex items-center justify-center gap-2">
+                            <Plus className="w-5 h-5 text-fuchsia-500"/> NUOVO EVENTO
+                        </CardTitle>
+                        <div className="text-center text-yellow-500 text-sm font-bold border border-yellow-900/50 bg-yellow-900/10 p-2 rounded mt-2">
+                            DISPONIBILI: {profile?.credits || 0} CREDITI
+                        </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <p className="text-xs text-zinc-400 text-center">Ogni nuovo evento costa 1 Credito e dura 8 ore.</p>
+                        <Input placeholder="Nome Serata (es. Venerdì Karaoke)" value={newEventName} onChange={e=>setNewEventName(e.target.value)} className="bg-zinc-950 text-center h-12" />
+                        <Button onClick={handleStartEvent} disabled={creatingEvent || (profile?.credits || 0) < 1} className="w-full bg-fuchsia-600 h-14 text-lg font-bold hover:bg-fuchsia-500">
+                            {creatingEvent ? "Creazione..." : "LANCIA (-1 Credit)"}
+                        </Button>
+                    </CardContent>
+                    <CardFooter className="justify-center border-t border-white/5 pt-4">
+                         <Button variant="ghost" onClick={handleLogout} className="text-zinc-500">Esci</Button>
+                    </CardFooter>
+                </Card>
+
+                {/* COLONNA 2: EVENTI ATTIVI */}
+                <Card className="bg-zinc-900 border-zinc-800">
+                    <CardHeader>
+                        <CardTitle className="text-center text-white flex items-center justify-center gap-2">
+                            <Clock className="w-5 h-5 text-cyan-500"/> I TUOI EVENTI ATTIVI
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        {activeEventsList.length === 0 ? (
+                            <div className="text-center py-8 text-zinc-600">
+                                <p>Nessun evento attivo.</p>
+                                <p className="text-xs mt-2">Crea un nuovo evento per iniziare.</p>
+                            </div>
+                        ) : (
+                            <ScrollArea className="h-64 pr-2">
+                                <div className="space-y-3">
+                                    {activeEventsList.map(evt => {
+                                        const expires = new Date(evt.expires_at);
+                                        const now = new Date();
+                                        const diff = expires - now;
+                                        const hours = Math.floor(diff / (1000 * 60 * 60));
+                                        
+                                        return (
+                                            <div key={evt.id} className="p-3 bg-zinc-800 rounded border border-zinc-700 flex justify-between items-center group hover:border-cyan-500 transition-all cursor-pointer" onClick={() => handleResumeEvent(evt.code)}>
+                                                <div>
+                                                    <div className="font-bold text-white">{evt.name}</div>
+                                                    <div className="text-xs text-cyan-400 font-mono">CODE: {evt.code}</div>
+                                                </div>
+                                                <div className="text-right">
+                                                    <div className="text-xs text-zinc-400">Scade in:</div>
+                                                    <div className="font-bold text-yellow-500">{hours}h</div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </ScrollArea>
+                        )}
+                    </CardContent>
+                </Card>
+            </div>
         </div>
       );
   }
 
+  // --- VIEW: DASHBOARD (MAIN) ---
   const pendingReqs = queue.filter(r => r.status === 'pending');
   const queuedReqs = queue.filter(r => r.status === 'queued');
 
@@ -421,16 +578,22 @@ export default function AdminDashboard() {
       <header className="h-14 border-b border-white/10 flex items-center justify-between px-4 bg-zinc-900">
          <div className="flex items-center gap-4">
             <h1 className="font-bold text-lg text-fuchsia-400">NEONPUB OS</h1>
-            <span className="text-xs px-2 py-1 bg-zinc-800 rounded font-mono text-zinc-400">{pubCode}</span>
+            <div className="flex flex-col items-start">
+                <span className="text-xs px-2 py-0.5 bg-zinc-800 rounded font-mono text-zinc-400">{pubCode}</span>
+                {timeRemaining && <span className="text-[10px] text-yellow-600 flex items-center gap-1 mt-0.5"><Clock className="w-3 h-3"/> {timeRemaining}</span>}
+            </div>
          </div>
          <div className="flex items-center gap-4">
-             <div className="text-yellow-500 font-bold text-sm flex gap-2"><Gem className="w-4 h-4"/>{profile?.credits || 0}</div>
+             <div className="text-yellow-500 font-bold text-sm flex gap-2 items-center bg-yellow-900/10 px-3 py-1 rounded-full border border-yellow-900/30">
+                 <Gem className="w-4 h-4"/>{profile?.credits || 0}
+             </div>
              <Button variant="outline" size="sm" onClick={handleOpenDisplay} className="bg-cyan-900/20 text-cyan-400 border-cyan-800"><Tv className="w-4 h-4 mr-2" /> DISPLAY</Button>
-             <Button variant="ghost" size="sm" onClick={() => { if(confirm("Chiudere sessione? (L'evento resta attivo)")) { localStorage.removeItem("neonpub_pub_code"); setPubCode(null); setAppState("setup"); } }}><LogOut className="w-4 h-4" /></Button>
+             <Button variant="ghost" size="sm" onClick={() => { if(confirm("Tornare al menu eventi?")) { localStorage.removeItem("neonpub_pub_code"); setPubCode(null); setAppState("setup"); loadActiveEvents(); } }}><LogOut className="w-4 h-4" /></Button>
          </div>
       </header>
 
       <div className="flex-1 grid grid-cols-12 gap-0 overflow-hidden">
+         {/* SIDEBAR */}
          <aside className="col-span-4 border-r border-white/10 bg-zinc-900/50 flex flex-col">
             <div className="p-2 border-b border-white/5">
                <Tabs value={libraryTab} onValueChange={setLibraryTab} className="w-full">
@@ -571,44 +734,19 @@ export default function AdminDashboard() {
                             
                             <ScrollArea className="flex-1 pr-2">
                                 <div className="space-y-2 pb-20">
-                                    {filteredCatalog.length === 0 ? (
-                                        <p className="text-xs text-zinc-600 text-center py-8">
-                                            Nessuna domanda disponibile.
-                                        </p>
-                                    ) : (
-                                        filteredCatalog.map((item, index) => (
-                                            <div key={item.id || index} 
-                                                className="group relative bg-zinc-800 hover:bg-zinc-700 border border-transparent hover:border-yellow-500 rounded p-3 cursor-pointer transition-all"
-                                                onClick={() => launchCatalogQuiz(item)}>
-                                                
-                                                <div className="absolute top-2 right-2 flex gap-1 z-10">
-                                                    {item.media_type === 'audio' && <span className="bg-yellow-500/20 text-yellow-500 p-1 rounded"><Music2 className="w-3 h-3"/></span>}
-                                                    {item.media_type === 'video' && <span className="bg-blue-500/20 text-blue-500 p-1 rounded"><Film className="w-3 h-3"/></span>}
-                                                    
-                                                    {/* TASTO CESTINO (NUOVO) */}
-                                                    <Button 
-                                                        size="icon" 
-                                                        variant="ghost" 
-                                                        className="h-6 w-6 bg-red-900/50 hover:bg-red-600 text-white rounded-full ml-1"
-                                                        onClick={(e) => handleDeleteQuestion(e, item)}
-                                                    >
-                                                        <Trash2 className="w-3 h-3" />
-                                                    </Button>
-                                                </div>
-
-                                                <div className="text-[10px] font-bold text-fuchsia-500 uppercase tracking-wider mb-1 flex items-center gap-1">
-                                                    {item.category}
-                                                </div>
-                                                <div className="text-sm font-medium text-white pr-6 line-clamp-2">
-                                                    {item.question}
-                                                </div>
-                                                <div className="text-[10px] text-zinc-500 mt-2 flex gap-2">
-                                                    <span>Risp: <b>{item.options[item.correct_index]}</b></span>
-                                                    <span>• {item.points} Punti</span>
-                                                </div>
+                                    {filteredCatalog.map((item, index) => (
+                                        <div key={item.id || index} 
+                                            className="group relative bg-zinc-800 hover:bg-zinc-700 border border-transparent hover:border-yellow-500 rounded p-3 cursor-pointer transition-all"
+                                            onClick={() => launchCatalogQuiz(item)}>
+                                            <div className="absolute top-2 right-2 flex gap-1 z-10">
+                                                {item.media_type === 'audio' && <span className="bg-yellow-500/20 text-yellow-500 p-1 rounded"><Music2 className="w-3 h-3"/></span>}
+                                                {item.media_type === 'video' && <span className="bg-blue-500/20 text-blue-500 p-1 rounded"><Film className="w-3 h-3"/></span>}
+                                                <Button size="icon" variant="ghost" className="h-6 w-6 bg-red-900/50 hover:bg-red-600 text-white rounded-full ml-1" onClick={(e) => handleDeleteQuestion(e, item)}><Trash2 className="w-3 h-3" /></Button>
                                             </div>
-                                        ))
-                                    )}
+                                            <div className="text-[10px] font-bold text-fuchsia-500 uppercase tracking-wider mb-1 flex items-center gap-1">{item.category}</div>
+                                            <div className="text-sm font-medium text-white pr-6 line-clamp-2">{item.question}</div>
+                                        </div>
+                                    ))}
                                 </div>
                             </ScrollArea>
                         </div>
@@ -651,6 +789,7 @@ export default function AdminDashboard() {
             </ScrollArea>
          </aside>
 
+         {/* MAIN CONTENT */}
          <main className="col-span-8 bg-black relative flex flex-col">
             <div className="h-10 border-b border-white/10 flex items-center px-4 justify-between bg-zinc-950">
                <span className="text-xs font-mono text-zinc-500">PROGRAMMA LIVE</span>

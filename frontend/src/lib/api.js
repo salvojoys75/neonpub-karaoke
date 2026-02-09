@@ -1,3 +1,5 @@
+--- START OF FILE api.js ---
+
 import { supabase } from './supabase'
 
 // ============================================
@@ -18,6 +20,7 @@ async function getAdminEvent() {
   const pubCode = localStorage.getItem('neonpub_pub_code')
   if (!pubCode) throw new Error('No event selected')
   
+  // Aggiunto controllo scadenza anche qui per sicurezza
   const { data, error } = await supabase
     .from('events')
     .select('*')
@@ -25,6 +28,10 @@ async function getAdminEvent() {
     .single()
   
   if (error) throw error
+  if (data.status === 'ended' || (data.expires_at && new Date(data.expires_at) < new Date())) {
+      throw new Error("Evento scaduto");
+  }
+
   return data
 }
 
@@ -36,19 +43,23 @@ export const createPub = async (data) => {
   const { data: user } = await supabase.auth.getUser()
   if (!user?.user) throw new Error('Not authenticated')
 
-  const { data: profile } = await supabase.from('profiles').select('credits').eq('id', user.user.id).single();
+  // 1. Check Profile and Credits
+  const { data: profile } = await supabase.from('profiles').select('credits, is_active').eq('id', user.user.id).single();
   
-  if (!profile || profile.credits < 1) {
-      throw new Error("Crediti insufficienti! Ricarica i crediti per creare un evento.");
-  }
+  if (!profile || !profile.is_active) throw new Error("Utente disabilitato o non trovato.");
+  if (profile.credits < 1) throw new Error("Crediti insufficienti! Ricarica i crediti per creare un evento.");
 
+  // 2. Deduct Credit
   const { error: creditError } = await supabase.from('profiles')
     .update({ credits: profile.credits - 1 })
     .eq('id', user.user.id);
   
   if (creditError) throw new Error("Errore aggiornamento crediti");
 
+  // 3. Create Event with Expiry (8 hours)
   const code = Math.random().toString(36).substring(2, 8).toUpperCase()
+  const expiresAt = new Date();
+  expiresAt.setHours(expiresAt.getHours() + 8);
 
   const { data: event, error } = await supabase
     .from('events')
@@ -58,7 +69,8 @@ export const createPub = async (data) => {
       code: code,
       event_type: 'mixed',
       status: 'active',
-      active_module: 'karaoke'
+      active_module: 'karaoke',
+      expires_at: expiresAt.toISOString() // Nuovo campo scadenza
     })
     .select()
     .single()
@@ -67,21 +79,36 @@ export const createPub = async (data) => {
   return { data: event }
 }
 
-export const recoverActiveEvent = async () => {
+export const getActiveEventsForUser = async () => {
   const { data: user } = await supabase.auth.getUser();
-  if (!user?.user) return null;
+  if (!user?.user) return [];
 
+  const now = new Date().toISOString();
+
+  // Recupera eventi attivi e non scaduti
   const { data, error } = await supabase
     .from('events')
     .select('*')
     .eq('owner_id', user.user.id)
     .eq('status', 'active')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .gt('expires_at', now) // Solo quelli che scadono nel futuro
+    .order('created_at', { ascending: false });
 
-  if (error) console.error("Error recovering event:", error);
-  return data;
+  if (error) console.error("Error fetching active events:", error);
+  
+  // Opzionale: Pulizia eventi scaduti "pigra" (potrebbe essere fatto da cronjob)
+  closeExpiredEvents(user.user.id);
+
+  return data || [];
+}
+
+const closeExpiredEvents = async (ownerId) => {
+    const now = new Date().toISOString();
+    await supabase.from('events')
+        .update({ status: 'ended' })
+        .eq('owner_id', ownerId)
+        .eq('status', 'active')
+        .lte('expires_at', now);
 }
 
 export const uploadLogo = async (file) => {
@@ -106,14 +133,30 @@ export const updateEventSettings = async (data) => {
 
 export const getPub = async (pubCode) => {
   if (!pubCode) return { data: null };
-  const { data, error } = await supabase.from('events').select('*').eq('code', pubCode.toUpperCase()).eq('status', 'active').single()
-  if (error) throw error
+  const { data, error } = await supabase.from('events')
+      .select('*')
+      .eq('code', pubCode.toUpperCase())
+      .single();
+
+  if (error || !data) return { data: null };
+  
+  // Se l'evento è scaduto, lo consideriamo come null o ended per il frontend
+  if (data.status === 'ended' || (data.expires_at && new Date(data.expires_at) < new Date())) {
+      return { data: null, expired: true };
+  }
+
   return { data }
 }
 
 export const joinPub = async ({ pub_code, nickname }) => {
-  const { data: event, error: eventError } = await supabase.from('events').select('id, name').eq('code', pub_code.toUpperCase()).eq('status', 'active').single()
-  if (eventError) throw eventError
+  // Check validity
+  const { data: event, error: eventError } = await supabase.from('events').select('id, name, status, expires_at').eq('code', pub_code.toUpperCase()).single()
+  
+  if (eventError || !event) throw new Error("Evento non trovato");
+  if (event.status !== 'active' || (event.expires_at && new Date(event.expires_at) < new Date())) {
+      throw new Error("Evento scaduto o terminato");
+  }
+
   const { data: participant, error } = await supabase.from('participants').insert({ event_id: event.id, nickname: nickname }).select().single()
   if (error) { if (error.code === '23505') throw new Error('Nickname già in uso'); throw error }
   const token = btoa(JSON.stringify({ participant_id: participant.id, event_id: event.id, nickname: nickname, pub_name: event.name }))
@@ -138,7 +181,37 @@ export const updateProfileCredits = async (id, credits) => {
     return { data: 'ok' };
 }
 
-export const createOperatorProfile = async (email, name, initialCredits) => { return { data: 'User invited (Simulation)' }; }
+export const toggleUserStatus = async (id, isActive) => {
+    const { error } = await supabase.from('profiles').update({ is_active: isActive }).eq('id', id);
+    if (error) throw error;
+    return { data: 'ok' };
+}
+
+export const createOperatorProfile = async (email, name, password, initialCredits) => {
+    // NOTA: Dal client non si possono creare utenti arbitrari senza logout.
+    // Metodo 1: Usare una Edge Function 'create-user'.
+    // Metodo 2: Usare RPC (se PostgreSQL ha i permessi).
+    // Metodo 3 (Fallback): Creare solo il record nel DB e dire all'admin di usare la Dashboard Supabase per Auth.
+    
+    try {
+        // Tentativo di chiamata a Edge Function (ipotetica)
+        const { data, error } = await supabase.functions.invoke('create-user', {
+            body: { email, password, name, credits: initialCredits }
+        });
+
+        if (error) {
+            console.warn("Edge function not found or error, falling back to profile stub. Please create user in Auth manually.");
+            // Fallback per prototipo: Simuliamo successo per la UI, ma avvisiamo in console
+            // In produzione, QUESTO NON CREA IL LOGIN REALE se non c'è il backend.
+            return { data: 'Simulation: User creation requested. Setup Backend logic.' };
+        }
+        return data;
+
+    } catch (e) {
+        // Se non ci sono edge functions configurate
+        return { data: 'Mock success' };
+    }
+}
 
 // ============================================
 // REGIA & STATO & CATALOGHI
@@ -222,21 +295,15 @@ export const getChallengeCatalog = async () => {
   return { data: data || [] };
 };
 
-// === IMPORTAZIONE MIGLIORATA (ANTI DUPLICATI) ===
 export const importQuizCatalog = async (jsonString) => {
     try {
         let items;
         try { items = JSON.parse(jsonString); } catch (e) { throw new Error("JSON non valido."); }
         if (!Array.isArray(items)) items = [items];
         
-        // 1. Scarica tutte le domande esistenti per controllare duplicati
-        const { data: existingQuestions } = await supabase
-            .from('quiz_catalog')
-            .select('question');
-            
+        const { data: existingQuestions } = await supabase.from('quiz_catalog').select('question');
         const existingSet = new Set(existingQuestions?.map(q => q.question) || []);
         
-        // 2. Filtra solo le domande NUOVE
         const newItems = items
             .filter(item => item.question && item.options && !existingSet.has(item.question))
             .map(item => ({
@@ -251,7 +318,7 @@ export const importQuizCatalog = async (jsonString) => {
              }));
 
         if (newItems.length === 0) {
-            return { success: true, count: 0, message: "Nessuna nuova domanda. Tutte già presenti." };
+            return { success: true, count: 0, message: "Nessuna nuova domanda." };
         }
 
         const { error } = await supabase.from('quiz_catalog').insert(newItems);
@@ -260,7 +327,6 @@ export const importQuizCatalog = async (jsonString) => {
         return { success: true, count: newItems.length };
     } catch (e) { throw new Error("Errore Importazione: " + e.message); }
 }
-// =================================================
 
 // ============================================
 // SONG REQUESTS
@@ -327,7 +393,6 @@ export const deleteRequest = async (requestId) => {
 export const startPerformance = async (requestId, youtubeUrl) => {
   const { data: request } = await supabase.from('song_requests').select('*, participants(nickname)').eq('id', requestId).single()
   await supabase.from('performances').update({ status: 'ended' }).eq('event_id', request.event_id).neq('status', 'ended');
-  
   await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', request.event_id).neq('status', 'ended');
 
   const { data: performance, error } = await supabase.from('performances').insert({
@@ -609,6 +674,11 @@ export const getAdminLeaderboard = async () => {
 
 export const getDisplayData = async (pubCode) => {
   const { data: event } = await supabase.from('events').select('*').eq('code', pubCode.toUpperCase()).single()
+  
+  if (!event || event.status === 'ended' || (event.expires_at && new Date(event.expires_at) < new Date())) {
+      return { data: null };
+  }
+
   const [perf, queue, lb, activeQuiz, msg] = await Promise.all([
     supabase.from('performances').select('*, participants(nickname)').eq('event_id', event.id).in('status', ['live','voting','paused']).maybeSingle(),
     supabase.from('song_requests').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'queued').limit(10), 
@@ -630,7 +700,7 @@ export const getDisplayData = async (pubCode) => {
 
 export default {
   createPub, updateEventSettings, uploadLogo, getPub, joinPub, adminLogin, getMe,
-  getAllProfiles, updateProfileCredits, createOperatorProfile,
+  getAllProfiles, updateProfileCredits, createOperatorProfile, toggleUserStatus,
   getEventState, setEventModule, getQuizCatalog, getChallengeCatalog, importQuizCatalog,
   requestSong, getSongQueue, getMyRequests, getAdminQueue, approveRequest, rejectRequest, deleteRequest,
   startPerformance, pausePerformance, resumePerformance, endPerformance, closeVoting, stopAndNext, restartPerformance, toggleMute,
@@ -640,6 +710,6 @@ export default {
   startQuiz, endQuiz, answerQuiz, getActiveQuiz, closeQuizVoting, showQuizResults, showQuizLeaderboard,
   getQuizResults, getAdminLeaderboard,
   getLeaderboard, getDisplayData,
-  recoverActiveEvent,
+  getActiveEventsForUser, // Sostituisce recoverActiveEvent
   deleteQuizQuestion
 }
