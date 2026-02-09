@@ -1,36 +1,44 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
-import { Mic2, Music, Trophy, Star, MessageSquare } from "lucide-react";
+import { Mic2, Music, Trophy, Star, MessageSquare, AlertCircle } from "lucide-react";
 import api from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 
 // ===========================================
-// SUB-COMPONENT: KARAOKE SCREEN (YouTube Player)
+// HELPER: RILEVA TIPO MEDIA
+// ===========================================
+const getMediaTypeFromUrl = (url) => {
+    if (!url) return 'none';
+    if (url.includes('youtube.com') || url.includes('youtu.be')) return 'youtube';
+    if (url.match(/\.(mp4|webm|ogg)$/i)) return 'video_file';
+    if (url.match(/\.(mp3|wav)$/i)) return 'audio_file';
+    return 'unknown';
+};
+
+const getYoutubeId = (url) => {
+    if (!url) return null;
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? match[2] : null;
+};
+
+// ===========================================
+// COMPONENTE: KARAOKE PLAYER (Solo YouTube)
 // ===========================================
 const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
     const playerRef = useRef(null);
-    // Memorizza l'ultimo orario di inizio per capire se è cambiato (Restart reale)
     const prevStartedAt = useRef(performance?.started_at);
-
-    const getVideoId = (url) => {
-        if (!url) return null;
-        const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-        const match = url.match(regExp);
-        return (match && match[2].length === 11) ? match[2] : null;
-    };
 
     useEffect(() => {
         if (!performance || isVoting || voteResult) return;
-        const videoId = getVideoId(performance.youtube_url);
+        const videoId = getYoutubeId(performance.youtube_url);
         if (!videoId) return;
 
         const onPlayerReady = (event) => {
             if (performance.status === 'live') event.target.playVideo();
-            else if (performance.status === 'paused') event.target.pauseVideo();
         };
 
-        // Inizializzazione API YouTube
         if (!window.YT) {
             const tag = document.createElement('script');
             tag.src = "https://www.youtube.com/iframe_api";
@@ -40,54 +48,34 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
             window.onYouTubeIframeAPIReady = () => {
                 playerRef.current = new window.YT.Player('karaoke-player', {
                     videoId: videoId,
-                    playerVars: { 
-                        autoplay: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, 
-                        modestbranding: 1, rel: 0, showinfo: 0, origin: window.location.origin 
-                    },
+                    playerVars: { autoplay: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, modestbranding: 1, rel: 0, showinfo: 0, origin: window.location.origin },
                     events: { onReady: onPlayerReady }
                 });
             };
         } else if (!playerRef.current) {
              playerRef.current = new window.YT.Player('karaoke-player', {
                 videoId: videoId,
-                playerVars: { 
-                    autoplay: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, 
-                    modestbranding: 1, rel: 0, showinfo: 0, origin: window.location.origin 
-                },
+                playerVars: { autoplay: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, modestbranding: 1, rel: 0, showinfo: 0, origin: window.location.origin },
                 events: { onReady: onPlayerReady }
             });
         } else {
-             // Aggiornamento Player Esistente
              const currentVideoData = playerRef.current.getVideoData();
              if (currentVideoData && currentVideoData.video_id !== videoId) {
                  playerRef.current.loadVideoById(videoId);
              }
              
              if (playerRef.current && typeof playerRef.current.playVideo === 'function') {
-                 // Gestione Play/Pause
                  if (performance.status === 'live') playerRef.current.playVideo();
                  else if (performance.status === 'paused') playerRef.current.pauseVideo();
 
-                 // --- FIX RIAVVOLGIMENTO AUTOMATICO ---
-                 // Controlliamo se started_at è CAMBIATO rispetto all'ultima volta.
-                 // Se è diverso, significa che la regia ha premuto "Ricomincia".
                  if (performance.started_at !== prevStartedAt.current) {
-                      prevStartedAt.current = performance.started_at; // Aggiorna il riferimento
+                      prevStartedAt.current = performance.started_at; 
                       playerRef.current.seekTo(0);
                       playerRef.current.playVideo();
                  }
              }
         }
     }, [performance, isVoting, voteResult]);
-
-    // Mute Control for Karaoke (Canale specifico del Pub)
-    useEffect(() => {
-        // Recupera il codice pub dall'URL se non disponibile come prop, 
-        // ma qui siamo dentro un componente figlio, quindi usiamo un listener globale nel padre
-        // o passiamo il ref. Per semplicità, gestiamo il mute nel componente padre PubDisplay
-        // e lo passiamo giù o usiamo l'ID del player globale.
-        // NOTA: YouTube Iframe API è globale su 'playerRef'.
-    }, []);
 
     // Nascondi player durante il voto
     useEffect(() => {
@@ -140,17 +128,72 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
 };
 
 // ===========================================
-// SUB-COMPONENT: QUIZ SCREEN
+// COMPONENTE: QUIZ MEDIA PLAYER (Ibrido)
 // ===========================================
-const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
+const QuizMedia = ({ mediaUrl, mediaType, isResult }) => {
+    const videoRef = useRef(null);
     const audioRef = useRef(null);
+    
+    // Rilevamento intelligente del tipo se non specificato
+    const detectedType = (mediaType === 'text' && mediaUrl) ? getMediaTypeFromUrl(mediaUrl) : 
+                         (mediaType === 'video' && !mediaUrl.includes('youtube')) ? 'video_file' :
+                         (mediaType === 'video') ? 'youtube' : 
+                         (mediaType === 'audio') ? 'audio_file' : mediaType;
 
     useEffect(() => {
-        if (!quiz || quizResults || !quiz.media_url || quiz.media_type !== 'audio' || !audioRef.current) return;
-        audioRef.current.volume = 1.0;
-        audioRef.current.play().catch(e => console.log("Audio autoplay blocked:", e));
-    }, [quiz, quizResults]);
+        if(isResult) return; // Non suonare durante i risultati
+        
+        if (detectedType === 'video_file' && videoRef.current) {
+            videoRef.current.play().catch(e => console.error("Autoplay video file blocked", e));
+        }
+        if (detectedType === 'audio_file' && audioRef.current) {
+            audioRef.current.play().catch(e => console.error("Autoplay audio file blocked", e));
+        }
+    }, [mediaUrl, isResult]);
 
+    if (isResult) return null; // Nascondi media durante i risultati per pulizia
+
+    // 1. YOUTUBE
+    if (detectedType === 'youtube') {
+        return (
+            <div className="absolute inset-0 z-0">
+                <iframe 
+                    src={mediaUrl.replace("watch?v=", "embed/") + "?autoplay=1&controls=0&showinfo=0&rel=0&mute=0"} 
+                    className="w-full h-full object-cover opacity-80" 
+                    allow="autoplay; encrypted-media" 
+                    title="Quiz Video"
+                />
+            </div>
+        );
+    }
+
+    // 2. VIDEO FILE DIRETTO (MP4) - Molto più affidabile
+    if (detectedType === 'video_file') {
+        return (
+            <div className="absolute inset-0 z-0 bg-black">
+                <video 
+                    ref={videoRef}
+                    src={mediaUrl}
+                    className="w-full h-full object-cover opacity-80"
+                    loop
+                    playsInline
+                />
+            </div>
+        );
+    }
+
+    // 3. AUDIO FILE
+    if (detectedType === 'audio_file') {
+        return <audio ref={audioRef} src={mediaUrl} />;
+    }
+
+    return null;
+};
+
+// ===========================================
+// COMPONENTE: QUIZ SCREEN
+// ===========================================
+const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
     if (quiz.status === 'leaderboard') {
         return (
             <div className="absolute inset-0 bg-zinc-900 z-50 flex flex-col p-8 overflow-hidden animate-fade-in">
@@ -174,20 +217,8 @@ const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
 
     return (
         <div className="absolute inset-0 bg-gradient-to-b from-purple-900 to-black z-40 flex flex-col items-center justify-center p-10">
-            {quiz.media_type === 'video' && quiz.media_url && !quizResults && (
-                <div className="absolute inset-0 z-0">
-                    <iframe 
-                        src={quiz.media_url.replace("watch?v=", "embed/") + "?autoplay=1&controls=0&showinfo=0&rel=0&mute=0"} 
-                        className="w-full h-full object-cover opacity-80" 
-                        allow="autoplay; encrypted-media" 
-                        title="Quiz Video"
-                    />
-                </div>
-            )}
-            
-            {quiz.media_type === 'audio' && quiz.media_url && (
-                <audio ref={audioRef} src={quiz.media_url} />
-            )}
+            {/* GESTORE MEDIA INTELLIGENTE */}
+            <QuizMedia mediaUrl={quiz.media_url} mediaType={quiz.media_type} isResult={!!quizResults} />
 
             <div className="z-10 w-full max-w-6xl text-center">
                 {!quizResults ? (
@@ -241,9 +272,7 @@ export default function PubDisplay() {
   
   const [quizResults, setQuizResults] = useState(null);
   const [voteResult, setVoteResult] = useState(null);
-  const [audioAllowed, setAudioAllowed] = useState(false);
 
-  // Poll e Load dati
   const loadDisplayData = useCallback(async () => {
     try {
       const { data } = await api.getDisplayData(pubCode);
@@ -268,21 +297,20 @@ export default function PubDisplay() {
     return () => clearInterval(interval);
   }, [loadDisplayData]);
 
-  // Realtime Subscriptions & Controllo Mute
+  // Realtime Subscriptions
   useEffect(() => {
     if (!displayData?.pub?.id) return;
     
-    // --- FIX CANALE MUTE ---
-    // Ascoltiamo il canale specifico del Pub, non uno generico
+    // MUTE GLOBAL (Ascolto canale specifico)
     const controlChannel = supabase.channel(`display_control_${pubCode}`)
         .on('broadcast', { event: 'control' }, (payload) => {
             if(payload.payload.command === 'mute') {
-                // Tenta di mutare il player YouTube globale se esiste
                 const ytPlayer = window.YT?.get && window.YT.get('karaoke-player');
                 if (ytPlayer && typeof ytPlayer.mute === 'function') {
-                    if (payload.payload.value) ytPlayer.mute();
-                    else ytPlayer.unMute();
+                    if (payload.payload.value) ytPlayer.mute(); else ytPlayer.unMute();
                 }
+                // Nota: HTML5 Audio/Video non possono essere mutati facilmente da qui senza refs globali, 
+                // ma il mute serve principalmente per il karaoke.
             }
         })
         .subscribe();
@@ -297,7 +325,6 @@ export default function PubDisplay() {
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `event_id=eq.${displayData.pub.id}` }, 
             (payload) => addFloatingReaction(payload.new.emoji, payload.new.nickname)
         )
-        // Ascolta messaggi approvati (UPDATE) o inviati da regia (INSERT con status approved)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `event_id=eq.${displayData.pub.id}` }, 
             async (payload) => {
                  if(payload.new.status === 'approved') {
@@ -363,14 +390,6 @@ export default function PubDisplay() {
   } else {
       ScreenComponent = (
          <div className="flex flex-col items-center justify-center h-full z-10 bg-zinc-950 animate-fade-in relative">
-             {/* Bottone per sbloccare l'audio policy del browser (sparisce dopo il click) */}
-             {!audioAllowed && (
-                 <div className="absolute top-4 right-4 z-50">
-                     <button onClick={() => setAudioAllowed(true)} className="bg-red-600 hover:bg-red-500 text-white font-bold px-6 py-3 rounded-full shadow-lg animate-pulse border-2 border-white">
-                         🔇 CLICCA PER ATTIVARE AUDIO
-                     </button>
-                 </div>
-             )}
             <h2 className="text-7xl font-bold mb-8 text-white">PROSSIMO CANTANTE... TU?</h2>
             <div className="bg-white p-6 rounded-3xl shadow-[0_0_50px_rgba(255,255,255,0.2)]">
                 <QRCodeSVG value={joinUrl} size={300} />
@@ -408,6 +427,9 @@ export default function PubDisplay() {
                     ) : (
                         <div className="w-40 h-40 bg-zinc-800 rounded-full flex items-center justify-center text-zinc-600 text-4xl font-bold border-4 border-zinc-700">LOGO</div>
                     )}
+                    <div className="mt-2">
+                        <h2 className="text-3xl font-black text-white uppercase tracking-wider">{displayData?.pub?.name || "NEONPUB"}</h2>
+                    </div>
                 </div>
 
                 <div className="h-[35%] border-t border-white/10 p-4 bg-gradient-to-b from-zinc-900 to-black">
