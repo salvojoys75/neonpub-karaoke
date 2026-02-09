@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Home, Music, Trophy, User, Star, MessageSquare, RefreshCw, Mic2, Check, Lock, X } from "lucide-react";
+import { Home, Music, Trophy, User, Star, MessageSquare, RefreshCw, Mic2, Check, Lock, X, Crown, Smile } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -22,10 +22,14 @@ export default function ClientApp() {
   const [currentPerformance, setCurrentPerformance] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
   
+  // --- STATI QUIZ AGGIORNATI ---
   const [activeQuiz, setActiveQuiz] = useState(null);
   const [quizResult, setQuizResult] = useState(null);
   const [showQuizModal, setShowQuizModal] = useState(false);
   const [quizAnswer, setQuizAnswer] = useState(null);
+  const [quizPointsEarned, setQuizPointsEarned] = useState(null); // Nuovo: Punti guadagnati
+  const [quizLeaderboard, setQuizLeaderboard] = useState([]);     // Nuovo: Classifica Quiz Live
+  const [quizStatus, setQuizStatus] = useState(null);             // Nuovo: Stato preciso
   
   const [floatingReactions, setFloatingReactions] = useState([]);
   const [remainingReactions, setRemainingReactions] = useState(REACTION_LIMIT);
@@ -82,21 +86,31 @@ export default function ClientApp() {
         return newPerf;
       });
       
+      // GESTIONE QUIZ INIZIALE
       const serverQuiz = quizRes.data;
       if (serverQuiz) {
+         setQuizStatus(serverQuiz.status);
+         
          if (serverQuiz.status === 'active' || serverQuiz.status === 'closed') {
              setActiveQuiz(prev => {
                  if (!prev || prev.id !== serverQuiz.id) {
-                     setQuizAnswer(null); setQuizResult(null); setShowQuizModal(true);
+                     setQuizAnswer(null); setQuizResult(null); setQuizPointsEarned(null); setShowQuizModal(true);
                  }
                  return serverQuiz;
              });
          } else if (serverQuiz.status === 'showing_results') {
+             setActiveQuiz(serverQuiz);
              if (!quizResult) {
                  const res = await api.getQuizResults(serverQuiz.id);
                  setQuizResult(res.data);
                  setShowQuizModal(true);
              }
+         } else if (serverQuiz.status === 'leaderboard') {
+             // Se è in leaderboard, carica i dati e mostra il modale speciale
+             const lb = await api.getLeaderboard();
+             setQuizLeaderboard(lb.data || []);
+             setActiveQuiz(serverQuiz);
+             setShowQuizModal(true);
          }
       } else {
          if (activeQuiz && !quizResult) { setShowQuizModal(false); setActiveQuiz(null); }
@@ -108,37 +122,52 @@ export default function ClientApp() {
     if (isAuthenticated) {
       loadData();
       pollIntervalRef.current = setInterval(loadData, 5000);
-      const channel = supabase
-        .channel('client_realtime')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${user?.event_id}` }, 
+      
+      const channel = supabase.channel('client_realtime');
+      
+      // PERFORMANCES
+      channel.on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${user?.event_id}` }, 
             (payload) => {
                 const newPerf = payload.new;
                 if (newPerf.status === 'voting') { loadData(); } else { setCurrentPerformance(newPerf); }
             }
-        )
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${user?.event_id}` }, 
+        );
+
+      // QUIZ REALTIME AGGIORNATO
+      channel.on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${user?.event_id}` }, 
             async (payload) => {
-                if (payload.new.status === 'active') {
-                    setQuizAnswer(null); setQuizResult(null); setActiveQuiz(payload.new); setShowQuizModal(true);
+                const status = payload.new.status;
+                setQuizStatus(status);
+
+                if (status === 'active') {
+                    setQuizAnswer(null); setQuizResult(null); setQuizPointsEarned(null); setActiveQuiz(payload.new); setShowQuizModal(true);
+                    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
                     toast.info("🎯 Quiz Iniziato!");
                 } 
-                else if (payload.new.status === 'closed') {
+                else if (status === 'closed') {
                     setActiveQuiz(prev => ({ ...prev, status: 'closed' }));
-                    toast.warning("🛑 Televoto Chiuso!");
+                    // Non chiudiamo il modale, mostriamo solo lo stato locked
                 }
-                else if (payload.new.status === 'showing_results') {
+                else if (status === 'showing_results') {
                     const res = await api.getQuizResults(payload.new.id);
                     setQuizResult(res.data);
                 }
-                else if (payload.new.status === 'ended') {
-                    setShowQuizModal(false); setActiveQuiz(null); setQuizResult(null);
+                else if (status === 'leaderboard') {
+                    const lb = await api.getLeaderboard();
+                    setQuizLeaderboard(lb.data || []);
+                }
+                else if (status === 'ended') {
+                    setShowQuizModal(false); setActiveQuiz(null); setQuizResult(null); setQuizPointsEarned(null);
                 }
             }
-        )
-        .subscribe();
+        );
+        
+      channel.subscribe();
       return () => { clearInterval(pollIntervalRef.current); supabase.removeChannel(channel); };
     }
   }, [isAuthenticated, loadData, user?.event_id]);
+
+  // --- ACTIONS ---
 
   const addFloatingReaction = (emoji) => {
     const id = Date.now() + Math.random();
@@ -187,17 +216,27 @@ export default function ClientApp() {
   const handleQuizAnswer = async (index) => {
     if (quizAnswer !== null) return;
     if (!activeQuiz || activeQuiz.status !== 'active') { toast.error("Tempo scaduto!"); return; }
+    
     setQuizAnswer(index);
     try {
         const { data } = await api.answerQuiz({ quiz_id: activeQuiz.id, answer_index: index });
-        if (data.points_earned > 0) toast.success("Risposta registrata!");
-    } catch (e) { toast.info("Risposta salvata."); }
+        if (data.points_earned > 0) {
+            setQuizPointsEarned(data.points_earned);
+            toast.success(`Esatto! +${data.points_earned} pt`);
+        } else {
+            setQuizPointsEarned(0);
+            toast.error("Sbagliato!");
+        }
+    } catch (e) { 
+        toast.info("Risposta salvata."); 
+    }
   };
 
   if (!isAuthenticated) return null;
 
   return (
     <div className="min-h-screen bg-[#050505] flex flex-col pb-24 font-sans text-white">
+      {/* HEADER */}
       <header className="sticky top-0 z-40 bg-[#050505]/90 backdrop-blur-md p-4 flex justify-between items-center border-b border-white/5">
         <div>
           <h1 className="font-bold text-lg text-fuchsia-500">{user?.pub_name || "NeonPub"}</h1>
@@ -208,10 +247,14 @@ export default function ClientApp() {
           <Button onClick={logout} variant="ghost" size="sm" className="text-zinc-400">Esci</Button>
         </div>
       </header>
+
+      {/* FLOATING EMOJIS */}
       <div className="reactions-overlay pointer-events-none fixed inset-0 z-50 overflow-hidden">
         {floatingReactions.map(r => (<div key={r.id} className="absolute text-4xl animate-float-up" style={{ left: `${r.left}%`, bottom: '-50px' }}>{r.emoji}</div>))}
       </div>
+
       <main className="flex-1 p-4">
+        {/* --- TAB HOME --- */}
         {activeTab === "home" && (
           <div className="space-y-6 animate-fade-in-up">
             {currentPerformance ? (
@@ -254,6 +297,8 @@ export default function ClientApp() {
             </div>
           </div>
         )}
+
+        {/* --- TAB SONGS --- */}
         {activeTab === "songs" && (
           <div className="space-y-4">
             <h2 className="text-xl font-bold">Le Mie Richieste</h2>
@@ -265,9 +310,11 @@ export default function ClientApp() {
             ))}
           </div>
         )}
+
+        {/* --- TAB LEADERBOARD (Classic) --- */}
         {activeTab === "leaderboard" && (
           <div className="space-y-4">
-            <h2 className="text-xl font-bold text-yellow-500">Classifica Quiz</h2>
+            <h2 className="text-xl font-bold text-yellow-500">Classifica Generale</h2>
             {leaderboard.map((player, index) => (
               <div key={index} className="glass rounded-xl p-4 flex items-center gap-4">
                 <span className={`text-2xl font-bold w-8 ${index===0 ? 'text-yellow-400' : 'text-zinc-500'}`}>#{index + 1}</span>
@@ -277,6 +324,8 @@ export default function ClientApp() {
             ))}
           </div>
         )}
+
+        {/* --- TAB PROFILE --- */}
         {activeTab === "profile" && (
           <div className="space-y-6 text-center pt-8">
              <div className="w-24 h-24 rounded-full bg-fuchsia-500/20 flex items-center justify-center mx-auto border-2 border-fuchsia-500/50"><User className="w-12 h-12 text-fuchsia-400" /></div>
@@ -285,11 +334,15 @@ export default function ClientApp() {
           </div>
         )}
       </main>
+
+      {/* --- BOTTOM NAV --- */}
       <nav className="mobile-nav safe-bottom bg-[#0a0a0a] border-t border-white/10 flex justify-around p-2 fixed bottom-0 w-full z-40">
         {[ { id: "home", icon: Home, label: "Home" }, { id: "songs", icon: Music, label: "Canzoni" }, { id: "leaderboard", icon: Trophy, label: "Classifica" }, { id: "profile", icon: User, label: "Profilo" } ].map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center gap-1 p-2 rounded-lg transition ${activeTab === tab.id ? 'text-fuchsia-500' : 'text-zinc-500'}`}><tab.icon className="w-6 h-6" /><span className="text-[10px]">{tab.label}</span></button>
         ))}
       </nav>
+
+      {/* --- MODALI VARI --- */}
       <Dialog open={showRequestModal} onOpenChange={setShowRequestModal}>
         <DialogContent className="bg-zinc-900 border-zinc-800">
           <DialogHeader><DialogTitle>Richiedi Canzone</DialogTitle></DialogHeader>
@@ -301,6 +354,7 @@ export default function ClientApp() {
           </form>
         </DialogContent>
       </Dialog>
+
       <Dialog open={showVoteModal} onOpenChange={setShowVoteModal}>
         <DialogContent className="bg-zinc-900 border-zinc-800 text-center">
           <DialogHeader><DialogTitle>Vota l'Esibizione!</DialogTitle></DialogHeader>
@@ -310,6 +364,7 @@ export default function ClientApp() {
           <Button onClick={handleVote} disabled={selectedStars === 0} className="w-full bg-yellow-500 text-black">Conferma Voto</Button>
         </DialogContent>
       </Dialog>
+
       <Dialog open={showMessageModal} onOpenChange={setShowMessageModal}>
         <DialogContent className="bg-zinc-900 border-zinc-800">
           <DialogHeader><DialogTitle>Messaggio al Pub</DialogTitle></DialogHeader>
@@ -317,13 +372,36 @@ export default function ClientApp() {
           <Button onClick={handleSendMessage} className="w-full mt-4 bg-cyan-600 hover:bg-cyan-700">Invia</Button>
         </DialogContent>
       </Dialog>
-      <Dialog open={showQuizModal} onOpenChange={setShowQuizModal}>
-        <DialogContent className="bg-zinc-900 border-fuchsia-500/30 max-w-md w-[90%] rounded-2xl">
-          <DialogHeader><DialogTitle className="text-center text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-400 to-purple-600">{activeQuiz?.status === 'closed' ? "STOP AL VOTO!" : quizResult ? "Risultato" : "Quiz Time!"}</DialogTitle></DialogHeader>
-          {!quizResult && activeQuiz && (
+
+      {/* --- MODALE QUIZ UNIFICATO (DOMANDE + CLASSIFICA) --- */}
+      <Dialog open={showQuizModal} onOpenChange={(open) => { if (!open && quizStatus !== 'active' && quizStatus !== 'leaderboard') setShowQuizModal(false); }}>
+        <DialogContent className={`bg-zinc-900 border-2 max-w-md w-[95%] rounded-2xl ${quizStatus === 'leaderboard' ? 'border-yellow-500/50' : 'border-fuchsia-500/30'}`}>
+          
+          <DialogHeader>
+              <DialogTitle className="text-center text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-400 to-purple-600">
+                  {quizStatus === 'leaderboard' ? "CLASSIFICA LIVE" : 
+                   quizStatus === 'closed' ? "STOP AL VOTO!" : 
+                   quizResult ? "Risultato" : "Quiz Time!"}
+              </DialogTitle>
+          </DialogHeader>
+
+          {/* VISTA 1: DOMANDA ATTIVA / CHIUSA */}
+          {quizStatus !== 'leaderboard' && !quizResult && activeQuiz && (
             <div className="py-4">
-              <p className="text-xl text-center mb-6 font-medium text-white">{activeQuiz.question}</p>
-              {activeQuiz.status === 'closed' ? (
+              <div className="flex justify-center mb-2">
+                 <span className="text-[10px] bg-zinc-800 px-2 py-1 rounded text-zinc-400 uppercase tracking-widest">{activeQuiz.category}</span>
+              </div>
+              
+              <p className="text-xl text-center mb-4 font-medium text-white">{activeQuiz.question}</p>
+              
+              {/* Avviso Media */}
+              {activeQuiz.media_type !== 'text' && (
+                  <div className="text-center mb-4 text-cyan-400 text-sm animate-pulse">
+                      (Guarda lo schermo del locale per {activeQuiz.media_type === 'video' ? 'il video' : 'l\'audio'}!)
+                  </div>
+              )}
+
+              {quizStatus === 'closed' ? (
                  <div className="text-center p-6 bg-white/5 rounded-xl border border-white/10 animate-pulse"><Lock className="w-12 h-12 mx-auto text-red-500 mb-2" /><p className="text-lg font-bold text-red-400">Tempo Scaduto</p><p className="text-sm text-zinc-500">Attendi i risultati...</p></div>
               ) : (
                  <div className="space-y-3">
@@ -334,14 +412,51 @@ export default function ClientApp() {
               )}
             </div>
           )}
-          {quizResult && (
+
+          {/* VISTA 2: RISULTATO PERSONALE */}
+          {quizResult && quizStatus !== 'leaderboard' && (
             <div className="text-center py-6 animate-zoom-in">
-              <Trophy className="w-16 h-16 text-yellow-400 mx-auto mb-4" />
-              <p className="text-sm text-zinc-400 uppercase tracking-widest mb-1">Risposta Corretta</p>
-              <div className="bg-green-500/20 border border-green-500 p-4 rounded-xl mb-6"><p className="text-2xl font-bold text-white">{quizResult.correct_option}</p></div>
-              <p className="text-zinc-500 text-sm">{quizResult.total_answers} persone hanno partecipato</p>
+              {/* Feedback Punti */}
+              {quizPointsEarned !== null && quizPointsEarned > 0 ? (
+                  <div className="mb-6">
+                      <Trophy className="w-16 h-16 text-yellow-400 mx-auto mb-2 animate-bounce" />
+                      <p className="text-2xl font-black text-green-500">HAI VINTO!</p>
+                      <p className="text-white">+{quizPointsEarned} Punti</p>
+                  </div>
+              ) : (
+                  <div className="mb-6 opacity-80">
+                      <X className="w-16 h-16 text-red-500 mx-auto mb-2" />
+                      <p className="text-2xl font-black text-red-500">SBAGLIATO</p>
+                  </div>
+              )}
+              
+              <div className="bg-zinc-800 p-4 rounded-xl border border-zinc-700">
+                  <p className="text-sm text-zinc-400 uppercase tracking-widest mb-1">La risposta era:</p>
+                  <p className="text-xl font-bold text-white">{quizResult.correct_option}</p>
+              </div>
             </div>
           )}
+
+          {/* VISTA 3: CLASSIFICA LIVE (SPECIALE) */}
+          {quizStatus === 'leaderboard' && (
+              <div className="py-2 animate-fade-in">
+                  <div className="text-center mb-4">
+                      <Crown className="w-12 h-12 text-yellow-400 mx-auto animate-bounce" />
+                  </div>
+                  <div className="space-y-2 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                      {quizLeaderboard.slice(0, 10).map((p, i) => (
+                          <div key={p.id} className={`flex items-center justify-between p-3 rounded-lg border ${p.id === user?.participant_id ? 'bg-fuchsia-900/50 border-fuchsia-500 scale-105 shadow-lg' : 'bg-white/5 border-white/10'}`}>
+                              <div className="flex items-center gap-3">
+                                  <span className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold ${i===0?'bg-yellow-500 text-black':i===1?'bg-gray-300 text-black':i===2?'bg-amber-700 text-white':'bg-zinc-700'}`}>{i+1}</span>
+                                  <span className="font-medium truncate max-w-[120px]">{p.nickname}</span>
+                              </div>
+                              <span className="font-mono text-yellow-400 font-bold">{p.score}</span>
+                          </div>
+                      ))}
+                  </div>
+              </div>
+          )}
+
         </DialogContent>
       </Dialog>
     </div>
