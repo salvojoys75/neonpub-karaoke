@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import QuizMediaFixed from "@/components/QuizMediaFixed";
 
 // ===========================================
-// UTILS & SUB-COMPONENTS
+// UTILS
 // ===========================================
 const getYoutubeId = (url) => {
     if (!url) return null;
@@ -16,7 +16,9 @@ const getYoutubeId = (url) => {
     return (match && match[2].length === 11) ? match[2] : null;
 };
 
-// --- KARAOKE SCREEN ---
+// ===========================================
+// SUB-COMPONENTS
+// ===========================================
 const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
     const playerRef = useRef(null);
     const prevStartedAt = useRef(performance?.started_at);
@@ -96,7 +98,6 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
     );
 };
 
-// --- QUIZ OVERLAY SCREEN ---
 const QuizOverlay = ({ quiz, quizResults, leaderboard }) => {
     if (quiz.status === 'leaderboard') {
         return (
@@ -273,8 +274,6 @@ export default function PubDisplay() {
   const joinUrl = `${window.location.origin}/join/${pubCode}`;
 
   const isKaraokeActive = currentPerf && (currentPerf.status === 'live' || currentPerf.status === 'paused' || currentPerf.status === 'voting' || voteResult);
-  
-  // Il quiz è visibile SOLO se NON c'è karaoke in corso E se lo stato non è 'ended'
   const isQuizVisible = activeQuiz && activeQuiz.status !== 'ended' && !isKaraokeActive;
 
   let OverlayComponent = null;
@@ -299,23 +298,13 @@ export default function PubDisplay() {
          <div className="font-bold text-xl mr-8 text-fuchsia-500">{displayData?.pub?.name || "NEONPUB"}</div>
          <div className="flex-1 overflow-hidden relative h-full flex items-center"><div className="ticker-container w-full"><div className="ticker-content text-lg font-medium text-cyan-300">{ticker}</div></div></div>
       </div>
-
       <div className="flex-1 flex overflow-hidden relative">
         <div className="flex-1 relative bg-black flex flex-col justify-center overflow-hidden">
-           
-           {/* BACKGROUND LAYER - VISIBILE SOLO SE IL QUIZ È ATTIVO */}
-           <QuizMediaFixed 
-               mediaUrl={activeQuiz?.media_url} 
-               mediaType={activeQuiz?.media_type} 
-               isVisible={isQuizVisible}
-           />
-
+           {/* BACKGROUND LAYER - VISIBILE SOLO SE IL QUIZ È ATTIVO E KARAOKE FERMO */}
+           <QuizMediaFixed mediaUrl={activeQuiz?.media_url} mediaType={activeQuiz?.media_type} isVisible={isQuizVisible}/>
            {/* FOREGROUND CONTENT */}
            {OverlayComponent}
-
         </div>
-        
-        {/* SIDEBAR */}
         {!(activeQuiz && activeQuiz.status === 'leaderboard') && (
             <div className="w-[350px] bg-zinc-900/95 border-l border-zinc-800 flex flex-col z-30 shadow-2xl relative">
                 <div className="p-6 flex flex-col items-center bg-white/5 border-b border-white/10">
@@ -333,10 +322,8 @@ export default function PubDisplay() {
             </div>
         )}
       </div>
-
       <div className="reactions-overlay pointer-events-none fixed inset-0 z-[100] overflow-hidden">{floatingReactions.map(r => (<div key={r.id} className="absolute flex flex-col items-center animate-float-up" style={{ left: `${r.left}%`, bottom: '-50px' }}><span className="text-7xl filter drop-shadow-2xl">{r.emoji}</span></div>))}</div>
       {flashMessages.length > 0 && (<div className="fixed top-24 left-8 z-[110] w-2/3 max-w-4xl flex flex-col gap-4">{flashMessages.map(msg => (<div key={msg.internalId} className="bg-black/90 backdrop-blur-xl border-l-8 border-cyan-500 text-white p-6 rounded-r-2xl shadow-2xl animate-slide-in-left"><p className="text-4xl font-bold">{msg.text}</p></div>))}</div>)}
-      
       <style jsx>{`
         .ticker-container { width: 100%; overflow: hidden; }
         .ticker-content { display: inline-block; white-space: nowrap; animation: ticker 30s linear infinite; }
