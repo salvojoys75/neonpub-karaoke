@@ -102,20 +102,40 @@ export default function AdminDashboard() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
+      
       let { data: userProfile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
       
-      // Auto-promote admin (dev logic)
-      if (user.email === 'admin@neonpub.com' && (!userProfile || userProfile.role !== 'super_admin')) {
-          const { error } = await supabase.from('profiles').upsert({ id: user.id, email: user.email, role: 'super_admin', credits: 9999, is_active: true });
-          if(!error) userProfile = { id: user.id, email: user.email, role: 'super_admin', credits: 9999, is_active: true };
+      // LOGICA ADMIN: Se è l'admin, forza sempre il ruolo e lo stato attivo se non corretti
+      if (user.email === 'admin@neonpub.com') {
+          if (!userProfile || userProfile.role !== 'super_admin' || userProfile.is_active !== true) {
+              const { error } = await supabase.from('profiles').upsert({ 
+                  id: user.id, 
+                  email: user.email, 
+                  role: 'super_admin', 
+                  credits: 9999, 
+                  is_active: true 
+              });
+              if(!error) {
+                  // Aggiorna l'oggetto locale dopo l'upsert
+                  userProfile = { id: user.id, email: user.email, role: 'super_admin', credits: 9999, is_active: true };
+              }
+          }
       }
-      // Create generic operator if missing
+      
+      // CREAZIONE PROFILO STANDARD (Se non esiste)
       if (!userProfile) {
-         const { data: newProfile } = await supabase.from('profiles').insert([{ id: user.id, email: user.email, role: 'operator', credits: 0, is_active: true }]).select().single();
+         const { data: newProfile } = await supabase.from('profiles').insert([{ 
+             id: user.id, 
+             email: user.email, 
+             role: 'operator', 
+             credits: 0, 
+             is_active: true 
+         }]).select().single();
          userProfile = newProfile;
       }
 
-      if (!userProfile.is_active) {
+      // CONTROLLO BAN (Solo se esplicitamente false, così se è null/undefined entra lo stesso)
+      if (userProfile.is_active === false) {
           toast.error("Account disabilitato. Contatta l'amministratore.");
           logout();
           return;
@@ -123,6 +143,7 @@ export default function AdminDashboard() {
 
       setProfile(userProfile);
       
+      // ROUTING IN BASE AL RUOLO
       if (userProfile.role === 'super_admin') { 
           setAppState("super_admin"); 
           loadSuperAdminData(); 
@@ -130,16 +151,16 @@ export default function AdminDashboard() {
         // Logica Operatore
         const storedCode = localStorage.getItem("neonpub_pub_code");
         
-        // Verifica se il codice salvato è ancora valido (non scaduto)
         if (storedCode) { 
             const pubData = await api.getPub(storedCode);
-            if (pubData.data && new Date(pubData.data.expires_at) > new Date()) {
+            // Verifica validità evento
+            if (pubData.data && (!pubData.data.expires_at || new Date(pubData.data.expires_at) > new Date())) {
                 setPubCode(storedCode); 
                 setAppState("dashboard"); 
             } else {
                 localStorage.removeItem("neonpub_pub_code");
                 setPubCode(null);
-                loadActiveEvents(); // Carica lista eventi per il setup
+                loadActiveEvents(); 
                 setAppState("setup");
             }
         } else {
@@ -147,7 +168,10 @@ export default function AdminDashboard() {
             setAppState("setup"); 
         }
       }
-    } catch (error) { console.error(error); }
+    } catch (error) { 
+        console.error(error); 
+        toast.error("Errore profilo: " + error.message);
+    }
   };
 
   const loadActiveEvents = async () => {
