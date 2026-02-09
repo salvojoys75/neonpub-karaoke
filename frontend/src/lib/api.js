@@ -1,52 +1,31 @@
 import { supabase } from './supabase'
 
-// ============================================
-// HELPER FUNCTIONS
-// ============================================
-
+// --- HELPER ---
 function getParticipantFromToken() {
   const token = localStorage.getItem('neonpub_token')
   if (!token) throw new Error('Not authenticated')
-  try {
-    return JSON.parse(atob(token))
-  } catch {
-    throw new Error('Invalid token')
-  }
+  try { return JSON.parse(atob(token)) } catch { throw new Error('Invalid token') }
 }
 
 async function getAdminEvent() {
   const pubCode = localStorage.getItem('neonpub_pub_code')
   if (!pubCode) throw new Error('No event selected')
-  
-  const { data, error } = await supabase
-    .from('events')
-    .select('*')
-    .eq('code', pubCode.toUpperCase())
-    .single()
-  
+  const { data, error } = await supabase.from('events').select('*').eq('code', pubCode.toUpperCase()).single()
   if (error) throw error
   return data
 }
 
-// ============================================
-// AUTH & EVENTS & STORAGE
-// ============================================
-
+// --- AUTH & SETUP ---
 export const createPub = async (data) => {
   const { data: user } = await supabase.auth.getUser()
   if (!user?.user) throw new Error('Not authenticated')
-
   const { data: profile } = await supabase.from('profiles').select('credits').eq('id', user.user.id).single();
   if (!profile || profile.credits < 1) throw new Error("Crediti insufficienti!");
-
-  const { error: creditError } = await supabase.from('profiles').update({ credits: profile.credits - 1 }).eq('id', user.user.id);
-  if (creditError) throw new Error("Errore crediti");
-
+  await supabase.from('profiles').update({ credits: profile.credits - 1 }).eq('id', user.user.id);
   const code = Math.random().toString(36).substring(2, 8).toUpperCase()
   const { data: event, error } = await supabase.from('events').insert({
       owner_id: user.user.id, name: data.name, code: code, event_type: 'mixed', status: 'active', active_module: 'karaoke'
     }).select().single()
-
   if (error) throw error
   return { data: event }
 }
@@ -94,10 +73,7 @@ export const getAllProfiles = async () => { const { data } = await supabase.from
 export const updateProfileCredits = async (id, credits) => { await supabase.from('profiles').update({ credits }).eq('id', id); return { data: 'ok' }; }
 export const createOperatorProfile = async () => { return { data: 'ok' }; }
 
-// ============================================
-// REGIA & STATO
-// ============================================
-
+// --- GESTIONE STATO & MODULI (RESET) ---
 export const getEventState = async () => {
   const pubCode = localStorage.getItem('neonpub_pub_code');
   if (!pubCode) return null;
@@ -105,37 +81,36 @@ export const getEventState = async () => {
   return data;
 };
 
-// ** FUNZIONE CRUCIALE: RIPRISTINA IL KARAOKE E PULISCE I QUIZ **
+// QUESTA FUNZIONE SBLOCCA TUTTO
 export const restoreKaraokeMode = async () => {
     const event = await getAdminEvent();
-    // 1. Chiude tutti i quiz
+    // Chiude quiz
     await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id);
-    // 2. Imposta il modulo su karaoke
+    // Forza karaoke
     await supabase.from('events').update({ active_module: 'karaoke', active_module_id: null }).eq('id', event.id);
     return { success: true };
 }
 
 export const setEventModule = async (moduleId, specificContentId = null) => {
-  const pubCode = localStorage.getItem('neonpub_pub_code');
-  const { data: event } = await supabase.from('events').update({ active_module: moduleId, active_module_id: specificContentId }).eq('code', pubCode).select().single();
+  const event = await getAdminEvent();
+  await supabase.from('events').update({ active_module: moduleId, active_module_id: specificContentId }).eq('id', event.id);
   
   if (moduleId === 'quiz' && specificContentId) {
-    const { data: catalogItem } = await supabase.from('quiz_catalog').select('*').eq('id', specificContentId).single();
-    if (catalogItem) {
-        await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
+    const { data: item } = await supabase.from('quiz_catalog').select('*').eq('id', specificContentId).single();
+    if (item) {
+        // Chiude precedenti
+        await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id);
+        // Crea nuovo
         await supabase.from('quizzes').insert({
-          event_id: event.id, category: catalogItem.category, question: catalogItem.question, options: catalogItem.options,
-          correct_index: catalogItem.correct_index, points: catalogItem.points, status: 'active',
-          media_url: catalogItem.media_url, media_type: catalogItem.media_type
+          event_id: event.id, category: item.category, question: item.question, options: item.options,
+          correct_index: item.correct_index, points: item.points, status: 'active',
+          media_url: item.media_url, media_type: item.media_type
         });
     }
   }
 };
 
-// ============================================
-// CATALOGHI & IMPORT
-// ============================================
-
+// --- CATALOGHI ---
 export const getQuizCatalog = async () => {
   const { data } = await supabase.from('quiz_catalog').select('*').order('category');
   return { data: data || [] };
@@ -146,13 +121,9 @@ export const importQuizCatalog = async (jsonString) => {
         let items = JSON.parse(jsonString);
         if (!Array.isArray(items)) items = [items];
         const cleanItems = items.map(item => ({
-             category: item.category || 'Generale',
-             question: item.question,
-             options: item.options,
-             correct_index: item.correct_index ?? 0,
-             points: item.points || 10,
-             media_url: item.media_url || null,
-             media_type: item.media_type || 'text'
+             category: item.category || 'Generale', question: item.question, options: item.options,
+             correct_index: item.correct_index ?? 0, points: item.points || 10,
+             media_url: item.media_url || null, media_type: item.media_type || 'text'
         }));
         await supabase.from('quiz_catalog').insert(cleanItems);
         return { success: true, count: cleanItems.length };
@@ -164,10 +135,7 @@ export const getChallengeCatalog = async () => {
   return { data: data || [] };
 };
 
-// ============================================
-// SONG REQUESTS & QUEUE
-// ============================================
-
+// --- KARAOKE & CODA ---
 export const requestSong = async (data) => {
   const participant = getParticipantFromToken()
   const { data: request, error } = await supabase.from('song_requests').insert({
@@ -200,13 +168,9 @@ export const approveRequest = async (requestId) => { await supabase.from('song_r
 export const rejectRequest = async (requestId) => { await supabase.from('song_requests').update({ status: 'rejected' }).eq('id', requestId); return { data: 'ok' } }
 export const deleteRequest = async (requestId) => { await supabase.from('song_requests').update({ status: 'rejected' }).eq('id', requestId); return { data: 'ok' } }
 
-// ============================================
-// PERFORMANCES (KARAOKE CONTROLS)
-// ============================================
-
+// --- PLAYER CONTROLS (FONDAMENTALI) ---
 export const startPerformance = async (requestId, youtubeUrl) => {
   const { data: request } = await supabase.from('song_requests').select('*, participants(nickname)').eq('id', requestId).single()
-  // Chiude performance precedenti
   await supabase.from('performances').update({ status: 'ended' }).eq('event_id', request.event_id).neq('status', 'ended');
   
   const { data: performance, error } = await supabase.from('performances').insert({
@@ -217,27 +181,27 @@ export const startPerformance = async (requestId, youtubeUrl) => {
   if (error) throw error
   await supabase.from('song_requests').update({ status: 'performing' }).eq('id', requestId)
   
-  // FORZA MODULO KARAOKE
+  // IMPORTANTE: Forza modulo karaoke
   await supabase.from('events').update({ active_module: 'karaoke' }).eq('id', request.event_id);
   
   return { data: performance }
 }
 
 export const endPerformance = async (performanceId) => {
-  // Passa allo stato 'voting'
+  // Passa a voting
   await supabase.from('performances').update({ status: 'voting', ended_at: new Date().toISOString() }).eq('id', performanceId);
   return { data: 'ok' }
 }
 
 export const closeVoting = async (performanceId) => {
-  // Calcola punteggio e chiude
   const { data: perf } = await supabase.from('performances').select('*, participants(score)').eq('id', performanceId).single();
+  // Chiude performance
   await supabase.from('performances').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', performanceId);
   
   if (perf && perf.song_request_id) {
       await supabase.from('song_requests').update({ status: 'ended' }).eq('id', perf.song_request_id);
   }
-  // Aggiorna classifica generale
+  // Punti utente
   if (perf && perf.participant_id && perf.average_score > 0) {
       const currentScore = perf.participants?.score || 0;
       await supabase.from('participants').update({ score: currentScore + perf.average_score }).eq('id', perf.participant_id);
@@ -246,7 +210,6 @@ export const closeVoting = async (performanceId) => {
 }
 
 export const stopAndNext = async (performanceId) => {
-    // Chiude brutalmente senza voto
     const { data: perf } = await supabase.from('performances').select('song_request_id').eq('id', performanceId).single();
     if (perf?.song_request_id) {
         await supabase.from('song_requests').update({ status: 'ended' }).eq('id', perf.song_request_id);
@@ -255,7 +218,6 @@ export const stopAndNext = async (performanceId) => {
     return { data: 'ok' };
 }
 
-// -- CONTROLLI PLAY/PAUSA --
 export const pausePerformance = async (performanceId) => {
   await supabase.from('performances').update({ status: 'paused' }).eq('id', performanceId);
   return { data: 'ok' };
@@ -267,7 +229,6 @@ export const resumePerformance = async (performanceId) => {
 }
 
 export const restartPerformance = async (performanceId) => {
-  // Prima update a restarted, poi subito live per triggerare il player
   await supabase.from('performances').update({ status: 'restarted', started_at: new Date().toISOString() }).eq('id', performanceId);
   await supabase.from('performances').update({ status: 'live' }).eq('id', performanceId);
   return { data: 'ok' };
@@ -291,16 +252,12 @@ export const getAdminCurrentPerformance = async () => {
   return { data: data ? { ...data, user_nickname: data.participants?.nickname || 'Unknown' } : null }
 }
 
-// ============================================
-// VOTO & MESSAGGI
-// ============================================
-
+// --- VOTO & MESSAGGI ---
 export const submitVote = async (data) => {
   const participant = getParticipantFromToken();
   const { error } = await supabase.from('votes').insert({ performance_id: data.performance_id, participant_id: participant.participant_id, score: data.score });
   if (error && error.code === '23505') throw new Error('Hai già votato');
   
-  // Calcolo media istantanea
   const { data: allVotes } = await supabase.from('votes').select('score').eq('performance_id', data.performance_id);
   if (allVotes && allVotes.length > 0) {
       const total = allVotes.reduce((acc, v) => acc + v.score, 0);
@@ -317,10 +274,8 @@ export const sendReaction = async (data) => {
 }
 
 export const sendMessage = async (data) => {
-  // Logica ibrida semplificata: se c'è token, è user. Se no, è admin (approvato subito)
   let status = 'pending';
-  let pId = null;
-  let eId = null;
+  let pId = null; let eId = null;
   
   try {
      const p = getParticipantFromToken();
@@ -332,7 +287,6 @@ export const sendMessage = async (data) => {
         if(event) { eId = event.id; status = 'approved'; }
      }
   }
-  
   if(!eId) return;
   const text = typeof data === 'string' ? data : (data.text || data.message);
   await supabase.from('messages').insert({ event_id: eId, participant_id: pId, text: text, status: status });
@@ -348,12 +302,10 @@ export const getAdminPendingMessages = async () => {
 export const approveMessage = async (id) => { await supabase.from('messages').update({status:'approved'}).eq('id', id); return {data:'ok'} }
 export const rejectMessage = async (id) => { await supabase.from('messages').update({status:'rejected'}).eq('id', id); return {data:'ok'} }
 
-// ============================================
-// QUIZ & DISPLAY
-// ============================================
-
+// --- QUIZ (SEMPLIFICATO) ---
 export const startQuiz = async (data) => {
   const event = await getAdminEvent()
+  // Pulisce vecchi
   await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id);
   const { data: quiz } = await supabase.from('quizzes').insert({
     event_id: event.id, category: data.category, question: data.question, options: data.options,
@@ -440,7 +392,7 @@ export const getDisplayData = async (pubCode) => {
 export default {
   createPub, updateEventSettings, uploadLogo, getPub, joinPub, adminLogin, getMe,
   getAllProfiles, updateProfileCredits, createOperatorProfile,
-  getEventState, setEventModule, restoreKaraokeMode, // <-- NUOVO EXPORT
+  getEventState, setEventModule, restoreKaraokeMode, // <-- USO QUESTO PER SBLOCCARE
   getQuizCatalog, importQuizCatalog, getChallengeCatalog,
   requestSong, getSongQueue, getMyRequests, getAdminQueue, approveRequest, rejectRequest, deleteRequest,
   startPerformance, pausePerformance, resumePerformance, endPerformance, closeVoting, stopAndNext, restartPerformance, toggleMute,
