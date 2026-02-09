@@ -5,7 +5,7 @@ import {
   Music, Play, Square, Trophy, Tv, Check, X, MessageSquare, 
   LogOut, SkipForward, Pause, RotateCcw, Search, Plus, ArrowLeft,
   ListMusic, BrainCircuit, Swords, Send, Star, VolumeX, Volume2, ExternalLink,
-  Users, Coins, Settings, Save, LayoutDashboard, Gem, Upload, UserPlus, Ban, Trash2
+  Users, Coins, Settings, Save, LayoutDashboard, Gem, Upload, UserPlus, Ban, Trash2, Image as ImageIcon
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
-import api, { createPub, updateEventSettings } from "@/lib/api";
+import api, { createPub, updateEventSettings, uploadLogo } from "@/lib/api";
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -49,6 +49,9 @@ export default function AdminDashboard() {
 
   // --- STATI QUIZ & MODALI ---
   const [activeQuizId, setActiveQuizId] = useState(null);
+  const [quizStatus, setQuizStatus] = useState(null); // RIPRISTINATO
+  const [quizResults, setQuizResults] = useState(null); // RIPRISTINATO
+  
   const [showYoutubeModal, setShowYoutubeModal] = useState(false);
   const [showCustomQuizModal, setShowCustomQuizModal] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
@@ -84,12 +87,10 @@ export default function AdminDashboard() {
       if (!user) return;
       let { data: userProfile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
       
-      // Auto-promote admin@neonpub.com
       if (user.email === 'admin@neonpub.com' && (!userProfile || userProfile.role !== 'super_admin')) {
           const { error } = await supabase.from('profiles').upsert({ id: user.id, email: user.email, role: 'super_admin', credits: 9999 });
           if(!error) userProfile = { id: user.id, email: user.email, role: 'super_admin', credits: 9999 };
       }
-      
       if (!userProfile) {
          const { data: newProfile } = await supabase.from('profiles').insert([{ id: user.id, email: user.email, role: 'operator', credits: 0 }]).select().single();
          userProfile = newProfile;
@@ -139,7 +140,18 @@ export default function AdminDashboard() {
       setCurrentPerformance(perfRes.data);
       setPendingMessages(msgRes.data || []);
       if(pubRes.data && !venueName) { setVenueName(pubRes.data.name); setVenueLogo(pubRes.data.logo_url || ""); }
-      if(activeQuizRes.data) { setActiveQuizId(activeQuizRes.data.id); } else { setActiveQuizId(null); }
+      
+      // GESTIONE STATO QUIZ RIPRISTINATA
+      if(activeQuizRes.data) {
+         setActiveQuizId(activeQuizRes.data.id);
+         setQuizStatus(activeQuizRes.data.status);
+         if(activeQuizRes.data.status === 'showing_results') {
+             const resData = await api.getQuizResults(activeQuizRes.data.id);
+             setQuizResults(resData.data);
+         }
+      } else {
+         setActiveQuizId(null); setQuizStatus(null); setQuizResults(null);
+      }
     } catch (error) { console.error(error); }
   }, [pubCode, appState, venueName]);
 
@@ -172,6 +184,28 @@ export default function AdminDashboard() {
     window.open(`/display/${pubCode}`, 'NeonPubDisplay', `popup=yes,width=${width},height=${height},top=${top},left=${left},toolbar=no,menubar=no`);
   };
 
+  // --- UPLOAD LOGO (RIPRISTINATO) ---
+  const handleLogoUpload = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      setUploadingLogo(true);
+      try {
+          const url = await api.uploadLogo(file);
+          setVenueLogo(url);
+          toast.success("Logo caricato! Clicca Salva per confermare.");
+      } catch(err) {
+          toast.error("Errore caricamento logo.");
+          console.error(err);
+      } finally { setUploadingLogo(false); }
+  };
+
+  const handleSaveSettings = async () => {
+      try {
+          await updateEventSettings({ name: venueName, logo_url: venueLogo });
+          toast.success("Impostazioni salvate");
+      } catch (e) { toast.error("Errore salvataggio: " + e.message); }
+  };
+
   const searchYouTube = async (manualQuery = null) => {
     const q = manualQuery || youtubeSearchQuery;
     if (!q.trim()) return;
@@ -198,18 +232,14 @@ export default function AdminDashboard() {
         if(action==='pause') await api.pausePerformance(currentPerformance.id);
         if(action==='resume') await api.resumePerformance(currentPerformance.id);
         if(action==='restart') await api.restartPerformance(currentPerformance.id);
-        
-        // Stop e Vota (Aggiorna classifica)
         if(action==='end_vote') await api.endPerformance(currentPerformance.id);
         
-        // Stop SENZA Voto (Skip)
         if(action==='skip_next') {
             if(window.confirm("Chiudere senza voto?")) {
                 await api.stopAndNext(currentPerformance.id);
                 toast.info("Chiuso senza voto");
             }
         }
-        // Chiudi votazione finale
         if(action==='close_vote') {
              await api.closeVoting(currentPerformance.id);
              toast.success("Votazione conclusa!");
@@ -218,7 +248,6 @@ export default function AdminDashboard() {
       } catch(e) { toast.error("Errore comando: " + e.message); }
   };
 
-  // NUOVA FUNZIONE PER IL CESTINO
   const deleteRequest = async (id) => {
       if(!confirm("Eliminare definitivamente dalla scaletta?")) return;
       try {
@@ -236,12 +265,13 @@ export default function AdminDashboard() {
 
   const handleSendMessage = async () => {
       if(!adminMessage) return;
-      await api.sendMessage({ text: adminMessage }); // Usa l'API aggiornata che imposta approved per admin
+      await api.sendMessage({ text: adminMessage });
       setShowMessageModal(false); 
       setAdminMessage("");
       toast.success("Messaggio Inviato");
   };
 
+  // --- GESTIONE QUIZ ---
   const launchCustomQuiz = async () => {
       try {
           await api.startQuiz({
@@ -249,6 +279,20 @@ export default function AdminDashboard() {
           });
           setShowCustomQuizModal(false); toast.success("Quiz Custom Lanciato!"); loadData();
       } catch(e) { toast.error("Errore quiz custom"); }
+  };
+
+  const ctrlQuiz = async (action) => {
+      if(!activeQuizId) return;
+      try {
+          if(action==='close_vote') await api.closeQuizVoting(activeQuizId);
+          if(action==='show_results') await api.showQuizResults(activeQuizId);
+          if(action==='end') {
+              await api.endQuiz(activeQuizId);
+              await api.setEventModule('karaoke'); 
+              toast.info("Tornati al Karaoke");
+          }
+          loadData();
+      } catch(e) { toast.error("Errore comando quiz"); }
   };
 
   // --- RENDER ---
@@ -376,7 +420,6 @@ export default function AdminDashboard() {
                                   </div>
                               </div>
                               <div className="flex gap-2">
-                                  {/* TASTO ELIMINA */}
                                   <Button size="icon" variant="ghost" className="h-7 w-7 text-zinc-500 hover:text-red-500 hover:bg-red-900/20" onClick={() => deleteRequest(req.id)}>
                                      <Trash2 className="w-3 h-3" />
                                   </Button>
@@ -396,14 +439,41 @@ export default function AdminDashboard() {
                   </div>
                )}
 
-               {/* 2. QUIZ */}
+               {/* 2. QUIZ (RIPRISTINATO E COMPLETO) */}
                {libraryTab === 'quiz' && (
                    <div className="space-y-4">
                        <Button className="w-full bg-fuchsia-600" onClick={()=>setShowCustomQuizModal(true)}><Plus className="w-4 h-4 mr-2"/> Nuovo Quiz</Button>
+                       
                        {activeQuizId ? (
-                           <div className="p-4 bg-green-900/20 border border-green-500 rounded text-center">
-                               <h3 className="text-green-500 font-bold mb-2">QUIZ ATTIVO</h3>
-                               <Button className="w-full bg-red-600" onClick={()=>api.endQuiz(activeQuizId)}>Termina Quiz</Button>
+                           <div className="p-4 bg-zinc-800 border border-zinc-700 rounded text-center">
+                               <h3 className="text-fuchsia-500 font-bold mb-2 uppercase">Quiz In Corso</h3>
+                               
+                               {quizStatus === 'active' && (
+                                   <div className="animate-pulse text-green-500 text-sm mb-4">Votazioni Aperte</div>
+                               )}
+                               {quizStatus === 'closed' && (
+                                   <div className="text-yellow-500 text-sm mb-4">Votazioni Chiuse. In attesa di risultati.</div>
+                               )}
+                               {quizStatus === 'showing_results' && (
+                                   <div className="text-blue-500 text-sm mb-4">Risultati mostrati a schermo.</div>
+                               )}
+
+                               <div className="grid grid-cols-1 gap-2">
+                                   {quizStatus === 'active' && <Button className="w-full bg-yellow-600 hover:bg-yellow-500 text-black" onClick={()=>ctrlQuiz('close_vote')}>Chiudi Voto</Button>}
+                                   
+                                   {quizStatus === 'closed' && <Button className="w-full bg-blue-600 hover:bg-blue-500" onClick={()=>ctrlQuiz('show_results')}>Mostra Risultati</Button>}
+                                   
+                                   {(quizStatus === 'showing_results' || quizStatus === 'closed') && (
+                                       <Button className="w-full bg-red-600 hover:bg-red-500" onClick={()=>ctrlQuiz('end')}>Termina Quiz</Button>
+                                   )}
+                               </div>
+
+                               {quizResults && quizStatus === 'showing_results' && (
+                                   <div className="mt-4 text-left bg-black/20 p-2 rounded text-xs">
+                                       <p className="text-zinc-400">Risposte Totali: {quizResults.total_answers}</p>
+                                       <p className="text-green-400">Corrette: {quizResults.correct_count}</p>
+                                   </div>
+                               )}
                            </div>
                        ) : <p className="text-center text-zinc-500 py-4">Nessun quiz attivo</p>}
                    </div>
@@ -434,12 +504,31 @@ export default function AdminDashboard() {
                    </div>
                )}
 
-               {/* 5. SETTINGS */}
+               {/* 5. SETTINGS (UPLOAD RIPRISTINATO) */}
                {libraryTab === 'settings' && (
                    <div className="space-y-4 pt-2">
-                       <div className="space-y-2"><label className="text-xs text-zinc-500">Nome Locale</label><Input value={venueName} onChange={e=>setVenueName(e.target.value)} className="bg-zinc-800"/></div>
-                       <div className="space-y-2"><label className="text-xs text-zinc-500">Logo URL</label><Input value={venueLogo} onChange={e=>setVenueLogo(e.target.value)} className="bg-zinc-800"/></div>
-                       <Button className="w-full bg-zinc-700" onClick={async()=>{await updateEventSettings({name:venueName, logo_url:venueLogo}); toast.success("Salvato");}}>Salva</Button>
+                       <div className="space-y-2">
+                           <label className="text-xs text-zinc-500">Nome Locale</label>
+                           <Input value={venueName} onChange={e=>setVenueName(e.target.value)} className="bg-zinc-800"/>
+                       </div>
+                       
+                       <div className="space-y-2">
+                           <label className="text-xs text-zinc-500">Logo (Carica File)</label>
+                           <div className="flex gap-2 items-center">
+                               <Input type="file" onChange={handleLogoUpload} className="bg-zinc-800 text-xs" accept="image/*" disabled={uploadingLogo}/>
+                               {uploadingLogo && <span className="text-yellow-500 text-xs animate-pulse">Upload...</span>}
+                           </div>
+                       </div>
+
+                       <div className="space-y-2">
+                           <label className="text-xs text-zinc-500">Oppure URL Logo</label>
+                           <Input value={venueLogo} onChange={e=>setVenueLogo(e.target.value)} className="bg-zinc-800" placeholder="https://..."/>
+                           {venueLogo && <img src={venueLogo} alt="Preview" className="h-10 mt-2 object-contain" />}
+                       </div>
+
+                       <Button className="w-full bg-zinc-700" onClick={handleSaveSettings}>
+                           <Save className="w-4 h-4 mr-2"/> Salva Impostazioni
+                       </Button>
                    </div>
                )}
             </ScrollArea>
@@ -483,7 +572,6 @@ export default function AdminDashboard() {
                                        {currentPerformance.status === 'paused' && <Button size="lg" className="h-16 w-16 rounded-full bg-green-500 text-black" onClick={()=>ctrlPerf('resume')}><Play className="w-6 h-6" /></Button>}
                                        <Button size="lg" variant="secondary" className="h-16 w-16 rounded-full" onClick={()=>ctrlPerf('restart')}><RotateCcw className="w-6 h-6" /></Button>
                                        
-                                       {/* TASTO LINK ESTERNO */}
                                        <Button size="lg" variant="outline" className="h-16 w-16 rounded-full border-blue-500 text-blue-500 hover:bg-blue-900/20" onClick={openManualVideoWindow} title="Apri Video Esterno">
                                            <ExternalLink className="w-6 h-6" />
                                        </Button>
