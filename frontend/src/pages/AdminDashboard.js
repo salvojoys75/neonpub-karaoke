@@ -311,13 +311,19 @@ export default function AdminDashboard() {
       }
   };
 
-  const ctrlQuiz = async (action) => {
+const ctrlQuiz = async (action) => {
       if(!activeQuizId) return;
       try {
           if(action==='close_vote') await api.closeQuizVoting(activeQuizId);
           if(action==='show_results') await api.showQuizResults(activeQuizId);
           if(action==='leaderboard') await api.showQuizLeaderboard(activeQuizId);
-          if(action==='end') { await api.endQuiz(activeQuizId); await api.setEventModule('karaoke'); toast.info("Tornati al Karaoke"); }
+          if(action==='end') { 
+              // QUI LA MODIFICA CRUCIALE: Usiamo la funzione di ripristino sicuro
+              await api.restoreKaraokeMode(); 
+              toast.info("Tornati al Karaoke"); 
+              setActiveQuizId(null); // Pulisce lo stato locale immediato
+              setQuizStatus(null);
+          }
           loadData();
       } catch(e) { toast.error("Errore comando quiz"); }
   };
