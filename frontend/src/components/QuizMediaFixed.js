@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, memo } from "react";
-import { Music2, Loader2, VolumeX, Volume2 } from "lucide-react";
+import { Music2, Loader2, VolumeX } from "lucide-react";
 
 // Helper interni
 const getYoutubeId = (url) => {
@@ -15,103 +15,90 @@ const getMediaType = (url, type) => {
     return 'unknown';
 };
 
-const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult }) => {
+// Usa memo con confronto personalizzato per evitare re-render inutili
+const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult, volume = 100 }) => {
     const playerRef = useRef(null);
-    const containerRef = useRef(null);
-    const [isLoading, setIsLoading] = useState(true);
+    const currentVideoIdRef = useRef(null);
+    
+    const [isLoading, setIsLoading] = useState(false);
     const [audioBlocked, setAudioBlocked] = useState(false);
     const [playerReady, setPlayerReady] = useState(false);
 
     const detectedType = getMediaType(mediaUrl, mediaType);
     const videoId = detectedType === 'youtube' ? getYoutubeId(mediaUrl) : null;
 
-    // Gestione Inizializzazione Player YouTube
+    // --- GESTIONE YOUTUBE ---
     useEffect(() => {
-        // Se siamo nei risultati o non c'è video, resettiamo
-        if (isResult || !videoId) {
+        // Se non c'è video o siamo ai risultati, non fare nulla di pesante
+        if (!videoId || isResult) return;
+
+        // Se il video è lo stesso che sta già girando, NON FARE NULLA (evita il riavvio)
+        if (playerRef.current && currentVideoIdRef.current === videoId) {
             return;
         }
 
+        // Se è un nuovo video
         setIsLoading(true);
-        setAudioBlocked(false);
+        currentVideoIdRef.current = videoId;
 
         const onPlayerReady = (event) => {
             setPlayerReady(true);
             setIsLoading(false);
-            
             const player = event.target;
-            player.setVolume(100);
-            player.unMute();
+            player.setVolume(volume);
+            player.unMute(); 
+            player.playVideo();
             
-            // Tenta il play
-            const playPromise = player.playVideo();
-            
-            // Verifica se è partito mutato o bloccato
-            if (player.isMuted()) {
-                setAudioBlocked(true);
+            // Controllo paranoico audio
+            if (player.isMuted()) setAudioBlocked(true);
+            else setAudioBlocked(false);
+        };
+
+        const onStateChange = (event) => {
+            // 1 = Playing
+            if (event.data === 1) {
+                setIsLoading(false);
+                if (!event.target.isMuted()) setAudioBlocked(false);
             }
         };
 
-        const onPlayerStateChange = (event) => {
-            // 1 = Playing. Se sta suonando e non è muto, rimuovi avviso blocco
-            if (event.data === 1 && !event.target.isMuted()) {
-                setAudioBlocked(false);
-            }
-        };
-
-        if (!window.YT) {
-            const tag = document.createElement('script');
-            tag.src = "https://www.youtube.com/iframe_api";
-            const firstScriptTag = document.getElementsByTagName('script')[0];
-            firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-            
-            window.onYouTubeIframeAPIReady = () => {
-                createPlayer(videoId, onPlayerReady, onPlayerStateChange);
+        // Inizializza Player SOLO se non esiste
+        if (!playerRef.current) {
+            const initYT = () => {
+                playerRef.current = new window.YT.Player('quiz-fixed-player', {
+                    videoId: videoId,
+                    height: '100%',
+                    width: '100%',
+                    playerVars: {
+                        autoplay: 1, controls: 0, disablekb: 1, fs: 0, 
+                        iv_load_policy: 3, modestbranding: 1, rel: 0, 
+                        showinfo: 0, mute: 0, origin: window.location.origin
+                    },
+                    events: { onReady: onPlayerReady, onStateChange: onStateChange }
+                });
             };
+
+            if (!window.YT) {
+                const tag = document.createElement('script');
+                tag.src = "https://www.youtube.com/iframe_api";
+                const firstScriptTag = document.getElementsByTagName('script')[0];
+                firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+                window.onYouTubeIframeAPIReady = initYT;
+            } else {
+                initYT();
+            }
         } else {
-            createPlayer(videoId, onPlayerReady, onPlayerStateChange);
+            // Se il player esiste già, CARICA IL NUOVO VIDEO SENZA DISTRUGGERE L'IFRAME
+            if (playerRef.current.loadVideoById) {
+                playerRef.current.loadVideoById(videoId);
+                playerRef.current.setVolume(volume);
+                playerRef.current.unMute();
+            }
         }
 
-        return () => {
-            if (playerRef.current) {
-                try {
-                    playerRef.current.destroy(); 
-                } catch(e) { console.error(e); }
-                playerRef.current = null;
-            }
-        };
-    }, [videoId, isResult]); // Dipendenze ridotte al minimo per evitare reload
+    }, [videoId, isResult, volume]);
 
-    const createPlayer = (id, onReady, onStateChange) => {
-        // Distruggi istanza precedente se esiste per evitare conflitti
-        if (playerRef.current) {
-             try { playerRef.current.destroy(); } catch(e){}
-        }
-
-        playerRef.current = new window.YT.Player('quiz-fixed-player', {
-            videoId: id,
-            height: '100%',
-            width: '100%',
-            playerVars: {
-                autoplay: 1,
-                controls: 0,
-                disablekb: 1,
-                fs: 0,
-                iv_load_policy: 3,
-                modestbranding: 1,
-                rel: 0,
-                showinfo: 0,
-                mute: 0, 
-                origin: window.location.origin
-            },
-            events: {
-                onReady: onReady,
-                onStateChange: onStateChange
-            }
-        });
-    };
-
-    // Forza unMute se l'utente clicca (per bypassare blocchi browser)
+    // Force Unmute manuale
     const handleForceUnmute = () => {
         if (playerRef.current && playerRef.current.unMute) {
             playerRef.current.unMute();
@@ -120,47 +107,46 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult }) => {
         }
     };
 
-    // Render Audio Player (MP3 diretti)
+    // --- RENDER AUDIO FILE (MP3) ---
     if (detectedType === 'audio_file') {
         return (
             <div className="absolute inset-0 z-0 bg-gradient-to-br from-fuchsia-900 to-purple-900 flex items-center justify-center">
-                 <audio autoPlay src={mediaUrl} onPlay={() => setIsLoading(false)} onError={() => setIsLoading(false)} />
+                 {/* key={mediaUrl} forza il reload solo se cambia URL */}
+                 <audio key={mediaUrl} autoPlay src={mediaUrl} onError={() => setIsLoading(false)} />
                  <div className="flex flex-col items-center animate-pulse">
                         <div className="bg-white/10 p-12 rounded-full border-4 border-white/20 mb-4 shadow-[0_0_50px_rgba(255,255,255,0.2)]">
                             <Music2 size={100} className="text-white" />
                         </div>
-                        <h3 className="text-3xl text-white font-bold tracking-widest uppercase">Audio Question</h3>
+                        <h3 className="text-3xl text-white font-bold tracking-widest uppercase">Ascolta la traccia</h3>
                 </div>
             </div>
         );
     }
 
-    // Render YouTube
+    // --- RENDER YOUTUBE ---
     if (detectedType === 'youtube') {
-        const isAudioOnlyMode = mediaType === 'audio'; // Se è un video YT usato solo per l'audio
+        const isAudioOnlyMode = mediaType === 'audio';
 
         return (
             <div className="absolute inset-0 z-0 bg-black overflow-hidden flex items-center justify-center">
-                {/* Il div che contiene l'iframe */}
                 <div id="quiz-fixed-player" className={`absolute inset-0 w-full h-full object-cover pointer-events-none transition-opacity duration-1000 ${isAudioOnlyMode ? 'opacity-0' : 'opacity-100'}`} />
                 
                 {isLoading && (
                     <div className="absolute z-10 text-fuchsia-500 animate-spin"><Loader2 size={64} /></div>
                 )}
 
-                {/* AVVISO BLOCCA AUDIO */}
+                {/* BOTTONE EMERGENZA AUDIO */}
                 {audioBlocked && (
-                    <div className="absolute top-20 right-10 z-50 bg-red-600 text-white px-6 py-4 rounded-xl animate-bounce cursor-pointer shadow-2xl border-4 border-white flex items-center gap-4 hover:scale-110 transition"
-                         onClick={handleForceUnmute}>
+                    <div className="absolute top-24 right-10 z-[100] bg-red-600 text-white px-6 py-4 rounded-xl animate-bounce cursor-pointer shadow-2xl border-4 border-white flex items-center gap-4 hover:scale-110 transition"
+                         onClick={handleForceUnmute} style={{pointerEvents: 'auto'}}>
                         <VolumeX size={40} /> 
                         <div className="text-left">
                             <div className="font-black text-xl">AUDIO BLOCCATO</div>
-                            <div className="text-sm">CLICCA QUI PER ATTIVARE</div>
+                            <div className="text-sm">Clicca per attivare</div>
                         </div>
                     </div>
                 )}
 
-                {/* VISUALIZZATORE SE MODALITÀ AUDIO (MA FONTE YOUTUBE) */}
                 {isAudioOnlyMode && (
                     <div className="absolute z-20 flex flex-col items-center animate-pulse pointer-events-none">
                         <div className="bg-fuchsia-600/20 p-12 rounded-full border-4 border-fuchsia-500 mb-4 shadow-[0_0_50px_rgba(192,38,211,0.5)]">
@@ -173,8 +159,13 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult }) => {
         );
     }
 
-    // Fallback Background
     return <div className="absolute inset-0 z-0 bg-zinc-900" />;
+}, (prevProps, nextProps) => {
+    // FUNZIONE DI CONFRONTO CUSTOM PER REACT.MEMO
+    // Ritorna TRUE se NON deve rrenderizzare
+    return prevProps.mediaUrl === nextProps.mediaUrl && 
+           prevProps.mediaType === nextProps.mediaType &&
+           prevProps.isResult === nextProps.isResult;
 });
 
 export default QuizMediaFixed;
