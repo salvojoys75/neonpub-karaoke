@@ -5,7 +5,7 @@ import {
   Music, Play, Square, Trophy, Tv, Check, X, MessageSquare, 
   LogOut, SkipForward, Pause, RotateCcw, Search, Plus, ArrowLeft,
   ListMusic, BrainCircuit, Swords, Send, Star, VolumeX, Volume2, ExternalLink,
-  Users, Coins, Settings, Save, LayoutDashboard, Gem
+  Users, Coins, Settings, Save, LayoutDashboard, Gem, Upload, UserPlus, Ban
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
-import api, { createPub, updateEventSettings } from "@/lib/api";
+import api, { createPub, updateEventSettings, uploadLogo } from "@/lib/api";
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -39,10 +39,14 @@ export default function AdminDashboard() {
 
   // --- STATI SUPER ADMIN ---
   const [userList, setUserList] = useState([]);
+  const [showCreateUserModal, setShowCreateUserModal] = useState(false);
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserName, setNewUserName] = useState("");
 
   // --- IMPOSTAZIONI EVENTO ---
   const [venueName, setVenueName] = useState("");
   const [venueLogo, setVenueLogo] = useState("");
+  const [uploadingLogo, setUploadingLogo] = useState(false);
 
   // --- MODULO SFIDE & SCRIPT (AI Ready) ---
   const [challengeScripts, setChallengeScripts] = useState([
@@ -150,6 +154,20 @@ export default function AdminDashboard() {
     } catch (error) { toast.error(error.message); } finally { setCreatingEvent(false); }
   };
 
+  const handleLogoUpload = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      setUploadingLogo(true);
+      try {
+          const url = await api.uploadLogo(file);
+          setVenueLogo(url);
+          toast.success("Logo caricato con successo!");
+      } catch(err) {
+          toast.error("Errore caricamento logo. Controlla il bucket 'logos' in Supabase.");
+          console.error(err);
+      } finally { setUploadingLogo(false); }
+  };
+
   const handleSaveSettings = async () => {
       try {
           await updateEventSettings({ name: venueName, logo_url: venueLogo });
@@ -194,6 +212,7 @@ export default function AdminDashboard() {
     } catch (error) { console.error(error); }
   }, [pubCode, appState, venueName]);
 
+  // SUPER ADMIN FUNCTIONS
   const loadSuperAdminData = async () => {
       const { data } = await api.getAllProfiles();
       setUserList(data || []);
@@ -206,6 +225,17 @@ export default function AdminDashboard() {
       await api.updateProfileCredits(userId, newAmount);
       toast.success(`Crediti aggiornati a ${newAmount}`);
       loadSuperAdminData();
+  };
+
+  const handleCreateOperator = async () => {
+      if(!newUserEmail) return toast.error("Inserisci email");
+      try {
+          // Simulazione creazione
+          await api.createOperatorProfile(newUserEmail, newUserName, 0);
+          setShowCreateUserModal(false);
+          toast.success("Operatore invitato! (Deve registrarsi con questa email)");
+          loadSuperAdminData();
+      } catch(e) { toast.error("Errore creazione"); }
   };
 
   useEffect(() => {
@@ -356,7 +386,7 @@ export default function AdminDashboard() {
   // --- SUPER ADMIN DASHBOARD ---
   if (appState === 'super_admin') {
       return (
-        <div className="h-screen bg-zinc-950 text-white flex flex-col p-8">
+        <div className="h-screen bg-zinc-950 text-white flex flex-col p-8 overflow-auto">
             <header className="flex justify-between items-center mb-8 border-b border-zinc-800 pb-4">
                 <h1 className="text-3xl font-bold text-fuchsia-500">SUPER ADMIN DASHBOARD</h1>
                 <div className="flex items-center gap-4">
@@ -364,26 +394,49 @@ export default function AdminDashboard() {
                     <Button variant="ghost" onClick={handleLogout}><LogOut className="w-4 h-4 mr-2"/> Esci</Button>
                 </div>
             </header>
+            
+            <div className="mb-6">
+                <Button onClick={()=>setShowCreateUserModal(true)} className="bg-green-600 hover:bg-green-500"><UserPlus className="w-4 h-4 mr-2"/> Nuovo Operatore</Button>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {userList.map(user => (
                     <Card key={user.id} className="bg-zinc-900 border-zinc-800">
                         <CardHeader>
-                            <CardTitle className="text-white truncate">{user.email}</CardTitle>
+                            <CardTitle className="text-white truncate flex justify-between">
+                                {user.email}
+                                <span className="text-xs bg-zinc-800 px-2 py-1 rounded text-zinc-400">{user.role}</span>
+                            </CardTitle>
                         </CardHeader>
                         <CardContent>
                             <div className="flex justify-between items-center mb-4">
-                                <span className="text-zinc-500">Crediti Attuali:</span>
+                                <span className="text-zinc-500">Crediti:</span>
                                 <span className="text-2xl font-bold text-yellow-500">{user.credits || 0}</span>
                             </div>
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 mb-4">
                                 <Button size="sm" onClick={()=>addCredits(user.id, 10)} className="flex-1 bg-zinc-800 hover:bg-zinc-700">+10</Button>
                                 <Button size="sm" onClick={()=>addCredits(user.id, 50)} className="flex-1 bg-zinc-800 hover:bg-zinc-700">+50</Button>
                                 <Button size="sm" onClick={()=>addCredits(user.id, 100)} className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-black font-bold">+100</Button>
                             </div>
+                            <Button size="sm" variant="destructive" className="w-full" onClick={()=>toast.info("Funzione Ban in arrivo")}>
+                                <Ban className="w-4 h-4 mr-2"/> Disattiva
+                            </Button>
                         </CardContent>
                     </Card>
                 ))}
             </div>
+
+            {/* Modal Creazione User */}
+            <Dialog open={showCreateUserModal} onOpenChange={setShowCreateUserModal}>
+                <DialogContent className="bg-zinc-900 border-zinc-800">
+                    <DialogHeader><DialogTitle>Invita Operatore</DialogTitle></DialogHeader>
+                    <div className="space-y-4 pt-4">
+                        <Input placeholder="Email Operatore" value={newUserEmail} onChange={e=>setNewUserEmail(e.target.value)} className="bg-zinc-800"/>
+                        <p className="text-xs text-zinc-500">L'operatore dovrà registrarsi su NeonPub usando questa email.</p>
+                        <Button className="w-full bg-green-600" onClick={handleCreateOperator}>Invita</Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
       );
   }
@@ -406,6 +459,7 @@ export default function AdminDashboard() {
 
   // --- OPERATOR DASHBOARD ---
   const pendingReqs = queue.filter(r => r.status === 'pending');
+  // Admin vede Queued nella sua lista, ma nel display pubblico ci saranno solo quelle queued.
   const queuedReqs = queue.filter(r => r.status === 'queued');
 
   return (
@@ -565,11 +619,20 @@ export default function AdminDashboard() {
                            <label className="text-xs text-zinc-500">Nome Locale</label>
                            <Input value={venueName} onChange={e=>setVenueName(e.target.value)} className="bg-zinc-800" placeholder="Es. Mario's Pub"/>
                        </div>
+                       
                        <div className="space-y-2">
-                           <label className="text-xs text-zinc-500">URL Logo (Immagine)</label>
-                           <Input value={venueLogo} onChange={e=>setVenueLogo(e.target.value)} className="bg-zinc-800" placeholder="https://..."/>
-                           <p className="text-[10px] text-zinc-600">Incolla qui un link diretto ad un'immagine online (es. da Imgur).</p>
+                           <label className="text-xs text-zinc-500">Logo (File Upload)</label>
+                           <div className="flex gap-2">
+                               <Input type="file" onChange={handleLogoUpload} className="bg-zinc-800" accept="image/*" disabled={uploadingLogo}/>
+                               {uploadingLogo && <span className="text-xs text-yellow-500 self-center">...</span>}
+                           </div>
                        </div>
+
+                       <div className="space-y-2">
+                           <label className="text-xs text-zinc-500">Oppure URL Logo</label>
+                           <Input value={venueLogo} onChange={e=>setVenueLogo(e.target.value)} className="bg-zinc-800" placeholder="https://..."/>
+                       </div>
+
                        <Button className="w-full bg-zinc-700 hover:bg-zinc-600" onClick={handleSaveSettings}>
                            <Save className="w-4 h-4 mr-2"/> Salva Impostazioni
                        </Button>

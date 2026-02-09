@@ -207,6 +207,8 @@ export default function PubDisplay() {
   };
 
   const currentPerf = displayData?.current_performance;
+  // FIX: Ora la coda mostra SOLO canzoni approvate e non in esecuzione.
+  const queue = displayData?.queue || [];
   const leaderboard = displayData?.leaderboard || [];
   const joinUrl = `${window.location.origin}/join/${pubCode}`;
   const isVoting = currentPerf?.status === 'voting';
