@@ -159,6 +159,7 @@ export const setEventModule = async (moduleId, specificContentId = null) => {
   if (moduleId === 'quiz' && specificContentId) {
     const { data: catalogItem } = await supabase.from('quiz_catalog').select('*').eq('id', specificContentId).single();
     if (catalogItem) {
+        // RESET E ATTIVAZIONE NUOVO QUIZ CON MEDIA
         await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
         await supabase.from('quizzes').insert({
           event_id: event.id, 
@@ -175,13 +176,10 @@ export const setEventModule = async (moduleId, specificContentId = null) => {
   }
 };
 
-// ** LOGICA FILTRO DOMANDE GIÀ FATTE **
 export const getQuizCatalog = async () => {
-  // 1. Prendo tutto il catalogo
   const { data: catalog, error } = await supabase.from('quiz_catalog').select('*').order('category');
   if (error) throw error;
 
-  // 2. Prendo le domande già fatte in questo evento
   try {
       const pubCode = localStorage.getItem('neonpub_pub_code');
       if(pubCode) {
@@ -192,9 +190,7 @@ export const getQuizCatalog = async () => {
                   .eq('event_id', event.id);
               
               if (usedQuizzes && usedQuizzes.length > 0) {
-                  // Creo un Set di domande usate per performance
                   const usedQuestionsSet = new Set(usedQuizzes.map(q => q.question));
-                  // Filtro il catalogo
                   const filteredCatalog = catalog.filter(item => !usedQuestionsSet.has(item.question));
                   return { data: filteredCatalog };
               }
@@ -302,6 +298,10 @@ export const deleteRequest = async (requestId) => {
 export const startPerformance = async (requestId, youtubeUrl) => {
   const { data: request } = await supabase.from('song_requests').select('*, participants(nickname)').eq('id', requestId).single()
   await supabase.from('performances').update({ status: 'ended' }).eq('event_id', request.event_id).neq('status', 'ended');
+  
+  // Chiude anche eventuali quiz attivi
+  await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', request.event_id).neq('status', 'ended');
+
   const { data: performance, error } = await supabase.from('performances').insert({
       event_id: request.event_id, song_request_id: request.id, participant_id: request.participant_id,
       song_title: request.title, song_artist: request.artist, youtube_url: youtubeUrl || request.youtube_url, status: 'live',
@@ -426,25 +426,22 @@ export const sendReaction = async (data) => {
   return { data: reaction }
 }
 
-// MODIFICATO: Se inviato da Admin (senza token utente), approva subito
 export const sendMessage = async (data) => {
   let participantId = null;
   let eventId = null;
-  // Di base pending, ma se è admin lo forziamo ad approved nel codice della dashboard
   let status = data.status || 'pending';
 
   try {
-     const p = getParticipantFromToken(); // Questo fallisce se siamo Admin
+     const p = getParticipantFromToken(); 
      participantId = p.participant_id;
      eventId = p.event_id;
   } catch (e) {
-     // Siamo Regia/Admin
      const pubCode = localStorage.getItem('neonpub_pub_code');
      if(pubCode) {
         const { data: event } = await supabase.from('events').select('id').eq('code', pubCode).single();
         if(event) {
            eventId = event.id;
-           status = 'approved'; // MESSAGGIO REGIA = SUBITO IN ONDA
+           status = 'approved'; 
         }
      }
   }
@@ -484,7 +481,9 @@ export const rejectMessage = async (id) => {
 
 export const startQuiz = async (data) => {
   const event = await getAdminEvent()
-  // Reset active quiz
+  
+  // Chiudi eventuali performance karaoke attive
+  await supabase.from('performances').update({ status: 'ended' }).eq('event_id', event.id).in('status', ['live','paused']);
   await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
 
   const { data: quiz, error } = await supabase.from('quizzes').insert({
@@ -514,7 +513,6 @@ export const showQuizResults = async (quizId) => {
   if (error) throw error; return { data }
 }
 
-// NUOVO: Mostra classifica quiz
 export const showQuizLeaderboard = async (quizId) => {
     const { data, error } = await supabase.from('quizzes').update({ status: 'leaderboard' }).eq('id', quizId).select().single()
     if (error) throw error; return { data }
@@ -560,7 +558,6 @@ export const answerQuiz = async (data) => {
 export const getActiveQuiz = async () => {
   try {
       const participant = getParticipantFromToken()
-      // Include anche status 'leaderboard'
       const { data, error } = await supabase.from('quizzes').select('*').eq('event_id', participant.event_id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle()
       if (error) throw error; return { data }
   } catch (e) {
@@ -582,14 +579,12 @@ export const getAdminLeaderboard = async () => {
   if (error) throw error; return { data }
 }
 
-export const getQuizLeaderboard = async () => { return getAdminLeaderboard(); }
-
 export const getDisplayData = async (pubCode) => {
   const { data: event } = await supabase.from('events').select('*').eq('code', pubCode.toUpperCase()).single()
   const [perf, queue, lb, activeQuiz, msg] = await Promise.all([
     supabase.from('performances').select('*, participants(nickname)').eq('event_id', event.id).in('status', ['live','voting','paused','restarted']).maybeSingle(),
     supabase.from('song_requests').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'queued').limit(10), 
-    supabase.from('participants').select('nickname, score').eq('event_id', event.id).order('score', {ascending:false}).limit(5),
+    supabase.from('participants').select('nickname, score').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
     supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
     supabase.from('messages').select('*').eq('event_id', event.id).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle()
   ])
@@ -615,8 +610,7 @@ export default {
   submitVote, sendReaction,
   sendMessage, getAdminPendingMessages, approveMessage, rejectMessage,
   startQuiz, endQuiz, answerQuiz, getActiveQuiz, closeQuizVoting, showQuizResults, showQuizLeaderboard,
-  getQuizResults, getQuizLeaderboard,
-  getLeaderboard, getAdminLeaderboard,
-  getDisplayData,
+  getQuizResults, getAdminLeaderboard,
+  getLeaderboard, getDisplayData,
   recoverActiveEvent
 }

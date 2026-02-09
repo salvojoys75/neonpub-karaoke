@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import api, { createPub, updateEventSettings, uploadLogo } from "@/lib/api";
@@ -40,7 +41,7 @@ export default function AdminDashboard() {
 
   // --- STATI CATALOGHI ---
   const [quizCatalog, setQuizCatalog] = useState([]);
-  const [quizCategoryFilter, setQuizCategoryFilter] = useState("all"); // Nuovo filtro
+  const [quizCategoryFilter, setQuizCategoryFilter] = useState("all"); 
   const [challenges, setChallenges] = useState([]);
 
   // --- STATI SUPER ADMIN ---
@@ -56,7 +57,7 @@ export default function AdminDashboard() {
 
   // --- STATI QUIZ & MODALI ---
   const [activeQuizId, setActiveQuizId] = useState(null);
-  const [activeQuizData, setActiveQuizData] = useState(null); // Nuovo: dati completi quiz attivo
+  const [activeQuizData, setActiveQuizData] = useState(null); 
   const [quizStatus, setQuizStatus] = useState(null); 
   const [quizResults, setQuizResults] = useState(null); 
   
@@ -78,6 +79,8 @@ export default function AdminDashboard() {
   const [quizQuestion, setQuizQuestion] = useState("");
   const [quizOptions, setQuizOptions] = useState(["", "", "", ""]);
   const [quizCorrectIndex, setQuizCorrectIndex] = useState(0);
+  const [quizMediaUrl, setQuizMediaUrl] = useState("");
+  const [quizMediaType, setQuizMediaType] = useState("text");
 
   // --- MESSAGGI VARS ---
   const [adminMessage, setAdminMessage] = useState("");
@@ -88,7 +91,6 @@ export default function AdminDashboard() {
 
   const pollIntervalRef = useRef(null);
 
-  // 1. INIT
   useEffect(() => { checkUserProfile(); }, [isAuthenticated]);
 
   const checkUserProfile = async () => {
@@ -133,7 +135,6 @@ export default function AdminDashboard() {
 
   const handleLogout = () => { localStorage.removeItem("neonpub_pub_code"); logout(); navigate("/"); };
 
-  // 2. SETUP & LOAD DATA
   const handleStartEvent = async (e) => {
     e.preventDefault();
     if (!newEventName) return toast.error("Inserisci nome evento");
@@ -173,7 +174,7 @@ export default function AdminDashboard() {
       
       if(activeQuizRes.data) {
          setActiveQuizId(activeQuizRes.data.id);
-         setActiveQuizData(activeQuizRes.data); // Salva tutto l'oggetto quiz per media_url
+         setActiveQuizData(activeQuizRes.data); 
          setQuizStatus(activeQuizRes.data.status);
          if(activeQuizRes.data.status === 'showing_results' || activeQuizRes.data.status === 'leaderboard') {
              const resData = await api.getQuizResults(activeQuizRes.data.id);
@@ -193,7 +194,6 @@ export default function AdminDashboard() {
     }
   }, [appState, loadData]);
 
-  // SUPER ADMIN FUNCTIONS
   const loadSuperAdminData = async () => { const { data } = await api.getAllProfiles(); setUserList(data || []); };
   const addCredits = async (userId, amount) => {
       const user = userList.find(u => u.id === userId);
@@ -208,7 +208,6 @@ export default function AdminDashboard() {
       setShowCreateUserModal(false); toast.success("Invito inviato."); loadSuperAdminData();
   };
 
-  // --- ACTIONS ---
   const handleOpenDisplay = () => {
     const width = 1280; const height = 720;
     const left = (window.screen.width - width) / 2; const top = (window.screen.height - height) / 2;
@@ -288,7 +287,7 @@ export default function AdminDashboard() {
 
   const handleSendMessage = async () => {
       if(!adminMessage) return;
-      await api.sendMessage({ text: adminMessage }); // Api ora gestisce l'auto-approval
+      await api.sendMessage({ text: adminMessage }); 
       setShowMessageModal(false); 
       setAdminMessage("");
       toast.success("Messaggio Inviato");
@@ -297,10 +296,16 @@ export default function AdminDashboard() {
   const launchCustomQuiz = async () => {
       try {
           await api.startQuiz({
-              category: "custom", question: quizQuestion, options: quizOptions, correct_index: quizCorrectIndex, points: 10
+              category: "custom", 
+              question: quizQuestion, 
+              options: quizOptions, 
+              correct_index: quizCorrectIndex, 
+              points: 10,
+              media_url: quizMediaUrl || null,
+              media_type: quizMediaType
           });
           setShowCustomQuizModal(false); toast.success("Quiz Custom Lanciato!"); loadData();
-      } catch(e) { toast.error("Errore quiz custom"); }
+      } catch(e) { toast.error("Errore quiz custom: " + e.message); }
   };
 
   const launchCatalogQuiz = async (item) => {
@@ -335,10 +340,8 @@ export default function AdminDashboard() {
       }
   };
 
-  // --- FILTRO CATALOGO PER CATEGORIA ---
   const filteredCatalog = quizCatalog.filter(item => {
       if (quizCategoryFilter === 'all') return true;
-      // Normalizziamo le categorie per il filtro
       const cat = item.category.toLowerCase();
       if (quizCategoryFilter === 'intro' && (cat.includes('intro') || item.media_type === 'audio')) return true;
       if (quizCategoryFilter === 'video' && (cat.includes('cinema') || cat.includes('video') || item.media_type === 'video')) return true;
@@ -347,7 +350,6 @@ export default function AdminDashboard() {
       return false;
   });
 
-  // --- RENDER ---
   if (appState === 'loading') return <div className="bg-black h-screen text-white flex items-center justify-center">Caricamento...</div>;
 
   if (appState === 'super_admin') {
@@ -475,7 +477,6 @@ export default function AdminDashboard() {
 
                {libraryTab === 'quiz' && (
                     <div className="flex flex-col h-full">
-                        {/* HEADER CONTROLLI */}
                         <div className="grid grid-cols-2 gap-2 mb-4">
                             <Button className="bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-xs" onClick={()=>setShowCustomQuizModal(true)}>
                                 <Plus className="w-3 h-3 mr-1"/> Crea Manuale
@@ -485,7 +486,6 @@ export default function AdminDashboard() {
                             </Button>
                         </div>
 
-                        {/* --- REGIA LIVE (Se c'è un quiz attivo) --- */}
                         {activeQuizId && quizStatus !== 'ended' ? (
                             <Card className="bg-zinc-900 border-2 border-fuchsia-600 mb-6 shadow-2xl shadow-fuchsia-900/20">
                                 <CardHeader className="pb-2 border-b border-white/10 bg-fuchsia-900/20">
@@ -499,27 +499,25 @@ export default function AdminDashboard() {
                                     </CardTitle>
                                 </CardHeader>
                                 <CardContent className="pt-4 space-y-4">
-                                    {/* INFO DOMANDA */}
                                     <div className="text-center">
                                         <div className="text-xs text-zinc-400 uppercase tracking-widest mb-1">Domanda Attuale</div>
                                         <div className="font-bold text-lg leading-tight text-white mb-2">
                                             {activeQuizData?.question || "Caricamento..."}
                                         </div>
                                         
-                                        {/* PREVIEW MEDIA PER LA REGIA */}
                                         {activeQuizData?.media_url && (
                                             <div className="bg-black/50 p-2 rounded mb-2 border border-white/10">
                                                 <div className="text-[10px] text-zinc-400 mb-1">Preview Media (Regia)</div>
                                                 {activeQuizData.media_type === 'video' ? (
-                                                    <iframe src={activeQuizData.media_url.replace("watch?v=", "embed/") + "?autoplay=0"} className="w-full h-24 rounded" allowFullScreen title="preview"/>
+                                                    <iframe src={activeQuizData.media_url.replace("watch?v=", "embed/")} className="w-full h-24 rounded" allowFullScreen title="preview"/>
                                                 ) : (
                                                     <audio controls src={activeQuizData.media_url} className="w-full h-8"/>
                                                 )}
+                                                <div className="text-[10px] text-fuchsia-400 mt-1 truncate">{activeQuizData.media_url}</div>
                                             </div>
                                         )}
                                     </div>
 
-                                    {/* PULSANTIERA DI REGIA (Workflow sequenziale) */}
                                     <div className="grid grid-cols-1 gap-2">
                                         {quizStatus === 'active' && (
                                             <Button className="w-full bg-red-600 hover:bg-red-500 h-10 font-bold animate-pulse" 
@@ -558,7 +556,6 @@ export default function AdminDashboard() {
                             </div>
                         )}
 
-                        {/* --- CATEGORIE GIOCO "KARAOKE BASTARDO STYLE" --- */}
                         <div className="flex gap-1 mb-2 bg-zinc-950 p-1 rounded">
                             <Button size="sm" variant={quizCategoryFilter==='all'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('all')}>Tutti</Button>
                             <Button size="sm" variant={quizCategoryFilter==='intro'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('intro')}>Intro</Button>
@@ -566,7 +563,6 @@ export default function AdminDashboard() {
                             <Button size="sm" variant={quizCategoryFilter==='video'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('video')}>Video</Button>
                         </div>
 
-                        {/* --- CATALOGO DOMANDE FILTRATO --- */}
                         <div className="flex-1 overflow-hidden flex flex-col">
                             <h3 className="text-xs font-bold text-zinc-500 uppercase mb-2 flex justify-between items-center">
                                 Catalogo ({filteredCatalog.length})
@@ -576,7 +572,7 @@ export default function AdminDashboard() {
                                 <div className="space-y-2 pb-20">
                                     {filteredCatalog.length === 0 ? (
                                         <p className="text-xs text-zinc-600 text-center py-8">
-                                            Nessuna domanda disponibile in questa categoria (o tutte già giocate).
+                                            Nessuna domanda disponibile.
                                         </p>
                                     ) : (
                                         filteredCatalog.map((item, index) => (
@@ -699,15 +695,48 @@ export default function AdminDashboard() {
       </Dialog>
 
       <Dialog open={showCustomQuizModal} onOpenChange={setShowCustomQuizModal}>
-          <DialogContent className="bg-zinc-900 border-zinc-800"><DialogHeader><DialogTitle>Crea Quiz</DialogTitle></DialogHeader><div className="space-y-4 pt-4"><div><label className="text-xs text-zinc-500 mb-1">Domanda</label><Textarea value={quizQuestion} onChange={e=>setQuizQuestion(e.target.value)} className="bg-zinc-800 border-zinc-700"/></div><div className="space-y-2"><label className="text-xs text-zinc-500 mb-1">Opzioni</label>{quizOptions.map((opt, i) => (<div key={i} className="flex gap-2"><Input value={opt} onChange={e=>{const n=[...quizOptions]; n[i]=e.target.value; setQuizOptions(n)}} className="bg-zinc-800 border-zinc-700"/><Button size="icon" variant={quizCorrectIndex===i?'default':'outline'} className={quizCorrectIndex===i?'bg-green-600 border-none':''} onClick={()=>setQuizCorrectIndex(i)}><Check className="w-4 h-4"/></Button></div>))}</div><Button className="w-full bg-fuchsia-600 mt-4 h-12 text-lg font-bold" onClick={launchCustomQuiz}>LANCIA QUIZ</Button></div></DialogContent>
+          <DialogContent className="bg-zinc-900 border-zinc-800 max-h-[90vh] overflow-y-auto">
+              <DialogHeader><DialogTitle>Crea Quiz Manuale</DialogTitle></DialogHeader>
+              <div className="space-y-4 pt-4">
+                  <div>
+                      <label className="text-xs text-zinc-500 mb-1">Domanda</label>
+                      <Textarea value={quizQuestion} onChange={e=>setQuizQuestion(e.target.value)} className="bg-zinc-800 border-zinc-700"/>
+                  </div>
+                  <div>
+                      <label className="text-xs text-zinc-500 mb-1">Media (Opzionale)</label>
+                      <div className="flex gap-2 mb-2">
+                           <Select value={quizMediaType} onValueChange={setQuizMediaType}>
+                               <SelectTrigger className="w-[120px] bg-zinc-800 border-zinc-700"><SelectValue /></SelectTrigger>
+                               <SelectContent className="bg-zinc-800 border-zinc-700">
+                                   <SelectItem value="text">Nessuno</SelectItem>
+                                   <SelectItem value="audio">Audio (MP3)</SelectItem>
+                                   <SelectItem value="video">Video (YT/MP4)</SelectItem>
+                               </SelectContent>
+                           </Select>
+                           <Input value={quizMediaUrl} onChange={e=>setQuizMediaUrl(e.target.value)} placeholder="URL Media (YouTube o MP3 Direct Link)" className="bg-zinc-800 border-zinc-700 flex-1"/>
+                      </div>
+                      <p className="text-[10px] text-zinc-500">Per YouTube, usa il link normale. Per MP3, un link diretto al file.</p>
+                  </div>
+                  <div className="space-y-2">
+                      <label className="text-xs text-zinc-500 mb-1">Opzioni</label>
+                      {quizOptions.map((opt, i) => (
+                          <div key={i} className="flex gap-2">
+                              <Input value={opt} onChange={e=>{const n=[...quizOptions]; n[i]=e.target.value; setQuizOptions(n)}} className="bg-zinc-800 border-zinc-700"/>
+                              <Button size="icon" variant={quizCorrectIndex===i?'default':'outline'} className={quizCorrectIndex===i?'bg-green-600 border-none':''} onClick={()=>setQuizCorrectIndex(i)}><Check className="w-4 h-4"/></Button>
+                          </div>
+                      ))}
+                  </div>
+                  <Button className="w-full bg-fuchsia-600 mt-4 h-12 text-lg font-bold" onClick={launchCustomQuiz}>LANCIA QUIZ</Button>
+              </div>
+          </DialogContent>
       </Dialog>
 
       <Dialog open={showImportModal} onOpenChange={setShowImportModal}>
           <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
               <DialogHeader><DialogTitle>Importa Script JSON</DialogTitle></DialogHeader>
               <div className="space-y-4 pt-4">
-                  <p className="text-xs text-zinc-500">Incolla qui il JSON con categorie (Es: Intro, Lyrics, Video).</p>
-                  <Textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder='[ { "category": "Intro - 90s", ... } ]' className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"/>
+                  <p className="text-xs text-zinc-500">Formato: {`[ { "question": "...", "options": ["A","B","C","D"], "correct_index": 0, "media_url": "https://...", "media_type": "audio" } ]`}</p>
+                  <Textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder='Incolla JSON qui...' className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"/>
                   <Button className="w-full bg-blue-600 font-bold" onClick={handleImportScript}><Download className="w-4 h-4 mr-2"/> IMPORTA NEL CATALOGO</Button>
               </div>
           </DialogContent>

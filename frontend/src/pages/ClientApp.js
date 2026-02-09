@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Home, Music, Trophy, User, Star, MessageSquare, RefreshCw, Mic2, Check, Lock, X } from "lucide-react";
+import { Home, Music, Trophy, User, Star, MessageSquare, RefreshCw, Mic2, Check, Lock, X, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -26,6 +26,7 @@ export default function ClientApp() {
   const [quizResult, setQuizResult] = useState(null);
   const [showQuizModal, setShowQuizModal] = useState(false);
   const [quizAnswer, setQuizAnswer] = useState(null);
+  const [pointsEarned, setPointsEarned] = useState(0);
   
   const [floatingReactions, setFloatingReactions] = useState([]);
   const [remainingReactions, setRemainingReactions] = useState(REACTION_LIMIT);
@@ -84,18 +85,24 @@ export default function ClientApp() {
       
       const serverQuiz = quizRes.data;
       if (serverQuiz) {
+         // Gestione stati quiz al caricamento
          if (serverQuiz.status === 'active' || serverQuiz.status === 'closed') {
              setActiveQuiz(prev => {
                  if (!prev || prev.id !== serverQuiz.id) {
-                     setQuizAnswer(null); setQuizResult(null); setShowQuizModal(true);
+                     setQuizAnswer(null); setQuizResult(null); setPointsEarned(0); setShowQuizModal(true);
                  }
                  return serverQuiz;
              });
-         } else if (serverQuiz.status === 'showing_results') {
+         } else if (serverQuiz.status === 'showing_results' || serverQuiz.status === 'leaderboard') {
+             // Se arrivo tardi e siamo già ai risultati
              if (!quizResult) {
                  const res = await api.getQuizResults(serverQuiz.id);
                  setQuizResult(res.data);
+                 setActiveQuiz(serverQuiz);
                  setShowQuizModal(true);
+             } else {
+                 // Aggiorna solo lo stato per mostrare UI corretta (es. "Guarda la classifica")
+                 setActiveQuiz(serverQuiz);
              }
          }
       } else {
@@ -108,6 +115,8 @@ export default function ClientApp() {
     if (isAuthenticated) {
       loadData();
       pollIntervalRef.current = setInterval(loadData, 5000);
+      
+      // REALTIME SUBSCRIPTIONS
       const channel = supabase
         .channel('client_realtime')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${user?.event_id}` }, 
@@ -118,19 +127,27 @@ export default function ClientApp() {
         )
         .on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${user?.event_id}` }, 
             async (payload) => {
-                if (payload.new.status === 'active') {
-                    setQuizAnswer(null); setQuizResult(null); setActiveQuiz(payload.new); setShowQuizModal(true);
+                const q = payload.new;
+                
+                if (q.status === 'active') {
+                    setQuizAnswer(null); setQuizResult(null); setPointsEarned(0); 
+                    setActiveQuiz(q); setShowQuizModal(true);
                     toast.info("🎯 Quiz Iniziato!");
                 } 
-                else if (payload.new.status === 'closed') {
+                else if (q.status === 'closed') {
                     setActiveQuiz(prev => ({ ...prev, status: 'closed' }));
                     toast.warning("🛑 Televoto Chiuso!");
                 }
-                else if (payload.new.status === 'showing_results') {
-                    const res = await api.getQuizResults(payload.new.id);
+                else if (q.status === 'showing_results') {
+                    const res = await api.getQuizResults(q.id);
                     setQuizResult(res.data);
+                    setActiveQuiz(q);
                 }
-                else if (payload.new.status === 'ended') {
+                else if (q.status === 'leaderboard') {
+                    setActiveQuiz(q); // Aggiorna stato per mostrare messaggio "Guarda schermo"
+                    toast.info("🏆 Classifica sul maxischermo!");
+                }
+                else if (q.status === 'ended') {
                     setShowQuizModal(false); setActiveQuiz(null); setQuizResult(null);
                 }
             }
@@ -187,10 +204,16 @@ export default function ClientApp() {
   const handleQuizAnswer = async (index) => {
     if (quizAnswer !== null) return;
     if (!activeQuiz || activeQuiz.status !== 'active') { toast.error("Tempo scaduto!"); return; }
+    
     setQuizAnswer(index);
     try {
         const { data } = await api.answerQuiz({ quiz_id: activeQuiz.id, answer_index: index });
-        if (data.points_earned > 0) toast.success("Risposta registrata!");
+        if (data.points_earned > 0) {
+            setPointsEarned(data.points_earned);
+            toast.success(`Hai guadagnato ${data.points_earned} punti!`);
+        } else {
+            setPointsEarned(0);
+        }
     } catch (e) { toast.info("Risposta salvata."); }
   };
 
@@ -208,9 +231,11 @@ export default function ClientApp() {
           <Button onClick={logout} variant="ghost" size="sm" className="text-zinc-400">Esci</Button>
         </div>
       </header>
+      
       <div className="reactions-overlay pointer-events-none fixed inset-0 z-50 overflow-hidden">
         {floatingReactions.map(r => (<div key={r.id} className="absolute text-4xl animate-float-up" style={{ left: `${r.left}%`, bottom: '-50px' }}>{r.emoji}</div>))}
       </div>
+      
       <main className="flex-1 p-4">
         {activeTab === "home" && (
           <div className="space-y-6 animate-fade-in-up">
@@ -285,11 +310,14 @@ export default function ClientApp() {
           </div>
         )}
       </main>
+      
       <nav className="mobile-nav safe-bottom bg-[#0a0a0a] border-t border-white/10 flex justify-around p-2 fixed bottom-0 w-full z-40">
         {[ { id: "home", icon: Home, label: "Home" }, { id: "songs", icon: Music, label: "Canzoni" }, { id: "leaderboard", icon: Trophy, label: "Classifica" }, { id: "profile", icon: User, label: "Profilo" } ].map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center gap-1 p-2 rounded-lg transition ${activeTab === tab.id ? 'text-fuchsia-500' : 'text-zinc-500'}`}><tab.icon className="w-6 h-6" /><span className="text-[10px]">{tab.label}</span></button>
         ))}
       </nav>
+      
+      {/* MODALS */}
       <Dialog open={showRequestModal} onOpenChange={setShowRequestModal}>
         <DialogContent className="bg-zinc-900 border-zinc-800">
           <DialogHeader><DialogTitle>Richiedi Canzone</DialogTitle></DialogHeader>
@@ -301,6 +329,7 @@ export default function ClientApp() {
           </form>
         </DialogContent>
       </Dialog>
+      
       <Dialog open={showVoteModal} onOpenChange={setShowVoteModal}>
         <DialogContent className="bg-zinc-900 border-zinc-800 text-center">
           <DialogHeader><DialogTitle>Vota l'Esibizione!</DialogTitle></DialogHeader>
@@ -310,6 +339,7 @@ export default function ClientApp() {
           <Button onClick={handleVote} disabled={selectedStars === 0} className="w-full bg-yellow-500 text-black">Conferma Voto</Button>
         </DialogContent>
       </Dialog>
+      
       <Dialog open={showMessageModal} onOpenChange={setShowMessageModal}>
         <DialogContent className="bg-zinc-900 border-zinc-800">
           <DialogHeader><DialogTitle>Messaggio al Pub</DialogTitle></DialogHeader>
@@ -317,10 +347,26 @@ export default function ClientApp() {
           <Button onClick={handleSendMessage} className="w-full mt-4 bg-cyan-600 hover:bg-cyan-700">Invia</Button>
         </DialogContent>
       </Dialog>
+      
       <Dialog open={showQuizModal} onOpenChange={setShowQuizModal}>
         <DialogContent className="bg-zinc-900 border-fuchsia-500/30 max-w-md w-[90%] rounded-2xl">
-          <DialogHeader><DialogTitle className="text-center text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-400 to-purple-600">{activeQuiz?.status === 'closed' ? "STOP AL VOTO!" : quizResult ? "Risultato" : "Quiz Time!"}</DialogTitle></DialogHeader>
-          {!quizResult && activeQuiz && (
+          <DialogHeader>
+              <DialogTitle className="text-center text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-400 to-purple-600">
+                  {activeQuiz?.status === 'closed' ? "STOP AL VOTO!" : activeQuiz?.status === 'leaderboard' ? "CLASSIFICA LIVE" : quizResult ? "Risultato" : "Quiz Time!"}
+              </DialogTitle>
+          </DialogHeader>
+          
+          {/* STATO: LEADERBOARD - GUARDA SCHERMO */}
+          {activeQuiz?.status === 'leaderboard' && (
+              <div className="text-center py-8">
+                  <Trophy className="w-20 h-20 text-yellow-500 mx-auto mb-4 animate-bounce" />
+                  <p className="text-xl font-bold text-white mb-2">Guarda il Maxischermo!</p>
+                  <p className="text-zinc-400">La classifica è in onda ora.</p>
+              </div>
+          )}
+
+          {/* STATO: DOMANDA ATTIVA */}
+          {!quizResult && activeQuiz && activeQuiz.status !== 'leaderboard' && (
             <div className="py-4">
               <p className="text-xl text-center mb-6 font-medium text-white">{activeQuiz.question}</p>
               {activeQuiz.status === 'closed' ? (
@@ -334,11 +380,23 @@ export default function ClientApp() {
               )}
             </div>
           )}
-          {quizResult && (
+          
+          {/* STATO: RISULTATI */}
+          {quizResult && activeQuiz?.status !== 'leaderboard' && (
             <div className="text-center py-6 animate-zoom-in">
               <Trophy className="w-16 h-16 text-yellow-400 mx-auto mb-4" />
               <p className="text-sm text-zinc-400 uppercase tracking-widest mb-1">Risposta Corretta</p>
               <div className="bg-green-500/20 border border-green-500 p-4 rounded-xl mb-6"><p className="text-2xl font-bold text-white">{quizResult.correct_option}</p></div>
+              
+              {pointsEarned > 0 ? (
+                  <div className="bg-fuchsia-600/20 border border-fuchsia-500 p-3 rounded mb-4">
+                      <p className="text-fuchsia-400 font-bold text-lg">+ {pointsEarned} Punti!</p>
+                  </div>
+              ) : (
+                  <p className="text-red-400 mb-4">Peccato! Niente punti.</p>
+              )}
+              
+              <div className="flex justify-center mb-4"><Button variant="outline" size="sm" onClick={() => setActiveTab("leaderboard")}><Eye className="w-4 h-4 mr-2"/> Vedi Classifica</Button></div>
               <p className="text-zinc-500 text-sm">{quizResult.total_answers} persone hanno partecipato</p>
             </div>
           )}
