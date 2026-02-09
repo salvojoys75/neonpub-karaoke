@@ -36,21 +36,18 @@ export const createPub = async (data) => {
   const { data: user } = await supabase.auth.getUser()
   if (!user?.user) throw new Error('Not authenticated')
 
-  // 1. CONTROLLO CREDITI
   const { data: profile } = await supabase.from('profiles').select('credits').eq('id', user.user.id).single();
   
   if (!profile || profile.credits < 1) {
       throw new Error("Crediti insufficienti! Ricarica i crediti per creare un evento.");
   }
 
-  // 2. SCALO CREDITO
   const { error: creditError } = await supabase.from('profiles')
     .update({ credits: profile.credits - 1 })
     .eq('id', user.user.id);
   
   if (creditError) throw new Error("Errore aggiornamento crediti");
 
-  // 3. CREO EVENTO
   const code = Math.random().toString(36).substring(2, 8).toUpperCase()
 
   const { data: event, error } = await supabase
@@ -156,17 +153,13 @@ export const getEventState = async () => {
 
 export const setEventModule = async (moduleId, specificContentId = null) => {
   const pubCode = localStorage.getItem('neonpub_pub_code');
-  // Aggiorniamo il modulo attivo
   const { data: event, error } = await supabase.from('events').update({ active_module: moduleId, active_module_id: specificContentId }).eq('code', pubCode).select().single();
   if (error) throw error;
   
-  // Se stiamo attivando un quiz dal catalogo
   if (moduleId === 'quiz' && specificContentId) {
     const { data: catalogItem } = await supabase.from('quiz_catalog').select('*').eq('id', specificContentId).single();
     if (catalogItem) {
-        // Chiudiamo quiz precedenti
         await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
-        // Creiamo nuova istanza quiz
         await supabase.from('quizzes').insert({
           event_id: event.id, 
           category: catalogItem.category, 
@@ -182,9 +175,36 @@ export const setEventModule = async (moduleId, specificContentId = null) => {
   }
 };
 
+// ** LOGICA FILTRO DOMANDE GIÀ FATTE **
 export const getQuizCatalog = async () => {
-  const { data, error } = await supabase.from('quiz_catalog').select('*').order('category');
-  return { data: data || [] };
+  // 1. Prendo tutto il catalogo
+  const { data: catalog, error } = await supabase.from('quiz_catalog').select('*').order('category');
+  if (error) throw error;
+
+  // 2. Prendo le domande già fatte in questo evento
+  try {
+      const pubCode = localStorage.getItem('neonpub_pub_code');
+      if(pubCode) {
+          const { data: event } = await supabase.from('events').select('id').eq('code', pubCode).single();
+          if(event) {
+              const { data: usedQuizzes } = await supabase.from('quizzes')
+                  .select('question')
+                  .eq('event_id', event.id);
+              
+              if (usedQuizzes && usedQuizzes.length > 0) {
+                  // Creo un Set di domande usate per performance
+                  const usedQuestionsSet = new Set(usedQuizzes.map(q => q.question));
+                  // Filtro il catalogo
+                  const filteredCatalog = catalog.filter(item => !usedQuestionsSet.has(item.question));
+                  return { data: filteredCatalog };
+              }
+          }
+      }
+  } catch (e) {
+      console.warn("Impossibile filtrare domande usate:", e);
+  }
+
+  return { data: catalog || [] };
 };
 
 export const getChallengeCatalog = async () => {
@@ -192,29 +212,14 @@ export const getChallengeCatalog = async () => {
   return { data: data || [] };
 };
 
-// *** FUNZIONE IMPORTAZIONE POTENZIATA ***
 export const importQuizCatalog = async (jsonString) => {
     try {
         let items;
-        // Tentativo di parsing
-        try {
-            items = JSON.parse(jsonString);
-        } catch (e) {
-            throw new Error("Il testo incollato non è un JSON valido.");
-        }
-
-        // Se è un oggetto singolo, lo trasformo in array
-        if (!Array.isArray(items)) {
-            items = [items];
-        }
-        
-        // Validazione dei campi essenziali
-        if(items.length === 0) throw new Error("JSON vuoto");
+        try { items = JSON.parse(jsonString); } catch (e) { throw new Error("JSON non valido."); }
+        if (!Array.isArray(items)) items = [items];
         
         const cleanItems = items.map(item => {
-             if(!item.question || !item.options || !Array.isArray(item.options)) {
-                 throw new Error(`Errore formato per la domanda: ${item.question || 'sconosciuta'}`);
-             }
+             if(!item.question || !item.options) throw new Error("Dati mancanti nel JSON");
              return {
                  category: item.category || 'Generale',
                  question: item.question,
@@ -229,10 +234,7 @@ export const importQuizCatalog = async (jsonString) => {
         const { error } = await supabase.from('quiz_catalog').insert(cleanItems);
         if(error) throw error;
         return { success: true, count: cleanItems.length };
-    } catch (e) {
-        console.error(e);
-        throw new Error("Errore Importazione: " + e.message);
-    }
+    } catch (e) { throw new Error("Errore Importazione: " + e.message); }
 }
 
 // ============================================
@@ -424,22 +426,25 @@ export const sendReaction = async (data) => {
   return { data: reaction }
 }
 
-// MESSAGGI IBRIDI (USER + ADMIN)
+// MODIFICATO: Se inviato da Admin (senza token utente), approva subito
 export const sendMessage = async (data) => {
   let participantId = null;
   let eventId = null;
+  // Di base pending, ma se è admin lo forziamo ad approved nel codice della dashboard
   let status = data.status || 'pending';
 
   try {
-     const p = getParticipantFromToken();
+     const p = getParticipantFromToken(); // Questo fallisce se siamo Admin
      participantId = p.participant_id;
      eventId = p.event_id;
   } catch (e) {
+     // Siamo Regia/Admin
      const pubCode = localStorage.getItem('neonpub_pub_code');
      if(pubCode) {
         const { data: event } = await supabase.from('events').select('id').eq('code', pubCode).single();
         if(event) {
            eventId = event.id;
+           status = 'approved'; // MESSAGGIO REGIA = SUBITO IN ONDA
         }
      }
   }
@@ -509,6 +514,12 @@ export const showQuizResults = async (quizId) => {
   if (error) throw error; return { data }
 }
 
+// NUOVO: Mostra classifica quiz
+export const showQuizLeaderboard = async (quizId) => {
+    const { data, error } = await supabase.from('quizzes').update({ status: 'leaderboard' }).eq('id', quizId).select().single()
+    if (error) throw error; return { data }
+}
+
 export const endQuiz = async (id) => {
   const { error } = await supabase.from('quizzes').update({status: 'ended', ended_at: new Date().toISOString()}).eq('id', id);
   if (error) throw error; return { data: 'ok' }
@@ -549,11 +560,12 @@ export const answerQuiz = async (data) => {
 export const getActiveQuiz = async () => {
   try {
       const participant = getParticipantFromToken()
-      const { data, error } = await supabase.from('quizzes').select('*').eq('event_id', participant.event_id).in('status', ['active', 'closed', 'showing_results']).maybeSingle()
+      // Include anche status 'leaderboard'
+      const { data, error } = await supabase.from('quizzes').select('*').eq('event_id', participant.event_id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle()
       if (error) throw error; return { data }
   } catch (e) {
       const event = await getAdminEvent();
-      const { data } = await supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results']).maybeSingle()
+      const { data } = await supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle()
       return { data };
   }
 }
@@ -578,7 +590,7 @@ export const getDisplayData = async (pubCode) => {
     supabase.from('performances').select('*, participants(nickname)').eq('event_id', event.id).in('status', ['live','voting','paused','restarted']).maybeSingle(),
     supabase.from('song_requests').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'queued').limit(10), 
     supabase.from('participants').select('nickname, score').eq('event_id', event.id).order('score', {ascending:false}).limit(5),
-    supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results']).maybeSingle(),
+    supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
     supabase.from('messages').select('*').eq('event_id', event.id).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle()
   ])
   return {
@@ -602,7 +614,7 @@ export default {
   getCurrentPerformance, getAdminCurrentPerformance,
   submitVote, sendReaction,
   sendMessage, getAdminPendingMessages, approveMessage, rejectMessage,
-  startQuiz, endQuiz, answerQuiz, getActiveQuiz, closeQuizVoting, showQuizResults,
+  startQuiz, endQuiz, answerQuiz, getActiveQuiz, closeQuizVoting, showQuizResults, showQuizLeaderboard,
   getQuizResults, getQuizLeaderboard,
   getLeaderboard, getAdminLeaderboard,
   getDisplayData,

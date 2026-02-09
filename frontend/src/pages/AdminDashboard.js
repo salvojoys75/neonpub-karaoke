@@ -7,7 +7,7 @@ import {
   ListMusic, BrainCircuit, Swords, Send, Star, VolumeX, Volume2, ExternalLink,
   Users, Coins, Settings, Save, LayoutDashboard, Gem, Upload, UserPlus, Ban, Trash2, Image as ImageIcon,
   FileJson, Download, Gamepad2, StopCircle, Eye, EyeOff, ListOrdered, MonitorPlay, 
-  Music2, Film
+  Music2, Film, Mic2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +40,7 @@ export default function AdminDashboard() {
 
   // --- STATI CATALOGHI ---
   const [quizCatalog, setQuizCatalog] = useState([]);
+  const [quizCategoryFilter, setQuizCategoryFilter] = useState("all"); // Nuovo filtro
   const [challenges, setChallenges] = useState([]);
 
   // --- STATI SUPER ADMIN ---
@@ -55,6 +56,7 @@ export default function AdminDashboard() {
 
   // --- STATI QUIZ & MODALI ---
   const [activeQuizId, setActiveQuizId] = useState(null);
+  const [activeQuizData, setActiveQuizData] = useState(null); // Nuovo: dati completi quiz attivo
   const [quizStatus, setQuizStatus] = useState(null); 
   const [quizResults, setQuizResults] = useState(null); 
   
@@ -62,7 +64,6 @@ export default function AdminDashboard() {
   const [showCustomQuizModal, setShowCustomQuizModal] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
   
-  // NUOVO: IMPORT MODAL
   const [showImportModal, setShowImportModal] = useState(false);
   const [importText, setImportText] = useState("");
 
@@ -172,13 +173,14 @@ export default function AdminDashboard() {
       
       if(activeQuizRes.data) {
          setActiveQuizId(activeQuizRes.data.id);
+         setActiveQuizData(activeQuizRes.data); // Salva tutto l'oggetto quiz per media_url
          setQuizStatus(activeQuizRes.data.status);
-         if(activeQuizRes.data.status === 'showing_results') {
+         if(activeQuizRes.data.status === 'showing_results' || activeQuizRes.data.status === 'leaderboard') {
              const resData = await api.getQuizResults(activeQuizRes.data.id);
              setQuizResults(resData.data);
          }
       } else {
-         setActiveQuizId(null); setQuizStatus(null); setQuizResults(null);
+         setActiveQuizId(null); setActiveQuizData(null); setQuizStatus(null); setQuizResults(null);
       }
     } catch (error) { console.error(error); }
   }, [pubCode, appState, venueName]);
@@ -286,7 +288,7 @@ export default function AdminDashboard() {
 
   const handleSendMessage = async () => {
       if(!adminMessage) return;
-      await api.sendMessage({ text: adminMessage });
+      await api.sendMessage({ text: adminMessage }); // Api ora gestisce l'auto-approval
       setShowMessageModal(false); 
       setAdminMessage("");
       toast.success("Messaggio Inviato");
@@ -314,6 +316,7 @@ export default function AdminDashboard() {
       try {
           if(action==='close_vote') await api.closeQuizVoting(activeQuizId);
           if(action==='show_results') await api.showQuizResults(activeQuizId);
+          if(action==='leaderboard') await api.showQuizLeaderboard(activeQuizId);
           if(action==='end') { await api.endQuiz(activeQuizId); await api.setEventModule('karaoke'); toast.info("Tornati al Karaoke"); }
           loadData();
       } catch(e) { toast.error("Errore comando quiz"); }
@@ -331,6 +334,18 @@ export default function AdminDashboard() {
           toast.error(e.message);
       }
   };
+
+  // --- FILTRO CATALOGO PER CATEGORIA ---
+  const filteredCatalog = quizCatalog.filter(item => {
+      if (quizCategoryFilter === 'all') return true;
+      // Normalizziamo le categorie per il filtro
+      const cat = item.category.toLowerCase();
+      if (quizCategoryFilter === 'intro' && (cat.includes('intro') || item.media_type === 'audio')) return true;
+      if (quizCategoryFilter === 'video' && (cat.includes('cinema') || cat.includes('video') || item.media_type === 'video')) return true;
+      if (quizCategoryFilter === 'lyrics' && (cat.includes('testo') || cat.includes('lyrics'))) return true;
+      if (quizCategoryFilter === 'general' && !cat.includes('intro') && !cat.includes('video') && !cat.includes('lyrics')) return true;
+      return false;
+  });
 
   // --- RENDER ---
   if (appState === 'loading') return <div className="bg-black h-screen text-white flex items-center justify-center">Caricamento...</div>;
@@ -460,7 +475,7 @@ export default function AdminDashboard() {
 
                {libraryTab === 'quiz' && (
                     <div className="flex flex-col h-full">
-                        {/* HEADER CONTROLLI RAPIDI */}
+                        {/* HEADER CONTROLLI */}
                         <div className="grid grid-cols-2 gap-2 mb-4">
                             <Button className="bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-xs" onClick={()=>setShowCustomQuizModal(true)}>
                                 <Plus className="w-3 h-3 mr-1"/> Crea Manuale
@@ -488,14 +503,20 @@ export default function AdminDashboard() {
                                     <div className="text-center">
                                         <div className="text-xs text-zinc-400 uppercase tracking-widest mb-1">Domanda Attuale</div>
                                         <div className="font-bold text-lg leading-tight text-white mb-2">
-                                            {quizCatalog.find(q => q.id === activeQuizId)?.question || "Quiz in corso..."}
+                                            {activeQuizData?.question || "Caricamento..."}
                                         </div>
-                                        {/* Indicatore Media */}
-                                        {(() => {
-                                            const q = quizCatalog.find(q => q.id === activeQuizId);
-                                            if(q?.media_type === 'audio') return <div className="text-xs flex items-center justify-center gap-1 text-yellow-400"><Music2 className="w-3 h-3"/> Audio Quiz</div>;
-                                            if(q?.media_type === 'video') return <div className="text-xs flex items-center justify-center gap-1 text-blue-400"><Film className="w-3 h-3"/> Video Quiz</div>;
-                                        })()}
+                                        
+                                        {/* PREVIEW MEDIA PER LA REGIA */}
+                                        {activeQuizData?.media_url && (
+                                            <div className="bg-black/50 p-2 rounded mb-2 border border-white/10">
+                                                <div className="text-[10px] text-zinc-400 mb-1">Preview Media (Regia)</div>
+                                                {activeQuizData.media_type === 'video' ? (
+                                                    <iframe src={activeQuizData.media_url.replace("watch?v=", "embed/") + "?autoplay=0"} className="w-full h-24 rounded" allowFullScreen title="preview"/>
+                                                ) : (
+                                                    <audio controls src={activeQuizData.media_url} className="w-full h-8"/>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* PULSANTIERA DI REGIA (Workflow sequenziale) */}
@@ -508,19 +529,21 @@ export default function AdminDashboard() {
                                         )}
                                         
                                         {quizStatus === 'closed' && (
-                                            <div className="grid grid-cols-2 gap-2">
+                                            <div className="grid grid-cols-1 gap-2">
                                                 <Button className="bg-blue-600 hover:bg-blue-500" onClick={() => ctrlQuiz('show_results')}>
                                                     <Eye className="w-4 h-4 mr-2"/> MOSTRA RISPOSTA
                                                 </Button>
                                             </div>
                                         )}
 
-                                        {quizStatus === 'showing_results' && (
+                                        {(quizStatus === 'showing_results' || quizStatus === 'leaderboard') && (
                                             <div className="grid grid-cols-1 gap-2">
-                                                <Button className="bg-yellow-600 hover:bg-yellow-500 text-black font-bold" 
-                                                    onClick={() => toast.info("Classifica aggiornata sugli schermi")}>
-                                                    <ListOrdered className="w-4 h-4 mr-2"/> MOSTRA CLASSIFICA
-                                                </Button>
+                                                {quizStatus !== 'leaderboard' && (
+                                                    <Button className="bg-yellow-600 hover:bg-yellow-500 text-black font-bold" 
+                                                        onClick={() => ctrlQuiz('leaderboard')}>
+                                                        <ListOrdered className="w-4 h-4 mr-2"/> MOSTRA CLASSIFICA
+                                                    </Button>
+                                                )}
                                                 <Button variant="destructive" onClick={() => ctrlQuiz('end')}>
                                                     <MonitorPlay className="w-4 h-4 mr-2"/> CHIUDI E TORNA AL KARAOKE
                                                 </Button>
@@ -535,21 +558,28 @@ export default function AdminDashboard() {
                             </div>
                         )}
 
-                        {/* --- CATALOGO DOMANDE --- */}
+                        {/* --- CATEGORIE GIOCO "KARAOKE BASTARDO STYLE" --- */}
+                        <div className="flex gap-1 mb-2 bg-zinc-950 p-1 rounded">
+                            <Button size="sm" variant={quizCategoryFilter==='all'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('all')}>Tutti</Button>
+                            <Button size="sm" variant={quizCategoryFilter==='intro'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('intro')}>Intro</Button>
+                            <Button size="sm" variant={quizCategoryFilter==='lyrics'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('lyrics')}>Testi</Button>
+                            <Button size="sm" variant={quizCategoryFilter==='video'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('video')}>Video</Button>
+                        </div>
+
+                        {/* --- CATALOGO DOMANDE FILTRATO --- */}
                         <div className="flex-1 overflow-hidden flex flex-col">
                             <h3 className="text-xs font-bold text-zinc-500 uppercase mb-2 flex justify-between items-center">
-                                Catalogo Disponibile
-                                <span className="bg-zinc-800 px-2 py-0.5 rounded text-white">{quizCatalog.length}</span>
+                                Catalogo ({filteredCatalog.length})
                             </h3>
                             
                             <ScrollArea className="flex-1 pr-2">
                                 <div className="space-y-2 pb-20">
-                                    {quizCatalog.length === 0 ? (
+                                    {filteredCatalog.length === 0 ? (
                                         <p className="text-xs text-zinc-600 text-center py-8">
-                                            Catalogo vuoto.<br/>Importa un JSON o crea manualmente.
+                                            Nessuna domanda disponibile in questa categoria (o tutte già giocate).
                                         </p>
                                     ) : (
-                                        quizCatalog.map((item, index) => (
+                                        filteredCatalog.map((item, index) => (
                                             <div key={item.id || index} 
                                                 className="group relative bg-zinc-800 hover:bg-zinc-700 border border-transparent hover:border-yellow-500 rounded p-3 cursor-pointer transition-all"
                                                 onClick={() => launchCatalogQuiz(item)}>
@@ -559,14 +589,16 @@ export default function AdminDashboard() {
                                                     {item.media_type === 'video' && <span className="bg-blue-500/20 text-blue-500 p-1 rounded"><Film className="w-3 h-3"/></span>}
                                                 </div>
 
-                                                <div className="text-[10px] font-bold text-fuchsia-500 uppercase tracking-wider mb-1">
+                                                <div className="text-[10px] font-bold text-fuchsia-500 uppercase tracking-wider mb-1 flex items-center gap-1">
+                                                    {item.category.includes('Intro') && <Music2 className="w-3 h-3"/>}
+                                                    {item.category.includes('Lyrics') && <Mic2 className="w-3 h-3"/>}
                                                     {item.category}
                                                 </div>
                                                 <div className="text-sm font-medium text-white pr-6 line-clamp-2">
                                                     {item.question}
                                                 </div>
                                                 <div className="text-[10px] text-zinc-500 mt-2 flex gap-2">
-                                                    <span>Risp. Esatta: <b>{item.options[item.correct_index]}</b></span>
+                                                    <span>Risp: <b>{item.options[item.correct_index]}</b></span>
                                                     <span>• {item.points} Punti</span>
                                                 </div>
                                                 
@@ -674,11 +706,8 @@ export default function AdminDashboard() {
           <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
               <DialogHeader><DialogTitle>Importa Script JSON</DialogTitle></DialogHeader>
               <div className="space-y-4 pt-4">
-                  <p className="text-xs text-zinc-500">Incolla qui il JSON. Esempio:</p>
-                  <div className="bg-black p-2 rounded text-xs font-mono text-zinc-500 overflow-x-auto">
-                    [&#123; "category": "Cinema", "question": "...", "options": ["A","B"], "correct_index": 0 &#125;]
-                  </div>
-                  <Textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder='Incolla qui...' className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"/>
+                  <p className="text-xs text-zinc-500">Incolla qui il JSON con categorie (Es: Intro, Lyrics, Video).</p>
+                  <Textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder='[ { "category": "Intro - 90s", ... } ]' className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"/>
                   <Button className="w-full bg-blue-600 font-bold" onClick={handleImportScript}><Download className="w-4 h-4 mr-2"/> IMPORTA NEL CATALOGO</Button>
               </div>
           </DialogContent>
