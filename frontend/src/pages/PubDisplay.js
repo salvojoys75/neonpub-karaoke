@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
-import { Mic2, Music, Trophy, Star, MessageSquare, AlertCircle } from "lucide-react";
+import { Mic2, Music, Trophy, Star, MessageSquare } from "lucide-react";
 import api from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 
 // ===========================================
-// HELPER: RILEVA TIPO MEDIA
+// UTILS
 // ===========================================
 const getMediaTypeFromUrl = (url) => {
     if (!url) return 'none';
@@ -24,7 +24,7 @@ const getYoutubeId = (url) => {
 };
 
 // ===========================================
-// COMPONENTE: KARAOKE PLAYER (Solo YouTube)
+// COMPONENTE: KARAOKE SCREEN (YouTube Player)
 // ===========================================
 const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
     const playerRef = useRef(null);
@@ -37,6 +37,7 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
 
         const onPlayerReady = (event) => {
             if (performance.status === 'live') event.target.playVideo();
+            else if (performance.status === 'paused') event.target.pauseVideo();
         };
 
         if (!window.YT) {
@@ -46,19 +47,12 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
             firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
             
             window.onYouTubeIframeAPIReady = () => {
-                playerRef.current = new window.YT.Player('karaoke-player', {
-                    videoId: videoId,
-                    playerVars: { autoplay: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, modestbranding: 1, rel: 0, showinfo: 0, origin: window.location.origin },
-                    events: { onReady: onPlayerReady }
-                });
+                createPlayer(videoId, onPlayerReady);
             };
         } else if (!playerRef.current) {
-             playerRef.current = new window.YT.Player('karaoke-player', {
-                videoId: videoId,
-                playerVars: { autoplay: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, modestbranding: 1, rel: 0, showinfo: 0, origin: window.location.origin },
-                events: { onReady: onPlayerReady }
-            });
+             createPlayer(videoId, onPlayerReady);
         } else {
+             // Aggiorna player esistente
              const currentVideoData = playerRef.current.getVideoData();
              if (currentVideoData && currentVideoData.video_id !== videoId) {
                  playerRef.current.loadVideoById(videoId);
@@ -76,6 +70,17 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
              }
         }
     }, [performance, isVoting, voteResult]);
+
+    const createPlayer = (videoId, onReady) => {
+        playerRef.current = new window.YT.Player('karaoke-player', {
+            videoId: videoId,
+            playerVars: { 
+                autoplay: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, 
+                modestbranding: 1, rel: 0, showinfo: 0, origin: window.location.origin 
+            },
+            events: { onReady: onReady }
+        });
+    };
 
     // Nascondi player durante il voto
     useEffect(() => {
@@ -128,20 +133,61 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
 };
 
 // ===========================================
-// COMPONENTE: QUIZ MEDIA PLAYER (Ibrido)
+// COMPONENTE: QUIZ MEDIA PLAYER (Ibrido Aggiornato)
 // ===========================================
 const QuizMedia = ({ mediaUrl, mediaType, isResult }) => {
     const videoRef = useRef(null);
     const audioRef = useRef(null);
+    const ytQuizRef = useRef(null);
     
-    // Rilevamento intelligente del tipo se non specificato
     const detectedType = (mediaType === 'text' && mediaUrl) ? getMediaTypeFromUrl(mediaUrl) : 
                          (mediaType === 'video' && !mediaUrl.includes('youtube')) ? 'video_file' :
                          (mediaType === 'video') ? 'youtube' : 
                          (mediaType === 'audio') ? 'audio_file' : mediaType;
 
+    // Gestione YT Player per Quiz (Motore robusto come Karaoke)
     useEffect(() => {
-        if(isResult) return; // Non suonare durante i risultati
+        if (detectedType === 'youtube' && !isResult) {
+            const videoId = getYoutubeId(mediaUrl);
+            if (!videoId) return;
+
+            const initPlayer = () => {
+                // Distruggi precedente se esiste per evitare conflitti
+                if (ytQuizRef.current) { ytQuizRef.current.destroy(); }
+
+                ytQuizRef.current = new window.YT.Player('quiz-yt-player', {
+                    videoId: videoId,
+                    playerVars: { 
+                        autoplay: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, 
+                        modestbranding: 1, rel: 0, showinfo: 0, mute: 0,
+                        origin: window.location.origin // CRUCIALE PER EVITARE ERRORE ID RIPRODUZIONE
+                    },
+                    events: {
+                        onReady: (e) => e.target.playVideo()
+                    }
+                });
+            };
+
+            if (!window.YT) {
+                // Fallback raro se SDK non caricato
+                setTimeout(initPlayer, 1000); 
+            } else {
+                initPlayer();
+            }
+        }
+
+        // Cleanup YT player on unmount o cambio stato
+        return () => {
+            if (ytQuizRef.current) {
+                try { ytQuizRef.current.destroy(); } catch(e) {}
+                ytQuizRef.current = null;
+            }
+        };
+    }, [mediaUrl, detectedType, isResult]);
+
+    // Gestione file diretti
+    useEffect(() => {
+        if(isResult) return;
         
         if (detectedType === 'video_file' && videoRef.current) {
             videoRef.current.play().catch(e => console.error("Autoplay video file blocked", e));
@@ -149,35 +195,24 @@ const QuizMedia = ({ mediaUrl, mediaType, isResult }) => {
         if (detectedType === 'audio_file' && audioRef.current) {
             audioRef.current.play().catch(e => console.error("Autoplay audio file blocked", e));
         }
-    }, [mediaUrl, isResult]);
+    }, [mediaUrl, isResult, detectedType]);
 
-    if (isResult) return null; // Nascondi media durante i risultati per pulizia
+    if (isResult) return null; 
 
-    // 1. YOUTUBE
+    // 1. YOUTUBE (Con API Ufficiale)
     if (detectedType === 'youtube') {
         return (
-            <div className="absolute inset-0 z-0">
-                <iframe 
-                    src={mediaUrl.replace("watch?v=", "embed/") + "?autoplay=1&controls=0&showinfo=0&rel=0&mute=0"} 
-                    className="w-full h-full object-cover opacity-80" 
-                    allow="autoplay; encrypted-media" 
-                    title="Quiz Video"
-                />
+            <div className="absolute inset-0 z-0 bg-black">
+                <div id="quiz-yt-player" className="w-full h-full object-cover opacity-80"></div>
             </div>
         );
     }
 
-    // 2. VIDEO FILE DIRETTO (MP4) - Molto più affidabile
+    // 2. VIDEO FILE DIRETTO
     if (detectedType === 'video_file') {
         return (
             <div className="absolute inset-0 z-0 bg-black">
-                <video 
-                    ref={videoRef}
-                    src={mediaUrl}
-                    className="w-full h-full object-cover opacity-80"
-                    loop
-                    playsInline
-                />
+                <video ref={videoRef} src={mediaUrl} className="w-full h-full object-cover opacity-80" loop playsInline />
             </div>
         );
     }
@@ -217,7 +252,7 @@ const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
 
     return (
         <div className="absolute inset-0 bg-gradient-to-b from-purple-900 to-black z-40 flex flex-col items-center justify-center p-10">
-            {/* GESTORE MEDIA INTELLIGENTE */}
+            {/* GESTORE MEDIA ROBUSTO */}
             <QuizMedia mediaUrl={quiz.media_url} mediaType={quiz.media_type} isResult={!!quizResults} />
 
             <div className="z-10 w-full max-w-6xl text-center">
@@ -297,20 +332,23 @@ export default function PubDisplay() {
     return () => clearInterval(interval);
   }, [loadDisplayData]);
 
-  // Realtime Subscriptions
   useEffect(() => {
     if (!displayData?.pub?.id) return;
     
-    // MUTE GLOBAL (Ascolto canale specifico)
+    // MUTE GLOBAL
     const controlChannel = supabase.channel(`display_control_${pubCode}`)
         .on('broadcast', { event: 'control' }, (payload) => {
             if(payload.payload.command === 'mute') {
-                const ytPlayer = window.YT?.get && window.YT.get('karaoke-player');
-                if (ytPlayer && typeof ytPlayer.mute === 'function') {
-                    if (payload.payload.value) ytPlayer.mute(); else ytPlayer.unMute();
+                // Mute Karaoke
+                const ytKaraoke = window.YT?.get && window.YT.get('karaoke-player');
+                if (ytKaraoke && typeof ytKaraoke.mute === 'function') {
+                    if (payload.payload.value) ytKaraoke.mute(); else ytKaraoke.unMute();
                 }
-                // Nota: HTML5 Audio/Video non possono essere mutati facilmente da qui senza refs globali, 
-                // ma il mute serve principalmente per il karaoke.
+                // Mute Quiz
+                const ytQuiz = window.YT?.get && window.YT.get('quiz-yt-player');
+                if (ytQuiz && typeof ytQuiz.mute === 'function') {
+                    if (payload.payload.value) ytQuiz.mute(); else ytQuiz.unMute();
+                }
             }
         })
         .subscribe();
