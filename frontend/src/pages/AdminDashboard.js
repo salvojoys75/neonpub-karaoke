@@ -49,8 +49,8 @@ export default function AdminDashboard() {
 
   // --- STATI QUIZ & MODALI ---
   const [activeQuizId, setActiveQuizId] = useState(null);
-  const [quizStatus, setQuizStatus] = useState(null); // RIPRISTINATO
-  const [quizResults, setQuizResults] = useState(null); // RIPRISTINATO
+  const [quizStatus, setQuizStatus] = useState(null); 
+  const [quizResults, setQuizResults] = useState(null); 
   
   const [showYoutubeModal, setShowYoutubeModal] = useState(false);
   const [showCustomQuizModal, setShowCustomQuizModal] = useState(false);
@@ -97,11 +97,27 @@ export default function AdminDashboard() {
       }
       setProfile(userProfile);
       
-      if (userProfile.role === 'super_admin') { setAppState("super_admin"); loadSuperAdminData(); } 
-      else {
+      if (userProfile.role === 'super_admin') { 
+          setAppState("super_admin"); 
+          loadSuperAdminData(); 
+      } else {
+        // --- LOGICA RIENTRO GRATUITO ---
         const storedCode = localStorage.getItem("neonpub_pub_code");
-        if (storedCode) { setPubCode(storedCode); setAppState("dashboard"); } 
-        else { setAppState("setup"); }
+        if (storedCode) { 
+            setPubCode(storedCode); 
+            setAppState("dashboard"); 
+        } else {
+            // Controlla se c'è un evento attivo sul DB per questo utente
+            const activeEvent = await api.recoverActiveEvent();
+            if (activeEvent) {
+                localStorage.setItem("neonpub_pub_code", activeEvent.code);
+                setPubCode(activeEvent.code);
+                setAppState("dashboard");
+                toast.success("Evento ripristinato (Nessun credito scalato)");
+            } else {
+                setAppState("setup"); 
+            }
+        }
       }
     } catch (error) { console.error(error); }
   };
@@ -141,7 +157,6 @@ export default function AdminDashboard() {
       setPendingMessages(msgRes.data || []);
       if(pubRes.data && !venueName) { setVenueName(pubRes.data.name); setVenueLogo(pubRes.data.logo_url || ""); }
       
-      // GESTIONE STATO QUIZ RIPRISTINATA
       if(activeQuizRes.data) {
          setActiveQuizId(activeQuizRes.data.id);
          setQuizStatus(activeQuizRes.data.status);
@@ -163,12 +178,14 @@ export default function AdminDashboard() {
     }
   }, [appState, loadData]);
 
-  // SUPER ADMIN FUNCTIONS
+  // SUPER ADMIN FUNCTIONS (FIX CREDITI)
   const loadSuperAdminData = async () => { const { data } = await api.getAllProfiles(); setUserList(data || []); };
   const addCredits = async (userId, amount) => {
       const user = userList.find(u => u.id === userId);
       if(!user) return;
-      await api.updateProfileCredits(userId, (user.credits || 0) + amount);
+      // FIX: usa (user.credits || 0) per evitare NaN
+      const current = user.credits || 0;
+      await api.updateProfileCredits(userId, current + amount);
       toast.success("Crediti aggiornati"); loadSuperAdminData();
   };
   const handleCreateOperator = async () => {
@@ -184,7 +201,13 @@ export default function AdminDashboard() {
     window.open(`/display/${pubCode}`, 'NeonPubDisplay', `popup=yes,width=${width},height=${height},top=${top},left=${left},toolbar=no,menubar=no`);
   };
 
-  // --- UPLOAD LOGO (RIPRISTINATO) ---
+  // FIX AUDIO MUTE
+  const handleToggleMute = async () => {
+      const newState = !isMuted;
+      setIsMuted(newState); // Aggiorna UI subito
+      await api.toggleMute(newState); // Manda comando
+  };
+
   const handleLogoUpload = async (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -271,7 +294,6 @@ export default function AdminDashboard() {
       toast.success("Messaggio Inviato");
   };
 
-  // --- GESTIONE QUIZ ---
   const launchCustomQuiz = async () => {
       try {
           await api.startQuiz({
@@ -364,7 +386,7 @@ export default function AdminDashboard() {
          <div className="flex items-center gap-4">
              <div className="text-yellow-500 font-bold text-sm flex gap-2"><Gem className="w-4 h-4"/>{profile?.credits || 0}</div>
              <Button variant="outline" size="sm" onClick={handleOpenDisplay} className="bg-cyan-900/20 text-cyan-400 border-cyan-800"><Tv className="w-4 h-4 mr-2" /> DISPLAY</Button>
-             <Button variant="ghost" size="sm" onClick={() => { if(confirm("Chiudere evento?")) { localStorage.removeItem("neonpub_pub_code"); setPubCode(null); setAppState("setup"); } }}><LogOut className="w-4 h-4" /></Button>
+             <Button variant="ghost" size="sm" onClick={() => { if(confirm("Chiudere sessione? (L'evento resta attivo)")) { localStorage.removeItem("neonpub_pub_code"); setPubCode(null); setAppState("setup"); } }}><LogOut className="w-4 h-4" /></Button>
          </div>
       </header>
 
@@ -439,40 +461,23 @@ export default function AdminDashboard() {
                   </div>
                )}
 
-               {/* 2. QUIZ (RIPRISTINATO E COMPLETO) */}
+               {/* 2. QUIZ */}
                {libraryTab === 'quiz' && (
                    <div className="space-y-4">
                        <Button className="w-full bg-fuchsia-600" onClick={()=>setShowCustomQuizModal(true)}><Plus className="w-4 h-4 mr-2"/> Nuovo Quiz</Button>
-                       
                        {activeQuizId ? (
                            <div className="p-4 bg-zinc-800 border border-zinc-700 rounded text-center">
                                <h3 className="text-fuchsia-500 font-bold mb-2 uppercase">Quiz In Corso</h3>
-                               
-                               {quizStatus === 'active' && (
-                                   <div className="animate-pulse text-green-500 text-sm mb-4">Votazioni Aperte</div>
-                               )}
-                               {quizStatus === 'closed' && (
-                                   <div className="text-yellow-500 text-sm mb-4">Votazioni Chiuse. In attesa di risultati.</div>
-                               )}
-                               {quizStatus === 'showing_results' && (
-                                   <div className="text-blue-500 text-sm mb-4">Risultati mostrati a schermo.</div>
-                               )}
-
+                               {quizStatus === 'active' && <div className="animate-pulse text-green-500 text-sm mb-4">Votazioni Aperte</div>}
+                               {quizStatus === 'closed' && <div className="text-yellow-500 text-sm mb-4">Votazioni Chiuse</div>}
+                               {quizStatus === 'showing_results' && <div className="text-blue-500 text-sm mb-4">Risultati a schermo</div>}
                                <div className="grid grid-cols-1 gap-2">
                                    {quizStatus === 'active' && <Button className="w-full bg-yellow-600 hover:bg-yellow-500 text-black" onClick={()=>ctrlQuiz('close_vote')}>Chiudi Voto</Button>}
-                                   
                                    {quizStatus === 'closed' && <Button className="w-full bg-blue-600 hover:bg-blue-500" onClick={()=>ctrlQuiz('show_results')}>Mostra Risultati</Button>}
-                                   
-                                   {(quizStatus === 'showing_results' || quizStatus === 'closed') && (
-                                       <Button className="w-full bg-red-600 hover:bg-red-500" onClick={()=>ctrlQuiz('end')}>Termina Quiz</Button>
-                                   )}
+                                   {(quizStatus === 'showing_results' || quizStatus === 'closed') && <Button className="w-full bg-red-600 hover:bg-red-500" onClick={()=>ctrlQuiz('end')}>Termina Quiz</Button>}
                                </div>
-
                                {quizResults && quizStatus === 'showing_results' && (
-                                   <div className="mt-4 text-left bg-black/20 p-2 rounded text-xs">
-                                       <p className="text-zinc-400">Risposte Totali: {quizResults.total_answers}</p>
-                                       <p className="text-green-400">Corrette: {quizResults.correct_count}</p>
-                                   </div>
+                                   <div className="mt-4 text-left bg-black/20 p-2 rounded text-xs"><p className="text-zinc-400">Risposte Totali: {quizResults.total_answers}</p><p className="text-green-400">Corrette: {quizResults.correct_count}</p></div>
                                )}
                            </div>
                        ) : <p className="text-center text-zinc-500 py-4">Nessun quiz attivo</p>}
@@ -504,31 +509,13 @@ export default function AdminDashboard() {
                    </div>
                )}
 
-               {/* 5. SETTINGS (UPLOAD RIPRISTINATO) */}
+               {/* 5. SETTINGS */}
                {libraryTab === 'settings' && (
                    <div className="space-y-4 pt-2">
-                       <div className="space-y-2">
-                           <label className="text-xs text-zinc-500">Nome Locale</label>
-                           <Input value={venueName} onChange={e=>setVenueName(e.target.value)} className="bg-zinc-800"/>
-                       </div>
-                       
-                       <div className="space-y-2">
-                           <label className="text-xs text-zinc-500">Logo (Carica File)</label>
-                           <div className="flex gap-2 items-center">
-                               <Input type="file" onChange={handleLogoUpload} className="bg-zinc-800 text-xs" accept="image/*" disabled={uploadingLogo}/>
-                               {uploadingLogo && <span className="text-yellow-500 text-xs animate-pulse">Upload...</span>}
-                           </div>
-                       </div>
-
-                       <div className="space-y-2">
-                           <label className="text-xs text-zinc-500">Oppure URL Logo</label>
-                           <Input value={venueLogo} onChange={e=>setVenueLogo(e.target.value)} className="bg-zinc-800" placeholder="https://..."/>
-                           {venueLogo && <img src={venueLogo} alt="Preview" className="h-10 mt-2 object-contain" />}
-                       </div>
-
-                       <Button className="w-full bg-zinc-700" onClick={handleSaveSettings}>
-                           <Save className="w-4 h-4 mr-2"/> Salva Impostazioni
-                       </Button>
+                       <div className="space-y-2"><label className="text-xs text-zinc-500">Nome Locale</label><Input value={venueName} onChange={e=>setVenueName(e.target.value)} className="bg-zinc-800"/></div>
+                       <div className="space-y-2"><label className="text-xs text-zinc-500">Logo (File)</label><div className="flex gap-2"><Input type="file" onChange={handleLogoUpload} className="bg-zinc-800 text-xs" accept="image/*" disabled={uploadingLogo}/>{uploadingLogo && <span className="text-yellow-500 text-xs animate-pulse">...</span>}</div></div>
+                       <div className="space-y-2"><label className="text-xs text-zinc-500">URL Logo</label><Input value={venueLogo} onChange={e=>setVenueLogo(e.target.value)} className="bg-zinc-800"/>{venueLogo && <img src={venueLogo} alt="Preview" className="h-10 mt-2 object-contain" />}</div>
+                       <Button className="w-full bg-zinc-700" onClick={handleSaveSettings}><Save className="w-4 h-4 mr-2"/> Salva Impostazioni</Button>
                    </div>
                )}
             </ScrollArea>
@@ -539,7 +526,7 @@ export default function AdminDashboard() {
             {/* Header Deck */}
             <div className="h-10 border-b border-white/10 flex items-center px-4 justify-between bg-zinc-950">
                <span className="text-xs font-mono text-zinc-500">PROGRAMMA LIVE</span>
-               <Button size="sm" variant="ghost" onClick={()=>api.toggleMute(!isMuted)} className={isMuted?'text-red-500':'text-zinc-400'}>
+               <Button size="sm" variant="ghost" onClick={handleToggleMute} className={isMuted?'text-red-500':'text-zinc-400'}>
                    {isMuted ? <VolumeX className="w-4 h-4"/> : <Volume2 className="w-4 h-4"/>}
                </Button>
             </div>
@@ -571,11 +558,7 @@ export default function AdminDashboard() {
                                        {currentPerformance.status === 'live' && <Button size="lg" variant="outline" className="h-16 w-16 rounded-full" onClick={()=>ctrlPerf('pause')}><Pause className="w-6 h-6" /></Button>}
                                        {currentPerformance.status === 'paused' && <Button size="lg" className="h-16 w-16 rounded-full bg-green-500 text-black" onClick={()=>ctrlPerf('resume')}><Play className="w-6 h-6" /></Button>}
                                        <Button size="lg" variant="secondary" className="h-16 w-16 rounded-full" onClick={()=>ctrlPerf('restart')}><RotateCcw className="w-6 h-6" /></Button>
-                                       
-                                       <Button size="lg" variant="outline" className="h-16 w-16 rounded-full border-blue-500 text-blue-500 hover:bg-blue-900/20" onClick={openManualVideoWindow} title="Apri Video Esterno">
-                                           <ExternalLink className="w-6 h-6" />
-                                       </Button>
-
+                                       <Button size="lg" variant="outline" className="h-16 w-16 rounded-full border-blue-500 text-blue-500 hover:bg-blue-900/20" onClick={openManualVideoWindow} title="Apri Video Esterno"><ExternalLink className="w-6 h-6" /></Button>
                                        <div className="flex gap-2 ml-4">
                                            <Button size="lg" variant="destructive" className="h-16 px-6" onClick={()=>ctrlPerf('end_vote')}>STOP & VOTA</Button>
                                            <Button size="lg" className="h-16 px-4 bg-zinc-700" onClick={()=>ctrlPerf('skip_next')}>SKIP</Button>
@@ -592,27 +575,21 @@ export default function AdminDashboard() {
       </div>
 
       {/* --- MODALI --- */}
-      
-      {/* 1. MESSAGGIO REGIA */}
       <Dialog open={showMessageModal} onOpenChange={setShowMessageModal}>
           <DialogContent className="bg-zinc-900 border-zinc-800">
               <DialogHeader><DialogTitle>Messaggio Regia</DialogTitle></DialogHeader>
               <div className="space-y-4 pt-4">
-                  <Textarea value={adminMessage} onChange={e=>setAdminMessage(e.target.value)} placeholder="Scrivi avviso per gli schermi..." className="bg-zinc-800 border-zinc-700 h-32 text-lg"/>
+                  <Textarea value={adminMessage} onChange={e=>setAdminMessage(e.target.value)} placeholder="Scrivi avviso..." className="bg-zinc-800 border-zinc-700 h-32"/>
                   <Button className="w-full bg-cyan-600 font-bold" onClick={handleSendMessage}><Send className="w-4 h-4 mr-2"/> INVIA AGLI SCHERMI</Button>
               </div>
           </DialogContent>
       </Dialog>
       
-      {/* 2. YOUTUBE SEARCH */}
       <Dialog open={showYoutubeModal} onOpenChange={setShowYoutubeModal}>
         <DialogContent className="bg-zinc-900 border-zinc-800 max-w-3xl">
           <DialogHeader><DialogTitle>Video per: {selectedRequest?.title}</DialogTitle></DialogHeader>
           <div className="space-y-4 pt-4">
-              <div className="flex gap-2">
-                  <Input value={youtubeSearchQuery} onChange={e=>setYoutubeSearchQuery(e.target.value)} className="bg-zinc-800 border-zinc-700 text-white" placeholder="Cerca su YouTube..." onKeyDown={e=>e.key==='Enter'&&searchYouTube(youtubeSearchQuery)}/>
-                  <Button onClick={() => searchYouTube(youtubeSearchQuery)} disabled={searchingYoutube} className="bg-zinc-700 hover:bg-zinc-600">{searchingYoutube?'...':'Cerca'}</Button>
-              </div>
+              <div className="flex gap-2"><Input value={youtubeSearchQuery} onChange={e=>setYoutubeSearchQuery(e.target.value)} className="bg-zinc-800 border-zinc-700" placeholder="Cerca su YouTube..." onKeyDown={e=>e.key==='Enter'&&searchYouTube(youtubeSearchQuery)}/><Button onClick={() => searchYouTube(youtubeSearchQuery)} disabled={searchingYoutube} className="bg-zinc-700">{searchingYoutube?'...':'Cerca'}</Button></div>
               <div className="max-h-60 overflow-y-auto space-y-2 custom-scrollbar">
                   {youtubeSearchResults.map(vid => (
                       <div key={vid.id.videoId} className="flex gap-3 p-2 hover:bg-white/5 cursor-pointer rounded transition" onClick={()=>{setYoutubeUrl(`https://www.youtube.com/watch?v=${vid.id.videoId}`); setYoutubeSearchResults([]);}}>
@@ -622,35 +599,21 @@ export default function AdminDashboard() {
                       </div>
                   ))}
               </div>
-              <div className="pt-4 border-t border-white/10">
-                  <p className="text-xs text-zinc-500 mb-2">URL Selezionato:</p>
-                  <Input value={youtubeUrl} onChange={e=>setYoutubeUrl(e.target.value)} className="bg-zinc-950 border-zinc-800 font-mono text-xs mb-4" placeholder="https://youtube.com..."/>
-                  <Button className="w-full bg-green-600 hover:bg-green-500 h-12 text-lg font-bold" disabled={!youtubeUrl} onClick={startPerformance}><Play className="w-5 h-5 mr-2"/> MANDA IN ONDA</Button>
-              </div>
+              <div className="pt-4 border-t border-white/10"><p className="text-xs text-zinc-500 mb-2">URL:</p><Input value={youtubeUrl} onChange={e=>setYoutubeUrl(e.target.value)} className="bg-zinc-950 border-zinc-800 font-mono text-xs mb-4"/><Button className="w-full bg-green-600 h-12 text-lg font-bold" disabled={!youtubeUrl} onClick={startPerformance}><Play className="w-5 h-5 mr-2"/> MANDA IN ONDA</Button></div>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* 3. CUSTOM QUIZ */}
       <Dialog open={showCustomQuizModal} onOpenChange={setShowCustomQuizModal}>
           <DialogContent className="bg-zinc-900 border-zinc-800">
-              <DialogHeader><DialogTitle>Crea Quiz al Volo</DialogTitle></DialogHeader>
+              <DialogHeader><DialogTitle>Crea Quiz</DialogTitle></DialogHeader>
               <div className="space-y-4 pt-4">
-                  <div><label className="text-xs text-zinc-500 mb-1 block">Domanda</label><Textarea value={quizQuestion} onChange={e=>setQuizQuestion(e.target.value)} className="bg-zinc-800 border-zinc-700" placeholder="Scrivi la domanda..."/></div>
-                  <div className="space-y-2">
-                      <label className="text-xs text-zinc-500 mb-1 block">Opzioni (Spunta la corretta)</label>
-                      {quizOptions.map((opt, i) => (
-                          <div key={i} className="flex gap-2">
-                              <Input value={opt} onChange={e=>{const n=[...quizOptions]; n[i]=e.target.value; setQuizOptions(n)}} className="bg-zinc-800 border-zinc-700" placeholder={`Opzione ${String.fromCharCode(65+i)}`}/>
-                              <Button size="icon" variant={quizCorrectIndex===i?'default':'outline'} className={quizCorrectIndex===i?'bg-green-600 hover:bg-green-500 border-none':''} onClick={()=>setQuizCorrectIndex(i)}><Check className="w-4 h-4"/></Button>
-                          </div>
-                      ))}
-                  </div>
-                  <Button className="w-full bg-fuchsia-600 hover:bg-fuchsia-500 mt-4 h-12 text-lg font-bold" onClick={launchCustomQuiz}>LANCIA QUIZ</Button>
+                  <div><label className="text-xs text-zinc-500 mb-1">Domanda</label><Textarea value={quizQuestion} onChange={e=>setQuizQuestion(e.target.value)} className="bg-zinc-800 border-zinc-700"/></div>
+                  <div className="space-y-2"><label className="text-xs text-zinc-500 mb-1">Opzioni</label>{quizOptions.map((opt, i) => (<div key={i} className="flex gap-2"><Input value={opt} onChange={e=>{const n=[...quizOptions]; n[i]=e.target.value; setQuizOptions(n)}} className="bg-zinc-800 border-zinc-700"/><Button size="icon" variant={quizCorrectIndex===i?'default':'outline'} className={quizCorrectIndex===i?'bg-green-600 border-none':''} onClick={()=>setQuizCorrectIndex(i)}><Check className="w-4 h-4"/></Button></div>))}</div>
+                  <Button className="w-full bg-fuchsia-600 mt-4 h-12 text-lg font-bold" onClick={launchCustomQuiz}>LANCIA QUIZ</Button>
               </div>
           </DialogContent>
       </Dialog>
-
     </div>
   );
 }
