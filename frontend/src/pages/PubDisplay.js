@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
-import { Mic2, Trophy, Star, MessageSquare } from "lucide-react";
+import { Mic2, Trophy, Star, MessageSquare, Clock, Music, CheckCircle2, XCircle } from "lucide-react";
 import api from "@/lib/api";
 import { supabase } from "@/lib/supabase";
-import QuizMediaFixed from "@/components/QuizMediaFixed";
 
 // ===========================================
 // UTILS
@@ -17,11 +16,11 @@ const getYoutubeId = (url) => {
 };
 
 // ===========================================
-// COMPONENTE: KARAOKE SCREEN
+// COMPONENTE: KARAOKE SCREEN (Invariato nella logica, ottimizzato)
 // ===========================================
 const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
     const playerRef = useRef(null);
-    const prevStartedAt = useRef(performance?.started_at);
+    const prevStatus = useRef(performance?.status);
 
     useEffect(() => {
         if (!performance || isVoting || voteResult) return;
@@ -30,58 +29,37 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
 
         const onPlayerReady = (event) => {
             if (performance.status === 'live') event.target.playVideo();
-            else if (performance.status === 'paused') event.target.pauseVideo();
+            else event.target.pauseVideo();
         };
 
-        if (!window.YT) {
-            const tag = document.createElement('script');
-            tag.src = "https://www.youtube.com/iframe_api";
-            const firstScriptTag = document.getElementsByTagName('script')[0];
-            firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-            
-            window.onYouTubeIframeAPIReady = () => {
-                createPlayer(videoId, onPlayerReady);
-            };
-        } else if (!playerRef.current) {
-             createPlayer(videoId, onPlayerReady);
+        if (!window.YT) return; // Gestito globalmente
+
+        if (!playerRef.current) {
+            playerRef.current = new window.YT.Player('karaoke-player', {
+                videoId: videoId,
+                playerVars: { autoplay: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, modestbranding: 1, rel: 0, showinfo: 0 },
+                events: { onReady: onPlayerReady }
+            });
         } else {
-             const currentVideoData = playerRef.current.getVideoData();
-             if (currentVideoData && currentVideoData.video_id !== videoId) {
+             // Se cambia canzone
+             const currentData = playerRef.current.getVideoData();
+             if(currentData && currentData.video_id !== videoId) {
                  playerRef.current.loadVideoById(videoId);
              }
-             
-             if (playerRef.current && typeof playerRef.current.playVideo === 'function') {
+             // Se cambia solo lo stato (pause/play)
+             if (performance.status !== prevStatus.current) {
                  if (performance.status === 'live') playerRef.current.playVideo();
                  else if (performance.status === 'paused') playerRef.current.pauseVideo();
-
-                 if (performance.started_at !== prevStartedAt.current) {
-                      prevStartedAt.current = performance.started_at; 
-                      playerRef.current.seekTo(0);
-                      playerRef.current.playVideo();
-                 }
+                 prevStatus.current = performance.status;
              }
         }
     }, [performance, isVoting, voteResult]);
 
-    const createPlayer = (videoId, onReady) => {
-        playerRef.current = new window.YT.Player('karaoke-player', {
-            videoId: videoId,
-            playerVars: { 
-                autoplay: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, 
-                modestbranding: 1, rel: 0, showinfo: 0, origin: window.location.origin 
-            },
-            events: { onReady: onReady }
-        });
-    };
-
+    // Nascondi player durante voto
     useEffect(() => {
         const el = document.getElementById('karaoke-player');
-        if ((isVoting || voteResult) && playerRef.current && typeof playerRef.current.pauseVideo === 'function') {
-            playerRef.current.pauseVideo();
-            if(el) el.style.visibility = 'hidden';
-        } else {
-            if(el) el.style.visibility = 'visible';
-        }
+        if (el) el.style.visibility = (isVoting || voteResult) ? 'hidden' : 'visible';
+        if ((isVoting || voteResult) && playerRef.current?.pauseVideo) playerRef.current.pauseVideo();
     }, [isVoting, voteResult]);
 
     return (
@@ -124,10 +102,87 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
 };
 
 // ===========================================
-// COMPONENTE: QUIZ SCREEN
+// NUOVO COMPONENTE: QUIZ GAME SHOW
 // ===========================================
-const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
-    if (quiz.status === 'leaderboard') {
+const QuizGameShow = ({ quiz, quizResults, leaderboard }) => {
+    const playerRef = useRef(null);
+    const containerRef = useRef(null);
+    // Usiamo ref per tracciare se il video è già caricato per evitare reload
+    const currentVideoId = useRef(null);
+
+    // 1. GESTIONE PLAYER (Video/Audio)
+    useEffect(() => {
+        if (!quiz || quiz.status === 'leaderboard') {
+            // Se andiamo in classifica, mettiamo in pausa o nascondiamo, ma non necessariamente distruggiamo
+             if(playerRef.current && typeof playerRef.current.pauseVideo === 'function') {
+                 playerRef.current.pauseVideo();
+             }
+             return;
+        }
+
+        const videoId = getYoutubeId(quiz.media_url);
+        const hasMedia = quiz.media_type === 'video' || (quiz.media_type === 'audio' && videoId);
+
+        if (!hasMedia || !videoId) {
+            if (playerRef.current) { 
+                try { playerRef.current.destroy(); } catch(e){} 
+                playerRef.current = null;
+                currentVideoId.current = null;
+            }
+            return;
+        }
+
+        // Se il video è lo stesso, non fare nulla (evita reload)
+        if (currentVideoId.current === videoId) {
+             // Assicuriamoci solo che stia suonando se siamo in active
+             if(quiz.status === 'active' && playerRef.current && typeof playerRef.current.playVideo === 'function') {
+                 playerRef.current.playVideo();
+             }
+             return;
+        }
+
+        // Inizializza nuovo video
+        currentVideoId.current = videoId;
+        
+        const onReady = (event) => {
+            event.target.setVolume(100);
+            if (quiz.status === 'active') event.target.playVideo();
+            else event.target.pauseVideo(); // Se siamo in closed/results, magari vogliamo fermo
+        };
+
+        if (!window.YT) return; 
+
+        // Pulisci vecchio player se esiste nel DOM ma React ha perso il ref
+        const existingFrame = document.getElementById('quiz-player-frame');
+        if(existingFrame && !playerRef.current) {
+             // Forziamo ricreazione
+             playerRef.current = new window.YT.Player('quiz-player-frame', {
+                videoId: videoId,
+                playerVars: { autoplay: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, modestbranding: 1, rel: 0, showinfo: 0 },
+                events: { onReady }
+            });
+        } else if (!playerRef.current) {
+             playerRef.current = new window.YT.Player('quiz-player-frame', {
+                videoId: videoId,
+                playerVars: { autoplay: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, modestbranding: 1, rel: 0, showinfo: 0 },
+                events: { onReady }
+            });
+        } else {
+            playerRef.current.loadVideoById(videoId);
+        }
+
+    }, [quiz.id, quiz.media_url, quiz.status]); // Dipendenze controllate
+
+    // 2. RENDER SCENE
+    const isVideo = quiz.media_type === 'video';
+    const isAudio = quiz.media_type === 'audio';
+    
+    // Status Logic
+    const showQuestion = quiz.status === 'active' || quiz.status === 'closed';
+    const showResult = quiz.status === 'showing_results';
+    const showLeaderboard = quiz.status === 'leaderboard';
+
+    if (showLeaderboard) {
         return (
             <div className="absolute inset-0 bg-zinc-900 z-50 flex flex-col p-8 overflow-hidden animate-fade-in">
                 <div className="text-center mb-6">
@@ -149,47 +204,86 @@ const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
     }
 
     return (
-        <div className="absolute inset-0 bg-gradient-to-b from-purple-900 to-black z-40 flex flex-col items-center justify-center p-10">
-            <QuizMediaFixed mediaUrl={quiz.media_url} mediaType={quiz.media_type} isResult={!!quizResults} />
-
-            <div className="z-10 w-full max-w-6xl text-center">
-                {!quizResults ? (
-                    <div className="animate-zoom-in">
-                        <div className="mb-8">
-                             <span className={`px-12 py-4 rounded-full text-4xl font-black uppercase tracking-widest shadow-[0_0_30px_rgba(217,70,239,0.6)] ${quiz.status === 'closed' ? 'bg-red-600 text-white' : 'bg-fuchsia-600 text-white animate-pulse'}`}>
-                                {quiz.status === 'closed' ? "STOP AL TELEVOTO!" : "QUIZ IN ONDA"}
-                             </span>
-                        </div>
-                        <h2 className="text-7xl font-black text-white mb-16 leading-tight drop-shadow-2xl bg-black/40 p-6 rounded-3xl backdrop-blur-sm border border-white/10">
-                            {quiz.question}
-                        </h2>
-                        <div className="grid grid-cols-2 gap-8">
-                            {quiz.options.map((opt, i) => (
-                                <div key={i} className={`p-8 rounded-3xl text-5xl font-bold border-4 transition-all transform ${quiz.status === 'closed' ? 'border-zinc-700 text-zinc-500 bg-black/60' : 'border-white/20 bg-white/10 text-white shadow-xl'}`}>
-                                    <span className="text-fuchsia-500 mr-4">{String.fromCharCode(65+i)}.</span> {opt}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                ) : (
-                    <div className="animate-zoom-in bg-black/60 backdrop-blur-md p-12 rounded-[3rem] border border-white/20">
-                        <Trophy className="w-40 h-40 text-yellow-400 mx-auto mb-8 animate-bounce" />
-                        <h2 className="text-6xl font-black text-white mb-6">RISPOSTA ESATTA</h2>
-                        <div className="bg-green-600 text-white px-16 py-8 rounded-3xl mb-12 transform scale-110">
-                            <p className="text-7xl font-bold">{quizResults.correct_option}</p>
-                        </div>
-                        <div className="text-center">
-                            <p className="text-2xl text-green-300 uppercase tracking-widest mb-4">I Più Veloci</p>
-                            <p className="text-4xl text-white font-medium max-w-5xl leading-relaxed">
-                                {quizResults.winners.length > 0 ? quizResults.winners.slice(0, 5).join(' • ') : "Nessuno ha indovinato!"}
-                            </p>
-                        </div>
-                    </div>
-                )}
+        <div className="absolute inset-0 bg-black overflow-hidden flex flex-col items-center justify-center">
+            
+            {/* LAYER 0: MEDIA (Sempre montato ma nascosto o oscurato) */}
+            <div className={`absolute inset-0 w-full h-full transition-opacity duration-1000 ${isVideo ? 'opacity-100' : 'opacity-0'}`}>
+                 <div id="quiz-player-frame" className="w-full h-full pointer-events-none" />
+                 {/* Overlay scuro per leggere testo sopra video */}
+                 <div className="absolute inset-0 bg-black/60" />
             </div>
+
+            {/* LAYER 0.5: AUDIO VISUALIZER (Se audio) */}
+            {isAudio && (
+                <div className="absolute inset-0 flex items-center justify-center animate-pulse opacity-30">
+                    <Music className="w-96 h-96 text-fuchsia-600" />
+                </div>
+            )}
+
+            {/* LAYER 1: DOMANDA & OPZIONI */}
+            <div className={`z-10 w-full max-w-7xl p-8 transition-all duration-500 transform ${showQuestion ? 'scale-100 opacity-100' : 'scale-90 opacity-0 absolute pointer-events-none'}`}>
+                <div className="flex justify-center mb-8">
+                     <span className={`px-8 py-2 rounded-full text-2xl font-black uppercase tracking-widest shadow-xl border border-white/20 ${quiz.status === 'closed' ? 'bg-red-600 text-white' : 'bg-fuchsia-600 text-white animate-pulse'}`}>
+                        {quiz.status === 'closed' ? "TEMPO SCADUTO!" : "IN ONDA"}
+                     </span>
+                </div>
+
+                <div className="bg-black/70 backdrop-blur-md border border-white/10 rounded-[3rem] p-12 text-center shadow-2xl mb-12">
+                    <h2 className="text-6xl font-black text-white leading-tight drop-shadow-xl">{quiz.question}</h2>
+                </div>
+
+                <div className="grid grid-cols-2 gap-8">
+                    {quiz.options.map((opt, i) => (
+                        <div key={i} className={`
+                            relative overflow-hidden p-8 rounded-3xl text-4xl font-bold border-4 transition-all transform duration-300
+                            ${quiz.status === 'closed' ? 'bg-zinc-900 border-zinc-700 text-zinc-500 scale-95 grayscale' : 'bg-gradient-to-br from-white/10 to-transparent border-white/20 text-white hover:scale-105 shadow-lg'}
+                        `}>
+                            <span className="text-fuchsia-500 mr-4 font-mono">{String.fromCharCode(65+i)}.</span> {opt}
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* LAYER 2: RISULTATO (Sovrapposto) */}
+            {showResult && quizResults && (
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/80 backdrop-blur-xl animate-zoom-in p-10">
+                    <div className="bg-gradient-to-br from-zinc-900 to-black border-4 border-green-500 p-16 rounded-[4rem] text-center shadow-[0_0_100px_rgba(34,197,94,0.4)] max-w-5xl w-full">
+                        <Trophy className="w-32 h-32 text-yellow-400 mx-auto mb-6 animate-bounce" />
+                        
+                        <h3 className="text-3xl text-zinc-400 uppercase tracking-widest mb-4">La risposta esatta è</h3>
+                        <div className="bg-green-600 text-white text-6xl font-black py-8 px-12 rounded-3xl mb-10 shadow-lg transform scale-110">
+                            {quizResults.correct_option}
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-4 text-center border-t border-white/10 pt-8">
+                            <div>
+                                <div className="text-4xl font-bold text-white">{quizResults.total_answers}</div>
+                                <div className="text-sm text-zinc-500 uppercase">Risposte Totali</div>
+                            </div>
+                            <div>
+                                <div className="text-4xl font-bold text-green-400">{quizResults.correct_count}</div>
+                                <div className="text-sm text-zinc-500 uppercase">Indovinate</div>
+                            </div>
+                            <div>
+                                <div className="text-4xl font-bold text-fuchsia-400">{quizResults.points}</div>
+                                <div className="text-sm text-zinc-500 uppercase">Punti in palio</div>
+                            </div>
+                        </div>
+
+                        {quizResults.winners.length > 0 && (
+                            <div className="mt-8 pt-6 border-t border-white/10">
+                                <p className="text-green-300 font-bold uppercase text-sm mb-2">I più veloci</p>
+                                <p className="text-2xl text-white font-medium truncate">
+                                    {quizResults.winners.slice(0, 3).join(' • ')}
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
-}
+};
 
 // ===========================================
 // MAIN COMPONENT: PUB DISPLAY
@@ -198,24 +292,36 @@ export default function PubDisplay() {
   const { pubCode } = useParams();
   const [displayData, setDisplayData] = useState(null);
   const [ticker, setTicker] = useState("");
-  
   const [floatingReactions, setFloatingReactions] = useState([]);
   const [flashMessages, setFlashMessages] = useState([]);
-  
   const [quizResults, setQuizResults] = useState(null);
   const [voteResult, setVoteResult] = useState(null);
+
+  // Inizializza API YouTube una volta sola
+  useEffect(() => {
+      if (!window.YT) {
+          const tag = document.createElement('script');
+          tag.src = "https://www.youtube.com/iframe_api";
+          const firstScriptTag = document.getElementsByTagName('script')[0];
+          firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+      }
+  }, []);
 
   const loadDisplayData = useCallback(async () => {
     try {
       const { data } = await api.getDisplayData(pubCode);
+      if(!data) return; // Evento scaduto o invalido
+
       setDisplayData(data);
       
+      // Ticker logic
       if (data.queue?.length > 0) {
         setTicker(data.queue.slice(0, 5).map((s, i) => `${i + 1}. ${s.title} (${s.user_nickname})`).join(' • '));
       } else {
         setTicker("Inquadra il QR Code per cantare!");
       }
 
+      // Vote Result Logic
       if (data.current_performance?.status === 'ended' && !voteResult && data.current_performance.average_score > 0) {
          setVoteResult(data.current_performance.average_score);
          setTimeout(() => setVoteResult(null), 10000);
@@ -223,42 +329,23 @@ export default function PubDisplay() {
     } catch (error) { console.error(error); }
   }, [pubCode, voteResult]);
 
+  // Polling e Realtime
   useEffect(() => {
     loadDisplayData();
     const interval = setInterval(loadDisplayData, 5000);
-    return () => clearInterval(interval);
-  }, [loadDisplayData]);
-
-  useEffect(() => {
-    if (!displayData?.pub?.id) return;
-    
-    // MUTE GLOBAL
-    const controlChannel = supabase.channel(`display_control_${pubCode}`)
-        .on('broadcast', { event: 'control' }, (payload) => {
-            if(payload.payload.command === 'mute') {
-                const ytKaraoke = window.YT?.get && window.YT.get('karaoke-player');
-                if (ytKaraoke && typeof ytKaraoke.mute === 'function') {
-                    if (payload.payload.value) ytKaraoke.mute(); else ytKaraoke.unMute();
-                }
-                const ytQuiz = window.YT?.get && window.YT.get('quiz-fixed-player');
-                if (ytQuiz && typeof ytQuiz.mute === 'function') {
-                    if (payload.payload.value) ytQuiz.mute(); else ytQuiz.unMute();
-                }
-            }
-        })
-        .subscribe();
 
     const channel = supabase.channel(`display_realtime`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${displayData.pub.id}` }, 
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${displayData?.pub?.id}` }, 
             (payload) => {
-                setDisplayData(prev => ({ ...prev, current_performance: payload.new }));
+                // Aggiornamento immediato stato performance
+                setDisplayData(prev => prev ? ({ ...prev, current_performance: payload.new }) : null);
                 if (payload.new.status === 'voting' || payload.new.status === 'ended') loadDisplayData();
             }
         )
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `event_id=eq.${displayData.pub.id}` }, 
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `event_id=eq.${displayData?.pub?.id}` }, 
             (payload) => addFloatingReaction(payload.new.emoji, payload.new.nickname)
         )
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `event_id=eq.${displayData.pub.id}` }, 
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `event_id=eq.${displayData?.pub?.id}` }, 
             async (payload) => {
                  if(payload.new.status === 'approved') {
                      let nick = "Regia";
@@ -270,32 +357,41 @@ export default function PubDisplay() {
                  }
             }
         )
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${displayData.pub.id}` }, 
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${displayData?.pub?.id}` }, 
             async (payload) => {
                 const updatedQuiz = payload.new;
-                setDisplayData(prev => ({ ...prev, active_quiz: updatedQuiz }));
-                
+                // Aggiorna immediatamente lo stato del quiz locale per reattività
+                setDisplayData(prev => {
+                    if(!prev) return null;
+                    // Se il quiz è finito, lo togliamo dopo un po'
+                    if (updatedQuiz.status === 'ended') {
+                         setTimeout(() => { 
+                             setDisplayData(curr => ({ ...curr, active_quiz: null })); 
+                             setQuizResults(null); 
+                         }, 5000);
+                         return { ...prev, active_quiz: updatedQuiz };
+                    }
+                    return { ...prev, active_quiz: updatedQuiz };
+                });
+
                 if (updatedQuiz.status === 'active' || updatedQuiz.status === 'closed') { 
                     setQuizResults(null); 
-                } else if (updatedQuiz.status === 'showing_results') {
+                } else if (updatedQuiz.status === 'showing_results' || updatedQuiz.status === 'leaderboard') {
+                    // Fetch risultati
                     const res = await api.getQuizResults(updatedQuiz.id); 
                     setQuizResults(res.data);
-                } else if (updatedQuiz.status === 'ended') {
-                    setTimeout(() => { 
-                        setDisplayData(prev => ({ ...prev, active_quiz: null })); 
-                        setQuizResults(null); 
-                    }, 5000);
                 }
             }
         )
         .subscribe();
 
     return () => {
+        clearInterval(interval);
         supabase.removeChannel(channel);
-        supabase.removeChannel(controlChannel);
-    }
-  }, [displayData?.pub?.id, pubCode]);
+    };
+  }, [displayData?.pub?.id, pubCode, loadDisplayData]);
 
+  // Effects Helpers
   const showFlashMessage = (msg) => {
     const id = Date.now();
     setFlashMessages(prev => [...prev, { ...msg, internalId: id }]);
@@ -309,16 +405,18 @@ export default function PubDisplay() {
     setTimeout(() => setFloatingReactions(prev => prev.filter(r => r.id !== id)), 4000);
   };
 
+  // RENDER LOGIC
   const currentPerf = displayData?.current_performance;
   const activeQuiz = displayData?.active_quiz;
   const joinUrl = `${window.location.origin}/join/${pubCode}`;
   
+  // Decide what to show: Quiz > Karaoke > Idle
   let ScreenComponent = null;
   const isLeaderboardMode = activeQuiz && activeQuiz.status === 'leaderboard';
 
   if (activeQuiz && activeQuiz.status !== 'ended') {
-      ScreenComponent = <QuizScreen quiz={activeQuiz} quizResults={quizResults} leaderboard={displayData?.leaderboard || []} />;
-  } else if (currentPerf && (currentPerf.status === 'live' || currentPerf.status === 'paused' || currentPerf.status === 'restarted' || currentPerf.status === 'voting' || voteResult)) {
+      ScreenComponent = <QuizGameShow quiz={activeQuiz} quizResults={quizResults} leaderboard={displayData?.leaderboard || []} />;
+  } else if (currentPerf && (currentPerf.status === 'live' || currentPerf.status === 'paused' || currentPerf.status === 'voting' || voteResult)) {
       ScreenComponent = <KaraokeScreen performance={currentPerf} isVoting={currentPerf.status === 'voting'} voteResult={voteResult} />;
   } else {
       ScreenComponent = (
@@ -335,6 +433,7 @@ export default function PubDisplay() {
   return (
     <div className="h-screen bg-black text-white overflow-hidden flex flex-col font-sans">
       
+      {/* HEADER */}
       <div className="h-16 bg-zinc-900 flex items-center px-6 border-b border-zinc-800 z-50 relative shadow-xl">
          <div className="font-bold text-xl mr-8 text-fuchsia-500">{displayData?.pub?.name || "NEONPUB"}</div>
          <div className="flex-1 overflow-hidden relative h-full flex items-center">
@@ -347,6 +446,7 @@ export default function PubDisplay() {
            {ScreenComponent}
         </div>
 
+        {/* SIDEBAR (Nascosta durante leaderboard quiz) */}
         {!isLeaderboardMode && (
             <div className="w-[350px] bg-zinc-900/95 border-l border-zinc-800 flex flex-col z-30 shadow-2xl relative">
                 <div className="p-6 flex flex-col items-center bg-white/5 border-b border-white/10">
@@ -360,9 +460,6 @@ export default function PubDisplay() {
                     ) : (
                         <div className="w-40 h-40 bg-zinc-800 rounded-full flex items-center justify-center text-zinc-600 text-4xl font-bold border-4 border-zinc-700">LOGO</div>
                     )}
-                    <div className="mt-2">
-                        <h2 className="text-3xl font-black text-white uppercase tracking-wider">{displayData?.pub?.name || "NEONPUB"}</h2>
-                    </div>
                 </div>
 
                 <div className="h-[35%] border-t border-white/10 p-4 bg-gradient-to-b from-zinc-900 to-black">
