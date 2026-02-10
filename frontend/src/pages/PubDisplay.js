@@ -127,7 +127,7 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
 // COMPONENTE: QUIZ SCREEN
 // ===========================================
 const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
-    // 1. VISTA CLASSIFICA (Nessun player qui)
+    // VISTA CLASSIFICA
     if (quiz.status === 'leaderboard') {
         return (
             <div className="absolute inset-0 bg-zinc-900 z-50 flex flex-col p-8 overflow-hidden animate-fade-in">
@@ -149,11 +149,9 @@ const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
         );
     }
 
-    // 2. VISTA QUIZ PRINCIPALE
+    // VISTA PRINCIPALE QUIZ
     return (
         <div className="absolute inset-0 bg-gradient-to-b from-purple-900 to-black z-40 flex flex-col items-center justify-center p-10">
-            
-            {/* COMPONENTE MEDIA OTTIMIZZATO (MEMO) */}
             <QuizMediaFixed 
                 mediaUrl={quiz.media_url} 
                 mediaType={quiz.media_type} 
