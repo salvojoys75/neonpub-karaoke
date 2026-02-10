@@ -53,7 +53,7 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
         }
     }, [performance, isVoting, voteResult]);
 
-    // Nascondi player visivamente durante il voto (ma non smontarlo se possibile, anche se qui va bene perché cambia scena)
+    // Nascondi player visivamente durante il voto
     useEffect(() => {
         const el = document.getElementById('karaoke-player');
         if (el) el.style.visibility = (isVoting || voteResult) ? 'hidden' : 'visible';
@@ -100,34 +100,39 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
 };
 
 // ===========================================
-// COMPONENTE: QUIZ GAME SHOW (Stabile)
+// COMPONENTE: QUIZ GAME SHOW (Fix Restart)
 // ===========================================
 const QuizGameShow = ({ quiz, quizResults, leaderboard }) => {
     const playerRef = useRef(null);
     const currentVideoId = useRef(null);
     
-    // Determina lo stato della scena
+    // Stati derivati per la UI
     const isLeaderboard = quiz.status === 'leaderboard';
     const isResult = quiz.status === 'showing_results';
     const isQuestion = quiz.status === 'active' || quiz.status === 'closed';
 
     // 1. GESTIONE PLAYER (Unico e Persistente)
     useEffect(() => {
-        // Se siamo in classifica, mettiamo in pausa opzionalmente
+        // Logica per mettere in pausa se siamo in classifica (opzionale)
         if (isLeaderboard && playerRef.current?.pauseVideo) {
              playerRef.current.pauseVideo();
              return;
         }
 
         const videoId = getYoutubeId(quiz.media_url);
-        // Se non c'è media o videoId, distruggi player se esiste
+        
+        // Se non c'è video, puliamo
         if (!videoId) {
-             if(playerRef.current) { playerRef.current.destroy(); playerRef.current = null; }
+             if(playerRef.current) { 
+                 try { playerRef.current.destroy(); } catch(e){}
+                 playerRef.current = null; 
+             }
+             currentVideoId.current = null;
              return;
         }
 
-        // Se il video è già caricato, assicurati solo che suoni (se non in pausa)
-        if (currentVideoId.current === videoId && playerRef.current) {
+        // Se il video è lo stesso, gestiamo solo play/pause senza ricaricare
+        if (currentVideoId.current === videoId && playerRef.current && typeof playerRef.current.playVideo === 'function') {
              if (quiz.status === 'active') playerRef.current.playVideo();
              return;
         }
@@ -142,7 +147,7 @@ const QuizGameShow = ({ quiz, quizResults, leaderboard }) => {
 
         if (!window.YT) return;
 
-        // Se esiste già un player ma React ha perso il ref (raro ma possibile), o se dobbiamo crearne uno nuovo
+        // Creazione Player o Load
         if (!playerRef.current) {
              playerRef.current = new window.YT.Player('quiz-fixed-player', {
                 videoId: videoId,
@@ -155,17 +160,17 @@ const QuizGameShow = ({ quiz, quizResults, leaderboard }) => {
 
     }, [quiz.media_url, quiz.status, isLeaderboard]);
 
-    // Tipi di media
+    // Check media types
     const hasVideo = quiz.media_type === 'video' && getYoutubeId(quiz.media_url);
     const hasAudio = quiz.media_type === 'audio';
 
     return (
         <div className="absolute inset-0 bg-black overflow-hidden font-sans">
             
-            {/* --- LAYER 0: MEDIA PLAYER (Sempre montato) --- */}
+            {/* --- LAYER 0: MEDIA PLAYER (Sempre presente nel DOM) --- */}
             <div className={`absolute inset-0 z-0 transition-opacity duration-1000 ${hasVideo && !isLeaderboard ? 'opacity-100' : 'opacity-0'}`}>
                 <div id="quiz-fixed-player" className="w-full h-full pointer-events-none scale-110" />
-                <div className="absolute inset-0 bg-black/50" /> {/* Overlay scuro */}
+                <div className="absolute inset-0 bg-black/50" />
             </div>
 
             {/* --- LAYER 0.5: AUDIO VISUALIZER --- */}
@@ -175,7 +180,7 @@ const QuizGameShow = ({ quiz, quizResults, leaderboard }) => {
                 </div>
             )}
 
-            {/* --- LAYER 1: DOMANDA & OPZIONI (Visibile in Active/Closed) --- */}
+            {/* --- LAYER 1: DOMANDA (Overlay) --- */}
             <div className={`absolute inset-0 z-10 flex flex-col items-center justify-center p-8 transition-all duration-500 ${isQuestion ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'}`}>
                  <div className="mb-8">
                      <span className={`px-10 py-3 rounded-full text-3xl font-black uppercase tracking-widest shadow-xl ${quiz.status === 'closed' ? 'bg-red-600 text-white' : 'bg-fuchsia-600 text-white animate-pulse'}`}>
@@ -201,7 +206,7 @@ const QuizGameShow = ({ quiz, quizResults, leaderboard }) => {
                 </div>
             </div>
 
-            {/* --- LAYER 2: RISULTATO (Sovrapposto) --- */}
+            {/* --- LAYER 2: RISULTATO (Overlay) --- */}
             <div className={`absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/80 backdrop-blur-xl transition-all duration-500 ${isResult ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-full pointer-events-none'}`}>
                 {quizResults && (
                     <div className="bg-gradient-to-br from-zinc-900 to-black border-4 border-green-500 p-16 rounded-[3rem] text-center shadow-[0_0_100px_rgba(34,197,94,0.4)] max-w-5xl w-full animate-zoom-in">
@@ -225,12 +230,12 @@ const QuizGameShow = ({ quiz, quizResults, leaderboard }) => {
                 )}
             </div>
 
-            {/* --- LAYER 3: CLASSIFICA (Full Screen) --- */}
+            {/* --- LAYER 3: CLASSIFICA (Overlay) --- */}
             <div className={`absolute inset-0 z-30 bg-zinc-900 flex flex-col p-8 transition-transform duration-700 ${isLeaderboard ? 'translate-y-0' : '-translate-y-full'}`}>
                  <div className="text-center mb-8">
                     <h1 className="text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-orange-600 drop-shadow-sm">CLASSIFICA</h1>
                 </div>
-                <div className="flex-1 overflow-hidden grid grid-cols-2 gap-x-16 gap-y-4 px-16 content-start">
+                <div className="flex-1 overflow-hidden grid grid-cols-2 gap-x-16 gap-y-4 px-16 content-start custom-scrollbar overflow-y-auto">
                     {leaderboard.map((p, i) => (
                         <div key={p.id} className={`flex items-center p-4 rounded-xl text-4xl font-bold transition-all ${i<3 ? 'bg-gradient-to-r from-yellow-900/40 to-transparent border-l-8 border-yellow-500 pl-6' : 'bg-white/5 border-l-4 border-zinc-600'}`}>
                             <span className={`w-16 text-right mr-8 ${i===0?'text-yellow-400':i===1?'text-zinc-300':i===2?'text-amber-600':'text-zinc-500'}`}>#{i+1}</span>
@@ -271,7 +276,6 @@ export default function PubDisplay() {
       const { data } = await api.getDisplayData(pubCode);
       if(!data) return;
 
-      // Aggiorna state evitando flash se i dati sono simili (opzionale, ma React lo gestisce bene se le chiavi sono stabili)
       setDisplayData(data);
       
       // Ticker
@@ -307,7 +311,6 @@ export default function PubDisplay() {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `event_id=eq.${displayData?.pub?.id}` }, 
             async (payload) => {
                  if(payload.new.status === 'approved') {
-                     // Fetch nickname if participant
                      let nick = "Regia";
                      if(payload.new.participant_id) {
                          const { data } = await supabase.from('participants').select('nickname').eq('id', payload.new.participant_id).single();
@@ -322,7 +325,6 @@ export default function PubDisplay() {
                 const updatedQuiz = payload.new;
                 setDisplayData(prev => {
                      if(!prev) return null;
-                     // Se finisce, rimuovilo dopo delay
                      if(updatedQuiz.status === 'ended') {
                          setTimeout(() => { 
                              setDisplayData(curr => ({ ...curr, active_quiz: null })); 
@@ -363,12 +365,11 @@ export default function PubDisplay() {
   const activeQuiz = displayData?.active_quiz;
   const joinUrl = `${window.location.origin}/join/${pubCode}`;
   
-  // Decide Mode
   let ScreenComponent = null;
   const isQuizMode = activeQuiz && activeQuiz.status !== 'ended';
   const isKaraokeMode = !isQuizMode && currentPerf && (currentPerf.status === 'live' || currentPerf.status === 'paused' || currentPerf.status === 'voting' || voteResult);
 
-  // Sidebars visibility
+  // Sidebar visibility check
   const showSidebar = !isQuizMode || (activeQuiz && activeQuiz.status !== 'leaderboard');
 
   return (
@@ -383,7 +384,6 @@ export default function PubDisplay() {
       <div className="flex-1 flex overflow-hidden relative">
         <div className="flex-1 relative bg-black flex flex-col justify-center overflow-hidden">
            
-           {/* DEFAULT IDLE SCREEN */}
            {!isQuizMode && !isKaraokeMode && (
              <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-zinc-950 animate-fade-in">
                 <h2 className="text-7xl font-bold mb-8 text-white">PROSSIMO CANTANTE... TU?</h2>
@@ -394,12 +394,10 @@ export default function PubDisplay() {
              </div>
            )}
 
-           {/* KARAOKE COMPONENT */}
            {isKaraokeMode && (
                <KaraokeScreen performance={currentPerf} isVoting={currentPerf.status === 'voting'} voteResult={voteResult} />
            )}
 
-           {/* QUIZ COMPONENT */}
            {isQuizMode && (
                <QuizGameShow quiz={activeQuiz} quizResults={quizResults} leaderboard={displayData?.leaderboard || []} />
            )}

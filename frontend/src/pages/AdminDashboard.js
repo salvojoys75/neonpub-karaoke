@@ -43,7 +43,6 @@ export default function AdminDashboard() {
   // --- STATI CATALOGHI ---
   const [quizCatalog, setQuizCatalog] = useState([]);
   const [quizCategoryFilter, setQuizCategoryFilter] = useState("all"); 
-  const [challenges, setChallenges] = useState([]);
 
   // --- STATI SUPER ADMIN ---
   const [userList, setUserList] = useState([]);
@@ -52,7 +51,7 @@ export default function AdminDashboard() {
   const [newUserPassword, setNewUserPassword] = useState("");
   const [newUserName, setNewUserName] = useState("");
 
-  // --- IMPOSTAZIONI EVENTO ---
+  // --- IMPOSTAZIONI EVENTO (RIPRISTINATE) ---
   const [venueName, setVenueName] = useState("");
   const [venueLogo, setVenueLogo] = useState("");
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -175,6 +174,8 @@ export default function AdminDashboard() {
       const expires = new Date(pubRes.data.expires_at);
       const diff = expires - new Date();
       setTimeRemaining(diff <= 0 ? "SCADUTO" : `${Math.floor(diff/(1000*60*60))}h ${Math.floor((diff%(1000*60*60))/(1000*60))}m`);
+      
+      if(!venueName && pubRes.data.name) { setVenueName(pubRes.data.name); setVenueLogo(pubRes.data.logo_url || ""); }
 
       const stateData = await api.getEventState();
       if(stateData) setEventState(stateData);
@@ -204,7 +205,7 @@ export default function AdminDashboard() {
          setActiveQuizId(null); setActiveQuizData(null); setQuizStatus(null); setQuizResults(null);
       }
     } catch (error) { console.error(error); }
-  }, [pubCode, appState]);
+  }, [pubCode, appState, venueName]);
 
   useEffect(() => {
     if (appState === 'dashboard') {
@@ -223,6 +224,25 @@ export default function AdminDashboard() {
   const handleOpenDisplay = () => window.open(`/display/${pubCode}`, 'NeonPubDisplay', `popup=yes,width=1280,height=720`);
   const handleToggleMute = async () => { const s = !isMuted; setIsMuted(s); await api.toggleMute(s); };
   
+  // SETTINGS HANDLERS
+  const handleLogoUpload = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      setUploadingLogo(true);
+      try {
+          const url = await api.uploadLogo(file);
+          setVenueLogo(url);
+          toast.success("Logo caricato! Clicca Salva.");
+      } catch(err) { toast.error("Errore upload"); } finally { setUploadingLogo(false); }
+  };
+
+  const handleSaveSettings = async () => {
+      try {
+          await updateEventSettings({ name: venueName, logo_url: venueLogo });
+          toast.success("Impostazioni salvate");
+      } catch (e) { toast.error("Errore salvataggio"); }
+  };
+
   const searchYouTube = async () => {
     if (!youtubeSearchQuery.trim()) return;
     setSearchingYoutube(true);
@@ -295,7 +315,12 @@ export default function AdminDashboard() {
 
   if (appState === 'setup') return (
     <div className="min-h-screen bg-zinc-950 text-white flex items-center justify-center p-4">
-        <Card className="bg-zinc-900 w-full max-w-md"><CardHeader><CardTitle>Setup Evento</CardTitle></CardHeader><CardContent className="space-y-4"><Input placeholder="Nome Evento" value={newEventName} onChange={e=>setNewEventName(e.target.value)} /><Button className="w-full bg-fuchsia-600" onClick={handleStartEvent}>Crea</Button>{activeEventsList.length>0 && activeEventsList.map(ev=><Button key={ev.id} variant="outline" className="w-full" onClick={()=>handleResumeEvent(ev.code)}>Riprendi {ev.name}</Button>)}</CardContent></Card>
+        <Card className="bg-zinc-900 w-full max-w-md"><CardHeader><CardTitle>Setup Evento</CardTitle></CardHeader><CardContent className="space-y-4">
+            <div className="text-center text-yellow-500 font-bold mb-2">Crediti: {profile?.credits}</div>
+            <Input placeholder="Nome Evento" value={newEventName} onChange={e=>setNewEventName(e.target.value)} />
+            <Button className="w-full bg-fuchsia-600" onClick={handleStartEvent}>Crea (-1 Credit)</Button>
+            {activeEventsList.length>0 && activeEventsList.map(ev=><Button key={ev.id} variant="outline" className="w-full" onClick={()=>handleResumeEvent(ev.code)}>Riprendi {ev.name}</Button>)}
+        </CardContent></Card>
     </div>
   );
 
@@ -307,7 +332,11 @@ export default function AdminDashboard() {
     <div className="h-screen bg-[#050505] text-white flex flex-col overflow-hidden">
       <header className="h-14 border-b border-white/10 flex items-center justify-between px-4 bg-zinc-900">
          <div className="flex items-center gap-4"><h1 className="font-bold text-lg text-fuchsia-400">NEONPUB OS</h1><span className="text-xs px-2 bg-zinc-800 rounded">{pubCode}</span><span className="text-[10px] text-yellow-600">{timeRemaining}</span></div>
-         <div className="flex items-center gap-4"><Button variant="outline" size="sm" onClick={handleOpenDisplay}>DISPLAY</Button><Button variant="ghost" size="sm" onClick={() => { if(confirm("Esci?")) { localStorage.removeItem("neonpub_pub_code"); setPubCode(null); setAppState("setup"); loadActiveEvents(); } }}><LogOut className="w-4 h-4" /></Button></div>
+         <div className="flex items-center gap-4">
+             <div className="flex items-center gap-2 text-yellow-500 text-sm font-bold bg-yellow-900/20 px-3 py-1 rounded-full border border-yellow-900/50"><Gem className="w-4 h-4" /> {profile?.credits || 0}</div>
+             <Button variant="outline" size="sm" onClick={handleOpenDisplay}>DISPLAY</Button>
+             <Button variant="ghost" size="sm" onClick={() => { if(confirm("Esci?")) { localStorage.removeItem("neonpub_pub_code"); setPubCode(null); setAppState("setup"); loadActiveEvents(); } }}><LogOut className="w-4 h-4" /></Button>
+         </div>
       </header>
 
       <div className="flex-1 grid grid-cols-12 gap-0 overflow-hidden">
@@ -340,6 +369,13 @@ export default function AdminDashboard() {
                    <div className="space-y-4 pt-2">
                        <Button className="w-full bg-cyan-600 mb-4" onClick={()=>setShowMessageModal(true)}><MessageSquare className="w-4 h-4 mr-2"/> Scrivi Messaggio</Button>
                        {pendingMessages.map(msg => (<div key={msg.id} className="bg-zinc-800 p-3 rounded border-l-2 border-blue-500"><p className="text-sm bg-black/20 p-2 rounded mb-2">{msg.text}</p><div className="flex gap-2 justify-end"><Button size="sm" variant="ghost" onClick={()=>api.rejectMessage(msg.id)}>Rifiuta</Button><Button size="sm" className="bg-green-600" onClick={()=>api.approveMessage(msg.id)}>Approva</Button></div></div>))}
+                   </div>
+               )}
+               {libraryTab === 'settings' && (
+                   <div className="space-y-4 pt-2">
+                       <div className="space-y-2"><label className="text-xs text-zinc-500">Nome Locale</label><Input value={venueName} onChange={e=>setVenueName(e.target.value)} className="bg-zinc-800"/></div>
+                       <div className="space-y-2"><label className="text-xs text-zinc-500">Logo (File)</label><div className="flex gap-2"><Input type="file" onChange={handleLogoUpload} className="bg-zinc-800 text-xs" accept="image/*" disabled={uploadingLogo}/>{uploadingLogo && <span className="text-yellow-500 text-xs animate-pulse">...</span>}</div></div>
+                       <Button className="w-full bg-zinc-700" onClick={handleSaveSettings}><Save className="w-4 h-4 mr-2"/> Salva Impostazioni</Button>
                    </div>
                )}
             </ScrollArea>
