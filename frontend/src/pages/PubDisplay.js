@@ -203,187 +203,115 @@ const QuizScreen = memo(({ quiz, quizResults, leaderboard }) => {
                         </div>
                     </div>
                 ) : (
-                    <div className="animate-zoom-in bg-black/80 backdrop-blur-xl p-12 rounded-[3rem] border border-white/20 shadow-2xl">
-                        <Trophy className="w-40 h-40 text-yellow-400 mx-auto mb-8 animate-bounce" />
-                        <h2 className="text-6xl font-black text-white mb-6">RISPOSTA ESATTA</h2>
-                        <div className="bg-green-600 text-white px-16 py-8 rounded-3xl mb-12 transform scale-110">
-                            <p className="text-7xl font-bold">{quizResults.correct_option}</p>
+                    <div className="animate-zoom-in p-8">
+                        {/* Risultati Quiz */}
+                        <div className="mb-8">
+                            <h1 className="text-6xl font-black text-yellow-500 uppercase mb-6 drop-shadow-[0_0_15px_rgba(234,179,8,0.5)]">RISULTATI</h1>
                         </div>
-                        <div className="text-center">
-                            <p className="text-2xl text-green-300 uppercase tracking-widest mb-4">I Più Veloci</p>
-                            <p className="text-4xl text-white font-medium max-w-5xl leading-relaxed">
-                                {quizResults.winners.length > 0 ? quizResults.winners.slice(0, 5).join(' • ') : "Nessuno ha indovinato!"}
-                            </p>
+                        
+                        <div className="bg-black/70 backdrop-blur-md p-10 rounded-[3rem] border border-white/10 shadow-2xl">
+                            <h2 className="text-5xl font-black text-white mb-12 leading-tight">{quiz.question}</h2>
+                            
+                            <div className="grid grid-cols-2 gap-8 mb-12">
+                                {quiz.options.map((opt, i) => {
+                                    const isCorrect = i === quiz.correct_answer;
+                                    const votes = quizResults.find(r => r.answer === i)?.count || 0;
+                                    const totalVotes = quizResults.reduce((sum, r) => sum + r.count, 0);
+                                    const percentage = totalVotes > 0 ? Math.round((votes / totalVotes) * 100) : 0;
+                                    
+                                    return (
+                                        <div key={i} className={`relative p-8 rounded-3xl text-4xl font-bold border-4 ${isCorrect ? 'border-green-500 bg-green-500/20' : 'border-zinc-700 bg-zinc-900/50'}`}>
+                                            <div className="flex items-center justify-between mb-4">
+                                                <div className="flex items-center gap-4">
+                                                    <span className={isCorrect ? 'text-green-400' : 'text-zinc-500'}>{String.fromCharCode(65+i)}.</span>
+                                                    <span className={isCorrect ? 'text-white' : 'text-zinc-500'}>{opt}</span>
+                                                </div>
+                                                {isCorrect && <span className="text-6xl">✓</span>}
+                                            </div>
+                                            <div className="flex items-center gap-4 text-3xl">
+                                                <span className={isCorrect ? 'text-green-400 font-mono' : 'text-zinc-400 font-mono'}>{percentage}%</span>
+                                                <span className={isCorrect ? 'text-green-300' : 'text-zinc-500'}>({votes} {votes === 1 ? 'voto' : 'voti'})</span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
                     </div>
                 )}
             </div>
         </div>
     );
-}, (prevProps, nextProps) => {
-    // Confronta SOLO i campi rilevanti per evitare re-render inutili
-    const quizEqual = (
-        prevProps.quiz?.id === nextProps.quiz?.id &&
-        prevProps.quiz?.status === nextProps.quiz?.status &&
-        prevProps.quiz?.media_state === nextProps.quiz?.media_state &&
-        prevProps.quiz?.media_url === nextProps.quiz?.media_url &&
-        prevProps.quiz?.question === nextProps.quiz?.question
-    );
-    
-    const resultsEqual = (
-        prevProps.quizResults?.quiz_id === nextProps.quizResults?.quiz_id &&
-        prevProps.quizResults?.correct_count === nextProps.quizResults?.correct_count
-    );
-    
-    const leaderboardEqual = (
-        prevProps.leaderboard?.length === nextProps.leaderboard?.length &&
-        prevProps.leaderboard?.[0]?.id === nextProps.leaderboard?.[0]?.id
-    );
-    
-    return quizEqual && resultsEqual && leaderboardEqual;
 });
 
 QuizScreen.displayName = 'QuizScreen';
 
 // ===========================================
-// MAIN COMPONENT: PUB DISPLAY
+// COMPONENTE PRINCIPALE: PUB DISPLAY
 // ===========================================
 export default function PubDisplay() {
   const { pubCode } = useParams();
   const [displayData, setDisplayData] = useState(null);
-  const [ticker, setTicker] = useState("");
-  
-  const [floatingReactions, setFloatingReactions] = useState([]);
-  const [flashMessages, setFlashMessages] = useState([]);
-  
   const [quizResults, setQuizResults] = useState(null);
   const [voteResult, setVoteResult] = useState(null);
-
-  const loadDisplayData = useCallback(async () => {
-    try {
-      const { data } = await api.getDisplayData(pubCode);
-      setDisplayData(data);
-      
-      if (data.queue?.length > 0) {
-        setTicker(data.queue.slice(0, 5).map((s, i) => `${i + 1}. ${s.title} (${s.user_nickname})`).join(' • '));
-      } else {
-        setTicker("Inquadra il QR Code per cantare!");
-      }
-
-      if (data.current_performance?.status === 'ended' && !voteResult && data.current_performance.average_score > 0) {
-         setVoteResult(data.current_performance.average_score);
-         setTimeout(() => setVoteResult(null), 10000);
-      }
-    } catch (error) { console.error(error); }
-  }, [pubCode, voteResult]);
+  const [ticker, setTicker] = useState("Benvenuti su NEONPUB! 🎤 Cantate, giocate, divertitevi!");
+  const [flashMessages, setFlashMessages] = useState([]);
+  const [floatingReactions, setFloatingReactions] = useState([]);
 
   useEffect(() => {
-    loadDisplayData();
-    // RIMOSSO IL POLLING CONTINUO - Usiamo solo Supabase Realtime
-    // const interval = setInterval(loadDisplayData, 5000);
-    // return () => clearInterval(interval);
-  }, [loadDisplayData]);
+    if (!pubCode) return;
 
-  useEffect(() => {
-    if (!displayData?.pub?.id) return;
-    
-    // MUTE GLOBAL
-    const controlChannel = supabase.channel(`display_control_${pubCode}`)
-        .on('broadcast', { event: 'control' }, (payload) => {
-            if(payload.payload.command === 'mute') {
-                const ytKaraoke = window.YT?.get && window.YT.get('karaoke-player');
-                if (ytKaraoke && typeof ytKaraoke.mute === 'function') {
-                    if (payload.payload.value) ytKaraoke.mute(); else ytKaraoke.unMute();
-                }
-                const ytQuiz = window.YT?.get && window.YT.get('quiz-fixed-player');
-                if (ytQuiz && typeof ytQuiz.mute === 'function') {
-                    if (payload.payload.value) ytQuiz.mute(); else ytQuiz.unMute();
-                }
+    api.getPublicDisplayData(pubCode)
+      .then(res => setDisplayData(res.data))
+      .catch(err => console.error(err));
+
+    const channel = supabase
+        .channel(`public:pub_displays:pub_code=eq.${pubCode}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'pub_displays', filter: `pub_code=eq.${pubCode}` },
+            payload => {
+                setDisplayData(prev => {
+                    if (!prev) return prev;
+                    const updatedPub = payload.new;
+                    const relevantFieldsChanged = (
+                        prev.pub?.name !== updatedPub.name ||
+                        prev.pub?.ticker_text !== updatedPub.ticker_text ||
+                        prev.pub?.logo_url !== updatedPub.logo_url
+                    );
+                    if (!relevantFieldsChanged) return prev;
+                    
+                    return {
+                        ...prev,
+                        pub: {
+                            ...prev.pub,
+                            name: updatedPub.name,
+                            ticker_text: updatedPub.ticker_text,
+                            logo_url: updatedPub.logo_url
+                        }
+                    };
+                });
+                if (payload.new.ticker_text) setTicker(payload.new.ticker_text);
             }
-        })
+        )
         .subscribe();
 
-    const channel = supabase.channel(`display_realtime`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${displayData.pub.id}` }, 
-            (payload) => {
-                setDisplayData(prev => ({ ...prev, current_performance: payload.new }));
-                // NON ricaricare tutto, solo se necessario per i voti
-                if (payload.new.status === 'voting' || payload.new.status === 'ended') {
-                    loadDisplayData();
-                }
-            }
-        )
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'song_requests', filter: `event_id=eq.${displayData.pub.id}` },
-            async (payload) => {
-                // Aggiorna la coda in real-time per il ticker
-                const { data: queueData } = await supabase
-                    .from('song_requests')
-                    .select('*, participants(nickname)')
-                    .eq('event_id', displayData.pub.id)
-                    .eq('status', 'queued')
-                    .limit(10);
-                
-                const queue = queueData?.map(q => ({...q, user_nickname: q.participants?.nickname})) || [];
-                setDisplayData(prev => ({ ...prev, queue }));
-                
-                // Aggiorna ticker
-                if (queue.length > 0) {
-                    setTicker(queue.slice(0, 5).map((s, i) => `${i + 1}. ${s.title} (${s.user_nickname})`).join(' • '));
-                } else {
-                    setTicker("Inquadra il QR Code per cantare!");
-                }
-            }
-        )
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `event_id=eq.${displayData.pub.id}` }, 
-            (payload) => addFloatingReaction(payload.new.emoji, payload.new.nickname)
-        )
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `event_id=eq.${displayData.pub.id}` }, 
-            async (payload) => {
-                 if(payload.new.status === 'approved') {
-                     let nick = "Regia";
-                     if(payload.new.participant_id) {
-                         const { data } = await supabase.from('participants').select('nickname').eq('id', payload.new.participant_id).single();
-                         if(data) nick = data.nickname;
-                     }
-                     showFlashMessage({ text: payload.new.text, nickname: nick });
-                 }
-            }
-        )
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'participants', filter: `event_id=eq.${displayData.pub.id}` },
-            async (payload) => {
-                // Aggiorna la leaderboard quando cambiano i punteggi
-                const { data: lbData } = await supabase
-                    .from('participants')
-                    .select('id, nickname, score')
-                    .eq('event_id', displayData.pub.id)
-                    .order('score', { ascending: false })
-                    .limit(20);
-                
-                setDisplayData(prev => ({ ...prev, leaderboard: lbData || [] }));
-            }
-        )
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${displayData.pub.id}` }, 
-            async (payload) => {
+    const controlChannel = supabase
+        .channel(`public:quiz_sessions:pub_code=eq.${pubCode}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'quiz_sessions', filter: `pub_code=eq.${pubCode}` },
+            async payload => {
                 const updatedQuiz = payload.new;
                 
-                // OTTIMIZZAZIONE CRITICA: Aggiorna SOLO se i campi importanti sono cambiati
                 setDisplayData(prev => {
+                    if (!prev) return prev;
                     const current = prev.active_quiz;
                     
-                    // Se non c'è quiz attivo, aggiorna sempre
-                    if (!current) {
-                        return { ...prev, active_quiz: updatedQuiz };
-                    }
-                    
-                    // Confronta SOLO i campi che influenzano il rendering
-                    const relevantFieldsChanged = (
+                    const relevantFieldsChanged = !current || (
+                        current.id !== updatedQuiz.id ||
                         current.status !== updatedQuiz.status ||
                         current.media_state !== updatedQuiz.media_state ||
                         current.media_url !== updatedQuiz.media_url ||
                         current.question !== updatedQuiz.question
                     );
                     
-                    // Se nulla è cambiato nei campi rilevanti, NON aggiornare
                     if (!relevantFieldsChanged) {
                         console.log('[PubDisplay] Quiz update ignorato - nessun campo rilevante cambiato');
                         return prev;
@@ -431,24 +359,11 @@ export default function PubDisplay() {
   const activeQuiz = displayData?.active_quiz;
   const joinUrl = `${window.location.origin}/join/${pubCode}`;
   
-  let ScreenComponent = null;
+  // 🔥 CALCOLA quali screen mostrare (senza creare elementi React)
   const isLeaderboardMode = activeQuiz && activeQuiz.status === 'leaderboard';
-
-  if (activeQuiz && activeQuiz.status !== 'ended') {
-      ScreenComponent = <QuizScreen quiz={activeQuiz} quizResults={quizResults} leaderboard={displayData?.leaderboard || []} />;
-  } else if (currentPerf && (currentPerf.status === 'live' || currentPerf.status === 'paused' || currentPerf.status === 'restarted' || currentPerf.status === 'voting' || voteResult)) {
-      ScreenComponent = <KaraokeScreen performance={currentPerf} isVoting={currentPerf.status === 'voting'} voteResult={voteResult} />;
-  } else {
-      ScreenComponent = (
-         <div className="flex flex-col items-center justify-center h-full z-10 bg-zinc-950 animate-fade-in relative">
-            <h2 className="text-7xl font-bold mb-8 text-white">PROSSIMO CANTANTE... TU?</h2>
-            <div className="bg-white p-6 rounded-3xl shadow-[0_0_50px_rgba(255,255,255,0.2)]">
-                <QRCodeSVG value={joinUrl} size={300} />
-            </div>
-            <p className="text-4xl text-zinc-400 mt-8 font-mono tracking-widest">{pubCode}</p>
-         </div>
-      );
-  }
+  const showQuiz = activeQuiz && activeQuiz.status !== 'ended';
+  const showKaraoke = currentPerf && (currentPerf.status === 'live' || currentPerf.status === 'paused' || currentPerf.status === 'restarted' || currentPerf.status === 'voting' || voteResult);
+  const showWaiting = !showQuiz && !showKaraoke;
 
   return (
     <div className="h-screen bg-black text-white overflow-hidden flex flex-col font-sans">
@@ -462,7 +377,52 @@ export default function PubDisplay() {
 
       <div className="flex-1 flex overflow-hidden relative">
         <div className="flex-1 relative bg-black flex flex-col justify-center overflow-hidden">
-           {ScreenComponent}
+           
+           {/* 🔥 QUIZ SCREEN - SEMPRE MONTATO, visibile/nascosto con CSS */}
+           <div className={`absolute inset-0 transition-opacity duration-500 ${
+               showQuiz 
+                   ? 'opacity-100 z-40 pointer-events-auto' 
+                   : 'opacity-0 z-0 pointer-events-none'
+           }`}>
+               {activeQuiz && (
+                   <QuizScreen 
+                       quiz={activeQuiz} 
+                       quizResults={quizResults} 
+                       leaderboard={displayData?.leaderboard || []} 
+                   />
+               )}
+           </div>
+
+           {/* 🔥 KARAOKE SCREEN - SEMPRE MONTATO, visibile/nascosto con CSS */}
+           <div className={`absolute inset-0 transition-opacity duration-500 ${
+               showKaraoke 
+                   ? 'opacity-100 z-40 pointer-events-auto' 
+                   : 'opacity-0 z-0 pointer-events-none'
+           }`}>
+               {currentPerf && (
+                   <KaraokeScreen 
+                       performance={currentPerf} 
+                       isVoting={currentPerf.status === 'voting'} 
+                       voteResult={voteResult} 
+                   />
+               )}
+           </div>
+
+           {/* 🔥 WAITING SCREEN - SEMPRE MONTATO, visibile/nascosto con CSS */}
+           <div className={`absolute inset-0 transition-opacity duration-500 ${
+               showWaiting 
+                   ? 'opacity-100 z-40 pointer-events-auto' 
+                   : 'opacity-0 z-0 pointer-events-none'
+           }`}>
+               <div className="flex flex-col items-center justify-center h-full bg-zinc-950 animate-fade-in relative">
+                   <h2 className="text-7xl font-bold mb-8 text-white">PROSSIMO CANTANTE... TU?</h2>
+                   <div className="bg-white p-6 rounded-3xl shadow-[0_0_50px_rgba(255,255,255,0.2)]">
+                       <QRCodeSVG value={joinUrl} size={300} />
+                   </div>
+                   <p className="text-4xl text-zinc-400 mt-8 font-mono tracking-widest">{pubCode}</p>
+               </div>
+           </div>
+
         </div>
 
         {!isLeaderboardMode && (
