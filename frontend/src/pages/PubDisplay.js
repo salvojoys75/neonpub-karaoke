@@ -121,121 +121,127 @@ const KaraokeScreen = memo(({ performance, isVoting, voteResult }) => {
             )}
         </div>
     );
-}, (prevProps, nextProps) => {
+}, (prev, next) => {
     return (
-        prevProps.performance?.id === nextProps.performance?.id &&
-        prevProps.performance?.status === nextProps.performance?.status &&
-        prevProps.performance?.started_at === nextProps.performance?.started_at &&
-        prevProps.isVoting === nextProps.isVoting &&
-        prevProps.voteResult === nextProps.voteResult
+        prev.performance?.id === next.performance?.id &&
+        prev.performance?.status === next.performance?.status &&
+        prev.performance?.started_at === next.performance?.started_at &&
+        prev.isVoting === next.isVoting &&
+        prev.voteResult === next.voteResult
     );
 });
 
 KaraokeScreen.displayName = 'KaraokeScreen';
 
 // ===========================================
-// COMPONENTE: QUIZ SCREEN (LAYOUT CORRETTO)
+// COMPONENTE: QUIZ SCREEN (FIXED STRUCTURE)
 // ===========================================
 const QuizScreen = memo(({ quiz, quizResults, leaderboard }) => {
-    // 1. CLASSIFICA
-    if (quiz.status === 'leaderboard') {
-        return (
-            <div className="absolute inset-0 bg-zinc-900 z-50 flex flex-col p-8 overflow-hidden animate-fade-in">
-                <div className="text-center mb-6">
-                    <h1 className="text-6xl font-black text-yellow-500 uppercase drop-shadow-[0_0_15px_rgba(234,179,8,0.5)]">CLASSIFICA GENERALE</h1>
-                </div>
-                <div className="flex-1 overflow-y-auto grid grid-cols-2 gap-x-12 gap-y-4 px-12 content-start custom-scrollbar">
-                    {leaderboard.map((p, i) => (
-                        <div key={p.id} className={`flex items-center p-4 rounded-xl text-3xl font-bold transform transition-all ${i<3 ? 'scale-105 bg-gradient-to-r from-yellow-600/30 to-transparent border border-yellow-500/50' : 'bg-white/5'}`}>
-                            <span className={`w-16 h-16 flex items-center justify-center rounded-full mr-6 text-2xl border-4 ${i===0 ? 'bg-yellow-500 text-black border-yellow-300' : i===1 ? 'bg-zinc-400 text-black border-zinc-200' : i===2 ? 'bg-amber-700 text-white border-amber-500' : 'bg-zinc-800 text-zinc-500 border-zinc-600'}`}>
-                                {i+1}
-                            </span>
-                            <span className="flex-1 truncate text-white">{p.nickname}</span>
-                            <span className="text-yellow-400 font-mono">{p.score}</span>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        );
-    }
-
-    // 2. LOGICA VISUALIZZAZIONE "CINEMA MODE"
-    // Se è un video e sta suonando, la domanda sparisce.
-    const isCinemaMode = quiz.media_type === 'video' && quiz.media_state === 'playing' && !quizResults;
+    
+    // Stato: Leaderboard, Risultati o Domanda
+    const isLeaderboard = quiz.status === 'leaderboard';
+    const isResults = !!quizResults;
+    // Cinema mode: Se video playing e NON siamo in classifica o risultati, nascondi il testo
+    const isCinemaMode = quiz.media_type === 'video' && quiz.media_state === 'playing' && !isResults && !isLeaderboard;
 
     return (
         <div className="absolute inset-0 bg-black z-40 flex flex-col items-center justify-center overflow-hidden">
             
-            {/* LAYER 1: MEDIA (Sempre montato, gestito internamente per non riavviarsi) */}
-            <QuizMediaFixed 
-                mediaUrl={quiz.media_url} 
-                mediaType={quiz.media_type} 
-                isResult={!!quizResults} 
-                mediaState={quiz.media_state} 
-            />
+            {/* LAYER 0: MEDIA PLAYER (Sempre presente, mai smontato) */}
+            <div className="absolute inset-0 z-0">
+                <QuizMediaFixed 
+                    mediaUrl={quiz.media_url} 
+                    mediaType={quiz.media_type} 
+                    // Nascondi video (ma non smontare) se siamo in leaderboard o results
+                    isResult={isResults || isLeaderboard} 
+                    mediaState={quiz.media_state} 
+                />
+            </div>
 
-            {/* LAYER 2: CONTENUTO DOMANDA
-                Usa opacity/pointer-events invece di smontare il componente 
-                per evitare scatti del layout */}
-            <div className={`z-10 w-full max-w-6xl text-center transition-all duration-700 ease-in-out ${isCinemaMode ? 'opacity-0 translate-y-20 pointer-events-none' : 'opacity-100 translate-y-0'}`}>
+            {/* LAYER 1: CONTENT (Domanda o Classifica) */}
+            <div className={`absolute inset-0 z-10 w-full h-full transition-colors duration-500 ${isLeaderboard ? 'bg-zinc-900' : 'bg-transparent'}`}>
                 
-                {!quizResults ? (
-                    <div className="animate-zoom-in p-8">
-                        {/* Status Badge */}
-                        <div className="mb-8">
-                             <span className={`px-12 py-4 rounded-full text-4xl font-black uppercase tracking-widest shadow-[0_0_30px_rgba(217,70,239,0.6)] ${quiz.status === 'closed' ? 'bg-red-600 text-white' : 'bg-fuchsia-600 text-white animate-pulse'}`}>
-                                {quiz.status === 'closed' ? "STOP AL TELEVOTO!" : "QUIZ IN ONDA"}
-                             </span>
+                {/* A: CLASSIFICA */}
+                {isLeaderboard && (
+                    <div className="absolute inset-0 flex flex-col p-8 overflow-hidden animate-fade-in z-50">
+                        <div className="text-center mb-6">
+                            <h1 className="text-6xl font-black text-yellow-500 uppercase drop-shadow-[0_0_15px_rgba(234,179,8,0.5)]">CLASSIFICA GENERALE</h1>
                         </div>
-                        
-                        {/* Box Domanda con Sfondo Sfumato */}
-                        <div className="bg-black/70 backdrop-blur-md p-10 rounded-[3rem] border border-white/10 shadow-2xl">
-                            <h2 className="text-7xl font-black text-white mb-12 leading-tight drop-shadow-2xl">
-                                {quiz.question}
-                            </h2>
-                            <div className="grid grid-cols-2 gap-8">
-                                {quiz.options.map((opt, i) => (
-                                    <div key={i} className={`p-8 rounded-3xl text-5xl font-bold border-4 transition-all transform ${quiz.status === 'closed' ? 'border-zinc-700 text-zinc-500 bg-zinc-900/50' : 'border-white/20 bg-white/10 text-white shadow-xl'}`}>
-                                        <span className="text-fuchsia-500 mr-4">{String.fromCharCode(65+i)}.</span> {opt}
-                                    </div>
-                                ))}
-                            </div>
+                        <div className="flex-1 overflow-y-auto grid grid-cols-2 gap-x-12 gap-y-4 px-12 content-start custom-scrollbar">
+                            {leaderboard.map((p, i) => (
+                                <div key={p.id} className={`flex items-center p-4 rounded-xl text-3xl font-bold transform transition-all ${i<3 ? 'scale-105 bg-gradient-to-r from-yellow-600/30 to-transparent border border-yellow-500/50' : 'bg-white/5'}`}>
+                                    <span className={`w-16 h-16 flex items-center justify-center rounded-full mr-6 text-2xl border-4 ${i===0 ? 'bg-yellow-500 text-black border-yellow-300' : i===1 ? 'bg-zinc-400 text-black border-zinc-200' : i===2 ? 'bg-amber-700 text-white border-amber-500' : 'bg-zinc-800 text-zinc-500 border-zinc-600'}`}>
+                                        {i+1}
+                                    </span>
+                                    <span className="flex-1 truncate text-white">{p.nickname}</span>
+                                    <span className="text-yellow-400 font-mono">{p.score}</span>
+                                </div>
+                            ))}
                         </div>
                     </div>
-                ) : (
-                    <div className="animate-zoom-in p-8">
-                        {/* Risultati Quiz */}
-                        <div className="mb-8">
-                            <h1 className="text-6xl font-black text-yellow-500 uppercase mb-6 drop-shadow-[0_0_15px_rgba(234,179,8,0.5)]">RISULTATI</h1>
-                        </div>
-                        
-                        <div className="bg-black/70 backdrop-blur-md p-10 rounded-[3rem] border border-white/10 shadow-2xl">
-                            <h2 className="text-5xl font-black text-white mb-12 leading-tight">{quiz.question}</h2>
-                            
-                            <div className="grid grid-cols-2 gap-8 mb-12">
-                                {quiz.options.map((opt, i) => {
-                                    const isCorrect = i === quiz.correct_answer;
-                                    const votes = quizResults.find(r => r.answer === i)?.count || 0;
-                                    const totalVotes = quizResults.reduce((sum, r) => sum + r.count, 0);
-                                    const percentage = totalVotes > 0 ? Math.round((votes / totalVotes) * 100) : 0;
+                )}
+
+                {/* B: DOMANDA / RISULTATI */}
+                {!isLeaderboard && (
+                    <div className={`w-full h-full flex items-center justify-center transition-all duration-700 ease-in-out ${isCinemaMode ? 'opacity-0 translate-y-20 pointer-events-none' : 'opacity-100 translate-y-0'}`}>
+                        <div className="w-full max-w-6xl text-center p-8">
+                            {!isResults ? (
+                                <div className="animate-zoom-in">
+                                    <div className="mb-8">
+                                         <span className={`px-12 py-4 rounded-full text-4xl font-black uppercase tracking-widest shadow-[0_0_30px_rgba(217,70,239,0.6)] ${quiz.status === 'closed' ? 'bg-red-600 text-white' : 'bg-fuchsia-600 text-white animate-pulse'}`}>
+                                            {quiz.status === 'closed' ? "STOP AL TELEVOTO!" : "QUIZ IN ONDA"}
+                                         </span>
+                                    </div>
                                     
-                                    return (
-                                        <div key={i} className={`relative p-8 rounded-3xl text-4xl font-bold border-4 ${isCorrect ? 'border-green-500 bg-green-500/20' : 'border-zinc-700 bg-zinc-900/50'}`}>
-                                            <div className="flex items-center justify-between mb-4">
-                                                <div className="flex items-center gap-4">
-                                                    <span className={isCorrect ? 'text-green-400' : 'text-zinc-500'}>{String.fromCharCode(65+i)}.</span>
-                                                    <span className={isCorrect ? 'text-white' : 'text-zinc-500'}>{opt}</span>
+                                    <div className="bg-black/70 backdrop-blur-md p-10 rounded-[3rem] border border-white/10 shadow-2xl">
+                                        <h2 className="text-7xl font-black text-white mb-12 leading-tight drop-shadow-2xl">
+                                            {quiz.question}
+                                        </h2>
+                                        <div className="grid grid-cols-2 gap-8">
+                                            {quiz.options.map((opt, i) => (
+                                                <div key={i} className={`p-8 rounded-3xl text-5xl font-bold border-4 transition-all transform ${quiz.status === 'closed' ? 'border-zinc-700 text-zinc-500 bg-zinc-900/50' : 'border-white/20 bg-white/10 text-white shadow-xl'}`}>
+                                                    <span className="text-fuchsia-500 mr-4">{String.fromCharCode(65+i)}.</span> {opt}
                                                 </div>
-                                                {isCorrect && <span className="text-6xl">✓</span>}
-                                            </div>
-                                            <div className="flex items-center gap-4 text-3xl">
-                                                <span className={isCorrect ? 'text-green-400 font-mono' : 'text-zinc-400 font-mono'}>{percentage}%</span>
-                                                <span className={isCorrect ? 'text-green-300' : 'text-zinc-500'}>({votes} {votes === 1 ? 'voto' : 'voti'})</span>
-                                            </div>
+                                            ))}
                                         </div>
-                                    );
-                                })}
-                            </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="animate-zoom-in">
+                                    <div className="mb-8">
+                                        <h1 className="text-6xl font-black text-yellow-500 uppercase mb-6 drop-shadow-[0_0_15px_rgba(234,179,8,0.5)]">RISULTATI</h1>
+                                    </div>
+                                    
+                                    <div className="bg-black/70 backdrop-blur-md p-10 rounded-[3rem] border border-white/10 shadow-2xl">
+                                        <h2 className="text-5xl font-black text-white mb-12 leading-tight">{quiz.question}</h2>
+                                        
+                                        <div className="grid grid-cols-2 gap-8 mb-12">
+                                            {quiz.options.map((opt, i) => {
+                                                const isCorrect = i === quiz.correct_answer;
+                                                const votes = quizResults.find(r => r.answer === i)?.count || 0;
+                                                const totalVotes = quizResults.reduce((sum, r) => sum + r.count, 0);
+                                                const percentage = totalVotes > 0 ? Math.round((votes / totalVotes) * 100) : 0;
+                                                
+                                                return (
+                                                    <div key={i} className={`relative p-8 rounded-3xl text-4xl font-bold border-4 ${isCorrect ? 'border-green-500 bg-green-500/20' : 'border-zinc-700 bg-zinc-900/50'}`}>
+                                                        <div className="flex items-center justify-between mb-4">
+                                                            <div className="flex items-center gap-4">
+                                                                <span className={isCorrect ? 'text-green-400' : 'text-zinc-500'}>{String.fromCharCode(65+i)}.</span>
+                                                                <span className={isCorrect ? 'text-white' : 'text-zinc-500'}>{opt}</span>
+                                                            </div>
+                                                            {isCorrect && <span className="text-6xl">✓</span>}
+                                                        </div>
+                                                        <div className="flex items-center gap-4 text-3xl">
+                                                            <span className={isCorrect ? 'text-green-400 font-mono' : 'text-zinc-400 font-mono'}>{percentage}%</span>
+                                                            <span className={isCorrect ? 'text-green-300' : 'text-zinc-500'}>({votes} {votes === 1 ? 'voto' : 'voti'})</span>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -296,9 +302,9 @@ export default function PubDisplay() {
                     if (payload.payload.value) ytKaraoke.mute(); else ytKaraoke.unMute();
                 }
                 const ytQuiz = window.YT?.get && window.YT.get('quiz-fixed-player');
-                if (ytQuiz && typeof ytQuiz.mute === 'function') {
-                    if (payload.payload.value) ytQuiz.mute(); else ytQuiz.unMute();
-                }
+                // Nota: Per il quiz, essendo gestito da QuizMediaFixed, 
+                // l'evento potrebbe essere gestito internamente se necessario,
+                // ma per ora il focus è sul karaoke.
             }
         })
         .subscribe();
@@ -307,7 +313,6 @@ export default function PubDisplay() {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${displayData.pub.id}` }, 
             (payload) => {
                 setDisplayData(prev => ({ ...prev, current_performance: payload.new }));
-                // NON ricaricare tutto, solo se necessario per i voti
                 if (payload.new.status === 'voting' || payload.new.status === 'ended') {
                     loadDisplayData();
                 }
@@ -315,7 +320,6 @@ export default function PubDisplay() {
         )
         .on('postgres_changes', { event: '*', schema: 'public', table: 'song_requests', filter: `event_id=eq.${displayData.pub.id}` },
             async (payload) => {
-                // Aggiorna la coda in real-time per il ticker
                 const { data: queueData } = await supabase
                     .from('song_requests')
                     .select('*, participants(nickname)')
@@ -326,7 +330,6 @@ export default function PubDisplay() {
                 const queue = queueData?.map(q => ({...q, user_nickname: q.participants?.nickname})) || [];
                 setDisplayData(prev => ({ ...prev, queue }));
                 
-                // Aggiorna ticker
                 if (queue.length > 0) {
                     setTicker(queue.slice(0, 5).map((s, i) => `${i + 1}. ${s.title} (${s.user_nickname})`).join(' • '));
                 } else {
@@ -351,14 +354,12 @@ export default function PubDisplay() {
         )
         .on('postgres_changes', { event: '*', schema: 'public', table: 'participants', filter: `event_id=eq.${displayData.pub.id}` },
             async (payload) => {
-                // Aggiorna la leaderboard quando cambiano i punteggi
                 const { data: lbData } = await supabase
                     .from('participants')
                     .select('id, nickname, score')
                     .eq('event_id', displayData.pub.id)
                     .order('score', { ascending: false })
                     .limit(20);
-                
                 setDisplayData(prev => ({ ...prev, leaderboard: lbData || [] }));
             }
         )
@@ -366,16 +367,11 @@ export default function PubDisplay() {
             async (payload) => {
                 const updatedQuiz = payload.new;
                 
-                // OTTIMIZZAZIONE CRITICA: Aggiorna SOLO se i campi importanti sono cambiati
+                // OPTIMIZATION: Solo aggiornamenti reali
                 setDisplayData(prev => {
                     const current = prev.active_quiz;
+                    if (!current) return { ...prev, active_quiz: updatedQuiz };
                     
-                    // Se non c'è quiz attivo, aggiorna sempre
-                    if (!current) {
-                        return { ...prev, active_quiz: updatedQuiz };
-                    }
-                    
-                    // Confronta SOLO i campi che influenzano il rendering
                     const relevantFieldsChanged = (
                         current.status !== updatedQuiz.status ||
                         current.media_state !== updatedQuiz.media_state ||
@@ -383,13 +379,7 @@ export default function PubDisplay() {
                         current.question !== updatedQuiz.question
                     );
                     
-                    // Se nulla è cambiato nei campi rilevanti, NON aggiornare
-                    if (!relevantFieldsChanged) {
-                        console.log('[PubDisplay] Quiz update ignorato - nessun campo rilevante cambiato');
-                        return prev;
-                    }
-                    
-                    console.log('[PubDisplay] Quiz update applicato - campi rilevanti modificati');
+                    if (!relevantFieldsChanged) return prev;
                     return { ...prev, active_quiz: updatedQuiz };
                 });
                 
@@ -431,29 +421,31 @@ export default function PubDisplay() {
   const activeQuiz = displayData?.active_quiz;
   const joinUrl = `${window.location.origin}/join/${pubCode}`;
   
-  // 🔥 CALCOLA quali screen mostrare (senza creare elementi React)
-  const isLeaderboardMode = activeQuiz && activeQuiz.status === 'leaderboard';
+  // VISIBILITY LOGIC
   const showQuiz = activeQuiz && activeQuiz.status !== 'ended';
-  const showKaraoke = currentPerf && (currentPerf.status === 'live' || currentPerf.status === 'paused' || currentPerf.status === 'restarted' || currentPerf.status === 'voting' || voteResult);
+  const isLeaderboardMode = activeQuiz && activeQuiz.status === 'leaderboard';
+  const showKaraoke = !showQuiz && currentPerf && (currentPerf.status === 'live' || currentPerf.status === 'paused' || currentPerf.status === 'restarted' || currentPerf.status === 'voting' || voteResult);
   const showWaiting = !showQuiz && !showKaraoke;
 
   return (
     <div className="h-screen bg-black text-white overflow-hidden flex flex-col font-sans">
       
-      <div className="h-16 bg-zinc-900 flex items-center px-6 border-b border-zinc-800 z-50 relative shadow-xl">
+      {/* HEADER */}
+      <div className="h-16 bg-zinc-900 flex items-center px-6 border-b border-zinc-800 z-[100] relative shadow-xl">
          <div className="font-bold text-xl mr-8 text-fuchsia-500">{displayData?.pub?.name || "NEONPUB"}</div>
          <div className="flex-1 overflow-hidden relative h-full flex items-center">
             <div className="ticker-container w-full"><div className="ticker-content text-lg font-medium text-cyan-300">{ticker}</div></div>
          </div>
       </div>
 
+      {/* MAIN CONTENT AREA */}
       <div className="flex-1 flex overflow-hidden relative">
         <div className="flex-1 relative bg-black flex flex-col justify-center overflow-hidden">
            
-           {/* 🔥 QUIZ SCREEN - SEMPRE MONTATO, visibile/nascosto con CSS */}
+           {/* 1. QUIZ (Z-INDEX 50 when active) */}
            <div className={`absolute inset-0 transition-opacity duration-500 ${
                showQuiz 
-                   ? 'opacity-100 z-40 pointer-events-auto' 
+                   ? 'opacity-100 z-50 pointer-events-auto' 
                    : 'opacity-0 z-0 pointer-events-none'
            }`}>
                {activeQuiz && (
@@ -465,7 +457,7 @@ export default function PubDisplay() {
                )}
            </div>
 
-           {/* 🔥 KARAOKE SCREEN - SEMPRE MONTATO, visibile/nascosto con CSS */}
+           {/* 2. KARAOKE (Z-INDEX 40 when active) */}
            <div className={`absolute inset-0 transition-opacity duration-500 ${
                showKaraoke 
                    ? 'opacity-100 z-40 pointer-events-auto' 
@@ -480,10 +472,10 @@ export default function PubDisplay() {
                )}
            </div>
 
-           {/* 🔥 WAITING SCREEN - SEMPRE MONTATO, visibile/nascosto con CSS */}
+           {/* 3. WAITING (Z-INDEX 30 when active) */}
            <div className={`absolute inset-0 transition-opacity duration-500 ${
                showWaiting 
-                   ? 'opacity-100 z-40 pointer-events-auto' 
+                   ? 'opacity-100 z-30 pointer-events-auto' 
                    : 'opacity-0 z-0 pointer-events-none'
            }`}>
                <div className="flex flex-col items-center justify-center h-full bg-zinc-950 animate-fade-in relative">
@@ -497,8 +489,9 @@ export default function PubDisplay() {
 
         </div>
 
+        {/* SIDEBAR - Hide if Quiz Leaderboard is active (needs full width) */}
         {!isLeaderboardMode && (
-            <div className="w-[350px] bg-zinc-900/95 border-l border-zinc-800 flex flex-col z-30 shadow-2xl relative">
+            <div className="w-[350px] bg-zinc-900/95 border-l border-zinc-800 flex flex-col z-[60] shadow-2xl relative">
                 <div className="p-6 flex flex-col items-center bg-white/5 border-b border-white/10">
                     <div className="bg-white p-3 rounded-xl mb-3 shadow-lg transform hover:scale-105 transition"><QRCodeSVG value={joinUrl} size={150} /></div>
                     <p className="font-mono text-3xl font-bold text-cyan-400 tracking-widest drop-shadow">{pubCode}</p>
@@ -533,6 +526,7 @@ export default function PubDisplay() {
         )}
       </div>
 
+      {/* OVERLAYS */}
       <div className="reactions-overlay pointer-events-none fixed inset-0 z-[100] overflow-hidden">
         {floatingReactions.map(r => (
             <div key={r.id} className="absolute flex flex-col items-center animate-float-up" style={{ left: `${r.left}%`, bottom: '-50px' }}>
@@ -543,7 +537,7 @@ export default function PubDisplay() {
       </div>
 
       {flashMessages.length > 0 && (
-        <div className="fixed top-24 left-8 z-[110] w-2/3 max-w-4xl flex flex-col gap-4">
+        <div className="fixed top-24 left-8 z-[110] w-2/3 max-w-4xl flex flex-col gap-4 pointer-events-none">
           {flashMessages.map(msg => (
             <div key={msg.internalId} className="bg-black/90 backdrop-blur-xl border-l-8 border-cyan-500 text-white p-6 rounded-r-2xl shadow-2xl animate-slide-in-left flex items-start gap-6">
               <div className="bg-cyan-500/20 p-4 rounded-full"><MessageSquare className="w-10 h-10 text-cyan-400" /></div>
