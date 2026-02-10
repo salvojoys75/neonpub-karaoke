@@ -695,7 +695,25 @@ export const getDisplayData = async (pubCode) => {
     }
   }
 }
+export const controlQuizMedia = async (quizId, state) => {
+  // state può essere 'playing' o 'paused'
+  const { data, error } = await supabase
+    .from('quizzes')
+    .update({ media_state: state })
+    .eq('id', quizId)
+    .select()
+    .single();
+  
+  if (error) throw error;
+  return { data };
+}
 
+export const restartQuizMedia = async (quizId) => {
+  // Per riavviare, possiamo usare un trick: aggiorniamo media_state o un timestamp
+  // Qui forziamo 'playing' e aggiorniamo created_at (o un campo dummy) per forzare il refresh se necessario
+  // Ma per YouTube basta fare seekTo(0). Gestiamolo lato client col 'playing'.
+  return controlQuizMedia(quizId, 'playing'); 
+}
 export default {
   createPub, updateEventSettings, uploadLogo, getPub, joinPub, adminLogin, getMe,
   getAllProfiles, updateProfileCredits, createOperatorProfile, toggleUserStatus,
@@ -709,5 +727,7 @@ export default {
   getQuizResults, getAdminLeaderboard,
   getLeaderboard, getDisplayData,
   getActiveEventsForUser, // Sostituisce recoverActiveEvent
-  deleteQuizQuestion
+  deleteQuizQuestion,
+  controlQuizMedia,
+  restartQuizMedia
 }

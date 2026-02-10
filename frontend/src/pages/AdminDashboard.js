@@ -703,6 +703,42 @@ export default function AdminDashboard() {
                                             {activeQuizData?.question || "Caricamento..."}
                                         </div>
                                     </div>
+{/* --- INIZIO BLOCCO REGIA QUIZ --- */}
+<div className="bg-zinc-800 p-3 rounded-lg border border-zinc-700 mb-4">
+    <div className="text-[10px] text-zinc-400 uppercase mb-2 font-bold tracking-wider">Regia Audio/Video</div>
+    <div className="flex justify-center gap-4">
+        {/* Pulsante PLAY */}
+        <Button 
+            size="lg" 
+            variant={activeQuizData?.media_state === 'playing' ? 'default' : 'secondary'}
+            className={`rounded-full w-12 h-12 ${activeQuizData?.media_state === 'playing' ? 'bg-green-600 hover:bg-green-500' : 'bg-zinc-700'}`}
+            onClick={() => api.controlQuizMedia(activeQuizId, 'playing').then(loadData)}
+        >
+            <Play className="w-5 h-5 fill-current" />
+        </Button>
+
+        {/* Pulsante PAUSE */}
+        <Button 
+            size="lg" 
+            variant={activeQuizData?.media_state === 'paused' ? 'default' : 'secondary'}
+            className={`rounded-full w-12 h-12 ${activeQuizData?.media_state === 'paused' ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-zinc-700'}`}
+            onClick={() => api.controlQuizMedia(activeQuizId, 'paused').then(loadData)}
+        >
+            <Pause className="w-5 h-5 fill-current" />
+        </Button>
+
+         {/* Pulsante TOGGLE MUTE (Globale) */}
+        <Button 
+            size="lg" 
+            variant="outline" 
+            className={`rounded-full w-12 h-12 border-red-500/50 ${isMuted ? 'bg-red-500/20 text-red-500' : 'text-zinc-400'}`}
+            onClick={handleToggleMute}
+        >
+            {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+        </Button>
+    </div>
+</div>
+{/* --- FINE BLOCCO REGIA QUIZ --- */}
 
                                     <div className="grid grid-cols-1 gap-2">
                                         {quizStatus === 'active' && (
