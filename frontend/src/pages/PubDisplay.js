@@ -294,7 +294,33 @@ export default function PubDisplay() {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${displayData.pub.id}` }, 
             async (payload) => {
                 const updatedQuiz = payload.new;
-                setDisplayData(prev => ({ ...prev, active_quiz: updatedQuiz }));
+                
+                // OTTIMIZZAZIONE CRITICA: Aggiorna SOLO se i campi importanti sono cambiati
+                setDisplayData(prev => {
+                    const current = prev.active_quiz;
+                    
+                    // Se non c'è quiz attivo, aggiorna sempre
+                    if (!current) {
+                        return { ...prev, active_quiz: updatedQuiz };
+                    }
+                    
+                    // Confronta SOLO i campi che influenzano il rendering
+                    const relevantFieldsChanged = (
+                        current.status !== updatedQuiz.status ||
+                        current.media_state !== updatedQuiz.media_state ||
+                        current.media_url !== updatedQuiz.media_url ||
+                        current.question !== updatedQuiz.question
+                    );
+                    
+                    // Se nulla è cambiato nei campi rilevanti, NON aggiornare
+                    if (!relevantFieldsChanged) {
+                        console.log('[PubDisplay] Quiz update ignorato - nessun campo rilevante cambiato');
+                        return prev;
+                    }
+                    
+                    console.log('[PubDisplay] Quiz update applicato - campi rilevanti modificati');
+                    return { ...prev, active_quiz: updatedQuiz };
+                });
                 
                 if (updatedQuiz.status === 'active' || updatedQuiz.status === 'closed') { 
                     setQuizResults(null); 
