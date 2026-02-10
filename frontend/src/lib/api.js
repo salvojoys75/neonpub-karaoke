@@ -1,24 +1,12 @@
 import { supabase } from './supabase'
 
 // ============================================
-// HELPER FUNCTIONS
+// HELPER: Get Admin Event (già dovrebbe esistere)
 // ============================================
-
-function getParticipantFromToken() {
-  const token = localStorage.getItem('neonpub_token')
-  if (!token) throw new Error('Not authenticated')
-  try {
-    return JSON.parse(atob(token))
-  } catch {
-    throw new Error('Invalid token')
-  }
-}
-
 async function getAdminEvent() {
   const pubCode = localStorage.getItem('neonpub_pub_code')
   if (!pubCode) throw new Error('No event selected')
   
-  // Aggiunto controllo scadenza anche qui per sicurezza
   const { data, error } = await supabase
     .from('events')
     .select('*')
@@ -34,679 +22,597 @@ async function getAdminEvent() {
 }
 
 // ============================================
-// AUTH & EVENTS & STORAGE
+// CREDITI OPERATORE
 // ============================================
 
-export const createPub = async (data) => {
+export const getOperatorCredits = async () => {
   const { data: user } = await supabase.auth.getUser()
   if (!user?.user) throw new Error('Not authenticated')
 
-  // 1. Check Profile and Credits
-  const { data: profile } = await supabase.from('profiles').select('credits, is_active').eq('id', user.user.id).single();
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('credits, credit_expires_at')
+    .eq('id', user.user.id)
+    .single()
   
-  if (!profile || !profile.is_active) throw new Error("Utente disabilitato o non trovato.");
-  if (profile.credits < 1) throw new Error("Crediti insufficienti! Ricarica i crediti per creare un evento.");
-
-  // 2. Deduct Credit
-  const { error: creditError } = await supabase.from('profiles')
-    .update({ credits: profile.credits - 1 })
-    .eq('id', user.user.id);
+  if (error) throw error
   
-  if (creditError) throw new Error("Errore aggiornamento crediti");
+  return { 
+    credits: data.credits || 0,
+    expires_at: data.credit_expires_at 
+  }
+}
 
-  // 3. Create Event with Expiry (8 hours)
-  const code = Math.random().toString(36).substring(2, 8).toUpperCase()
-  const expiresAt = new Date();
-  expiresAt.setHours(expiresAt.getHours() + 8);
+export const getCreditHistory = async () => {
+  const { data: user } = await supabase.auth.getUser()
+  if (!user?.user) throw new Error('Not authenticated')
 
-  const { data: event, error } = await supabase
-    .from('events')
+  const { data, error } = await supabase
+    .from('credit_transactions')
+    .select('*')
+    .eq('operator_id', user.user.id)
+    .order('created_at', { ascending: false })
+    .limit(50)
+  
+  if (error) throw error
+  return data
+}
+
+export const purchaseCredits = async (packageType) => {
+  const { data: user } = await supabase.auth.getUser()
+  if (!user?.user) throw new Error('Not authenticated')
+
+  // Packages configuration
+  const packages = {
+    starter: { credits: 10, price: 29.00 },
+    pro: { credits: 50, price: 119.00 },
+    premium: { credits: 150, price: 299.00 },
+    unlimited: { credits: 999999, price: 799.00 }
+  }
+
+  const pkg = packages[packageType]
+  if (!pkg) throw new Error('Invalid package type')
+
+  // Crea record acquisto
+  const { data: purchase, error: purchaseError } = await supabase
+    .from('credit_purchases')
     .insert({
-      owner_id: user.user.id,
-      name: data.name,
-      code: code,
-      event_type: 'mixed',
-      status: 'active',
-      active_module: 'karaoke',
-      expires_at: expiresAt.toISOString() // Nuovo campo scadenza
+      operator_id: user.user.id,
+      package_type: packageType,
+      credits_amount: pkg.credits,
+      price_paid: pkg.price,
+      payment_status: 'pending'
     })
     .select()
     .single()
-
-  if (error) throw error
-  return { data: event }
-}
-
-export const getActiveEventsForUser = async () => {
-  const { data: user } = await supabase.auth.getUser();
-  if (!user?.user) return [];
-
-  const now = new Date().toISOString();
-
-  // Recupera eventi attivi e non scaduti
-  const { data, error } = await supabase
-    .from('events')
-    .select('*')
-    .eq('owner_id', user.user.id)
-    .eq('status', 'active')
-    .gt('expires_at', now) // Solo quelli che scadono nel futuro
-    .order('created_at', { ascending: false });
-
-  if (error) console.error("Error fetching active events:", error);
   
-  // Opzionale: Pulizia eventi scaduti "pigra" (potrebbe essere fatto da cronjob)
-  closeExpiredEvents(user.user.id);
+  if (purchaseError) throw purchaseError
 
-  return data || [];
-}
-
-const closeExpiredEvents = async (ownerId) => {
-    const now = new Date().toISOString();
-    await supabase.from('events')
-        .update({ status: 'ended' })
-        .eq('owner_id', ownerId)
-        .eq('status', 'active')
-        .lte('expires_at', now);
-}
-
-export const uploadLogo = async (file) => {
-  if (!file) throw new Error("Nessun file selezionato");
-  const fileExt = file.name.split('.').pop();
-  const cleanName = file.name.replace(/[^a-zA-Z0-9]/g, '_');
-  const fileName = `${Date.now()}_${cleanName}.${fileExt}`;
-  const { error: uploadError } = await supabase.storage.from('logos').upload(fileName, file, { upsert: true });
-  if (uploadError) throw uploadError;
-  const { data } = supabase.storage.from('logos').getPublicUrl(fileName);
-  return data.publicUrl;
-}
-
-export const updateEventSettings = async (data) => {
-  const event = await getAdminEvent();
-  const updatePayload = { name: data.name };
-  if (data.logo_url) updatePayload.logo_url = data.logo_url;
-  const { error } = await supabase.from('events').update(updatePayload).eq('id', event.id);
-  if (error) throw error;
-  return { data: 'ok' };
-}
-
-export const getPub = async (pubCode) => {
-  if (!pubCode) return { data: null };
-  const { data, error } = await supabase.from('events')
-      .select('*')
-      .eq('code', pubCode.toUpperCase())
-      .single();
-
-  if (error || !data) return { data: null };
+  // TODO: Integrazione con Stripe/PayPal
+  // Per ora: accredita direttamente (solo per sviluppo)
+  // In produzione, questo dovrebbe essere fatto via webhook dopo il pagamento
   
-  // Se l'evento è scaduto, lo consideriamo come null o ended per il frontend
-  if (data.status === 'ended' || (data.expires_at && new Date(data.expires_at) < new Date())) {
-      return { data: null, expired: true };
+  // TEMPORARY: Auto-complete per sviluppo
+  if (process.env.NODE_ENV === 'development') {
+    await completeCreditPurchase(purchase.id)
   }
 
+  return purchase
+}
+
+// Questa funzione dovrebbe essere chiamata dal webhook di pagamento
+export const completeCreditPurchase = async (purchaseId) => {
+  const { data: purchase, error: fetchError } = await supabase
+    .from('credit_purchases')
+    .select('*')
+    .eq('id', purchaseId)
+    .single()
+  
+  if (fetchError) throw fetchError
+
+  // Aggiorna stato acquisto
+  await supabase
+    .from('credit_purchases')
+    .update({ 
+      payment_status: 'completed',
+      completed_at: new Date().toISOString()
+    })
+    .eq('id', purchaseId)
+
+  // Aggiungi crediti al profilo
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('credits')
+    .eq('id', purchase.operator_id)
+    .single()
+
+  await supabase
+    .from('profiles')
+    .update({ credits: (profile.credits || 0) + purchase.credits_amount })
+    .eq('id', purchase.operator_id)
+
+  // Registra transazione
+  await supabase
+    .from('credit_transactions')
+    .insert({
+      operator_id: purchase.operator_id,
+      amount: purchase.credits_amount,
+      type: 'purchase',
+      description: `Acquisto pacchetto ${purchase.package_type}`,
+      metadata: { purchase_id: purchaseId }
+    })
+
+  return { success: true }
+}
+
+// ============================================
+// GESTIONE SESSIONE QUIZ
+// ============================================
+
+export const startQuizSession = async (questionsData, quizTitle = "Quiz") => {
+  const event = await getAdminEvent()
+  const { data: user } = await supabase.auth.getUser()
+  if (!user?.user) throw new Error('Not authenticated')
+
+  // Verifica crediti
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('credits')
+    .eq('id', user.user.id)
+    .single()
+
+  if (!profile || profile.credits < 1) {
+    throw new Error('INSUFFICIENT_CREDITS')
+  }
+
+  // Termina eventuali sessioni precedenti
+  await supabase
+    .from('quiz_sessions')
+    .update({ state: 'finished', ended_at: new Date().toISOString() })
+    .eq('pub_code', event.code)
+    .neq('state', 'finished')
+
+  // Crea nuova sessione
+  const { data: session, error } = await supabase
+    .from('quiz_sessions')
+    .insert({
+      pub_code: event.code,
+      operator_id: user.user.id,
+      event_id: event.id,
+      quiz_title: quizTitle,
+      state: 'idle',
+      current_question_index: 0,
+      total_questions: questionsData.length,
+      questions_data: questionsData
+    })
+    .select()
+    .single()
+  
+  if (error) throw error
+
+  // Aggiorna modulo evento
+  await supabase
+    .from('events')
+    .update({ active_module: 'quiz', active_module_id: session.id })
+    .eq('id', event.id)
+
+  return { data: session }
+}
+
+export const getActiveQuizSession = async () => {
+  const event = await getAdminEvent()
+
+  const { data, error } = await supabase
+    .from('quiz_sessions')
+    .select('*')
+    .eq('pub_code', event.code)
+    .neq('state', 'finished')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  
+  if (error) throw error
+  return data
+}
+
+// ============================================
+// TRANSIZIONI DI STATO
+// ============================================
+
+export const quizTransition = async (sessionId, action) => {
+  const { data: user } = await supabase.auth.getUser()
+  if (!user?.user) throw new Error('Not authenticated')
+
+  // Fetch sessione corrente
+  const { data: session, error: fetchError } = await supabase
+    .from('quiz_sessions')
+    .select('*')
+    .eq('id', sessionId)
+    .single()
+  
+  if (fetchError) throw fetchError
+
+  const currentState = session.state
+  let newState = currentState
+  let metadata = {}
+  let creditDeducted = false
+  let updates = {}
+
+  // Definisci transizioni valide
+  switch (action) {
+    case 'show_question':
+      if (currentState !== 'idle' && currentState !== 'leaderboard') {
+        throw new Error('Può mostrare domanda solo da idle o dopo leaderboard')
+      }
+      
+      // Verifica crediti e deduzione
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('credits')
+        .eq('id', user.user.id)
+        .single()
+      
+      if (profile.credits < 1) {
+        throw new Error('INSUFFICIENT_CREDITS')
+      }
+
+      // Deduce credito
+      await supabase
+        .from('profiles')
+        .update({ credits: profile.credits - 1 })
+        .eq('id', user.user.id)
+      
+      // Registra transazione
+      await supabase
+        .from('credit_transactions')
+        .insert({
+          operator_id: user.user.id,
+          amount: -1,
+          type: 'usage',
+          description: `Quiz: ${session.quiz_title} - Q${session.current_question_index + 1}`,
+          quiz_session_id: sessionId,
+          metadata: { question_index: session.current_question_index }
+        })
+      
+      creditDeducted = true
+      newState = 'question_shown'
+      updates.question_shown_at = new Date().toISOString()
+      break
+
+    case 'open_answers':
+      if (currentState !== 'question_shown') {
+        throw new Error('Può aprire risposte solo da question_shown')
+      }
+      newState = 'answers_open'
+      updates.answers_opened_at = new Date().toISOString()
+      break
+
+    case 'close_answers':
+      if (currentState !== 'answers_open') {
+        throw new Error('Può chiudere risposte solo da answers_open')
+      }
+      newState = 'answers_closed'
+      
+      // Conta risposte ricevute
+      const { count } = await supabase
+        .from('quiz_answers')
+        .select('id', { count: 'exact', head: true })
+        .eq('session_id', sessionId)
+        .eq('question_index', session.current_question_index)
+      
+      metadata.answers_received = count
+      break
+
+    case 'reveal_answer':
+      if (currentState !== 'answers_closed' && currentState !== 'answers_open') {
+        throw new Error('Può rivelare risposta solo da answers_closed')
+      }
+      newState = 'reveal_answer'
+      break
+
+    case 'show_results':
+      if (currentState !== 'reveal_answer') {
+        throw new Error('Può mostrare risultati solo da reveal_answer')
+      }
+      newState = 'show_results'
+      break
+
+    case 'show_leaderboard':
+      if (currentState !== 'show_results') {
+        throw new Error('Può mostrare classifica solo da show_results')
+      }
+      newState = 'leaderboard'
+      break
+
+    case 'next_question':
+      if (currentState !== 'leaderboard') {
+        throw new Error('Può andare a prossima domanda solo da leaderboard')
+      }
+      
+      const nextIndex = session.current_question_index + 1
+      if (nextIndex >= session.total_questions) {
+        throw new Error('Non ci sono più domande')
+      }
+      
+      newState = 'idle'
+      updates.current_question_index = nextIndex
+      break
+
+    case 'end_quiz':
+      newState = 'finished'
+      updates.ended_at = new Date().toISOString()
+      break
+
+    default:
+      throw new Error('Azione non valida')
+  }
+
+  // Aggiorna stato sessione
+  const { error: updateError } = await supabase
+    .from('quiz_sessions')
+    .update({ 
+      state: newState,
+      ...updates
+    })
+    .eq('id', sessionId)
+  
+  if (updateError) throw updateError
+
+  // Log transizione
+  await supabase
+    .from('quiz_state_log')
+    .insert({
+      session_id: sessionId,
+      from_state: currentState,
+      to_state: newState,
+      question_index: session.current_question_index,
+      triggered_by: user.user.id,
+      trigger_type: 'manual',
+      metadata
+    })
+
+  // Fetch sessione aggiornata
+  const { data: updatedSession } = await supabase
+    .from('quiz_sessions')
+    .select('*')
+    .eq('id', sessionId)
+    .single()
+
+  return { 
+    data: updatedSession,
+    credit_deducted: creditDeducted
+  }
+}
+
+// ============================================
+// PARTECIPANTI E RISPOSTE
+// ============================================
+
+export const joinQuizSession = async (sessionId) => {
+  const participant = JSON.parse(localStorage.getItem('neonpub_token'))
+  if (!participant) throw new Error('Not authenticated')
+
+  // Verifica se già iscritto
+  const { data: existing } = await supabase
+    .from('quiz_participants')
+    .select('id')
+    .eq('session_id', sessionId)
+    .eq('participant_id', participant.participant_id)
+    .maybeSingle()
+  
+  if (existing) {
+    return { data: existing }
+  }
+
+  // Crea partecipante
+  const { data, error } = await supabase
+    .from('quiz_participants')
+    .insert({
+      session_id: sessionId,
+      participant_id: participant.participant_id,
+      nickname: participant.nickname
+    })
+    .select()
+    .single()
+  
+  if (error) throw error
   return { data }
 }
 
-export const joinPub = async ({ pub_code, nickname }) => {
-  // Check validity
-  const { data: event, error: eventError } = await supabase.from('events').select('id, name, status, expires_at').eq('code', pub_code.toUpperCase()).single()
+export const submitQuizAnswer = async (sessionId, questionIndex, answerIndex, timeTaken) => {
+  const participant = JSON.parse(localStorage.getItem('neonpub_token'))
+  if (!participant) throw new Error('Not authenticated')
+
+  // Verifica stato sessione
+  const { data: session } = await supabase
+    .from('quiz_sessions')
+    .select('state, current_question_index, questions_data, time_per_question, points_base, points_speed_bonus')
+    .eq('id', sessionId)
+    .single()
   
-  if (eventError || !event) throw new Error("Evento non trovato");
-  if (event.status !== 'active' || (event.expires_at && new Date(event.expires_at) < new Date())) {
-      throw new Error("Evento scaduto o terminato");
+  if (session.state !== 'answers_open') {
+    throw new Error('ANSWERS_NOT_OPEN')
   }
 
-  const { data: participant, error } = await supabase.from('participants').insert({ event_id: event.id, nickname: nickname }).select().single()
-  if (error) { if (error.code === '23505') throw new Error('Nickname già in uso'); throw error }
-  const token = btoa(JSON.stringify({ participant_id: participant.id, event_id: event.id, nickname: nickname, pub_name: event.name }))
-  return { data: { token, user: { ...participant, pub_name: event.name } } }
-}
+  if (session.current_question_index !== questionIndex) {
+    throw new Error('WRONG_QUESTION_INDEX')
+  }
 
-export const adminLogin = async (data) => { return { data: { user: { email: data.email } } } }
-export const getMe = async () => { const { data: { user } } = await supabase.auth.getUser(); return { data: user } }
+  // Verifica timing
+  if (timeTaken > session.time_per_question) {
+    throw new Error('TIMEOUT_EXCEEDED')
+  }
 
-// === SUPER ADMIN ===
-export const getAllProfiles = async () => {
-    const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
-    if (error) throw error;
-    return { data };
-}
+  // Get quiz participant ID
+  const { data: quizParticipant } = await supabase
+    .from('quiz_participants')
+    .select('id')
+    .eq('session_id', sessionId)
+    .eq('participant_id', participant.participant_id)
+    .single()
+  
+  if (!quizParticipant) {
+    throw new Error('PARTICIPANT_NOT_FOUND')
+  }
 
-export const updateProfileCredits = async (id, credits) => {
-    const val = parseInt(credits, 10);
-    if (isNaN(val)) throw new Error("Invalid credit amount");
-    const { error } = await supabase.from('profiles').update({ credits: val }).eq('id', id);
-    if (error) throw error;
-    return { data: 'ok' };
-}
+  // Verifica risposta corretta
+  const question = session.questions_data[questionIndex]
+  const isCorrect = answerIndex === question.correct_index
 
-export const toggleUserStatus = async (id, isActive) => {
-    const { error } = await supabase.from('profiles').update({ is_active: isActive }).eq('id', id);
-    if (error) throw error;
-    return { data: 'ok' };
-}
+  // Calcola punti
+  let pointsEarned = 0
+  if (isCorrect) {
+    const speedBonus = Math.round(
+      session.points_speed_bonus * (1 - timeTaken / session.time_per_question)
+    )
+    pointsEarned = session.points_base + speedBonus
+  }
 
-export const createOperatorProfile = async (email, name, password, initialCredits) => {
-    // NOTA: Dal client non si possono creare utenti arbitrari senza logout.
-    // Metodo 1: Usare una Edge Function 'create-user'.
-    // Metodo 2: Usare RPC (se PostgreSQL ha i permessi).
-    // Metodo 3 (Fallback): Creare solo il record nel DB e dire all'admin di usare la Dashboard Supabase per Auth.
-    
-    try {
-        // Tentativo di chiamata a Edge Function (ipotetica)
-        const { data, error } = await supabase.functions.invoke('create-user', {
-            body: { email, password, name, credits: initialCredits }
-        });
-
-        if (error) {
-            console.warn("Edge function not found or error, falling back to profile stub. Please create user in Auth manually.");
-            // Fallback per prototipo: Simuliamo successo per la UI, ma avvisiamo in console
-            // In produzione, QUESTO NON CREA IL LOGIN REALE se non c'è il backend.
-            return { data: 'Simulation: User creation requested. Setup Backend logic.' };
-        }
-        return data;
-
-    } catch (e) {
-        // Se non ci sono edge functions configurate
-        return { data: 'Mock success' };
+  // Salva risposta (trigger aggiorna automaticamente le stats)
+  const { data: answer, error } = await supabase
+    .from('quiz_answers')
+    .insert({
+      session_id: sessionId,
+      quiz_participant_id: quizParticipant.id,
+      question_index: questionIndex,
+      answer_index: answerIndex,
+      is_correct: isCorrect,
+      time_taken: timeTaken,
+      points_earned: pointsEarned
+    })
+    .select()
+    .single()
+  
+  if (error) {
+    if (error.code === '23505') { // unique violation
+      throw new Error('ALREADY_ANSWERED')
     }
+    throw error
+  }
+
+  return { 
+    data: answer,
+    is_correct: isCorrect,
+    points_earned: pointsEarned
+  }
+}
+
+export const getQuizLeaderboard = async (sessionId) => {
+  const { data, error } = await supabase
+    .from('quiz_leaderboard')
+    .select('*')
+    .eq('session_id', sessionId)
+    .order('rank', { ascending: true })
+  
+  if (error) throw error
+  return data
+}
+
+export const getQuizLiveStats = async (sessionId, questionIndex) => {
+  const { data, error } = await supabase
+    .from('quiz_answers')
+    .select('answer_index, is_correct')
+    .eq('session_id', sessionId)
+    .eq('question_index', questionIndex)
+  
+  if (error) throw error
+
+  // Conta risposte per opzione
+  const distribution = { 0: 0, 1: 0, 2: 0, 3: 0 }
+  data.forEach(answer => {
+    distribution[answer.answer_index] = (distribution[answer.answer_index] || 0) + 1
+  })
+
+  return {
+    total_answers: data.length,
+    distribution,
+    correct_count: data.filter(a => a.is_correct).length
+  }
 }
 
 // ============================================
-// REGIA & STATO & CATALOGHI
+// CATALOGO QUIZ (mantieni funzioni esistenti)
 // ============================================
-
-export const getEventState = async () => {
-  const pubCode = localStorage.getItem('neonpub_pub_code');
-  if (!pubCode) return null;
-  const { data } = await supabase.from('events').select('active_module, active_module_id').eq('code', pubCode).maybeSingle();
-  return data;
-};
-
-export const setEventModule = async (moduleId, specificContentId = null) => {
-  const pubCode = localStorage.getItem('neonpub_pub_code');
-  const { data: event, error } = await supabase.from('events').update({ active_module: moduleId, active_module_id: specificContentId }).eq('code', pubCode).select().single();
-  if (error) throw error;
-  
-  if (moduleId === 'quiz' && specificContentId) {
-    const { data: catalogItem } = await supabase.from('quiz_catalog').select('*').eq('id', specificContentId).single();
-    if (catalogItem) {
-        await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
-        await supabase.from('quizzes').insert({
-          event_id: event.id, 
-          category: catalogItem.category, 
-          question: catalogItem.question, 
-          options: catalogItem.options,
-          correct_index: catalogItem.correct_index, 
-          points: catalogItem.points, 
-          status: 'active',
-          media_url: catalogItem.media_url || null,
-          media_type: catalogItem.media_type || 'text'
-        });
-    }
-  }
-};
 
 export const getQuizCatalog = async () => {
-  const { data: catalog, error } = await supabase
+  const event = await getAdminEvent()
+  const { data, error } = await supabase
     .from('quiz_catalog')
     .select('*')
-    .eq('is_active', true) 
-    .order('category');
-
-  if (error) throw error;
-
-  try {
-      const pubCode = localStorage.getItem('neonpub_pub_code');
-      if(pubCode) {
-          const { data: event } = await supabase.from('events').select('id').eq('code', pubCode).single();
-          if(event) {
-              const { data: usedQuizzes } = await supabase.from('quizzes')
-                  .select('question')
-                  .eq('event_id', event.id);
-              
-              if (usedQuizzes && usedQuizzes.length > 0) {
-                  const usedQuestionsSet = new Set(usedQuizzes.map(q => q.question));
-                  const filteredCatalog = catalog.filter(item => !usedQuestionsSet.has(item.question));
-                  return { data: filteredCatalog };
-              }
-          }
-      }
-  } catch (e) {
-      console.warn("Impossibile filtrare domande usate:", e);
-  }
-
-  return { data: catalog || [] };
-};
-
-export const deleteQuizQuestion = async (catalogId) => {
-    const { error } = await supabase
-        .from('quiz_catalog')
-        .update({ is_active: false })
-        .eq('id', catalogId);
-        
-    if (error) throw error;
-    return { data: 'ok' };
-}
-
-export const getChallengeCatalog = async () => {
-  const { data, error } = await supabase.from('challenge_catalog').select('*');
-  return { data: data || [] };
-};
-
-export const importQuizCatalog = async (jsonString) => {
-    try {
-        let items;
-        try { items = JSON.parse(jsonString); } catch (e) { throw new Error("JSON non valido."); }
-        if (!Array.isArray(items)) items = [items];
-        
-        const { data: existingQuestions } = await supabase.from('quiz_catalog').select('question');
-        const existingSet = new Set(existingQuestions?.map(q => q.question) || []);
-        
-        const newItems = items
-            .filter(item => item.question && item.options && !existingSet.has(item.question))
-            .map(item => ({
-                 category: item.category || 'Generale',
-                 question: item.question,
-                 options: item.options,
-                 correct_index: item.correct_index ?? 0,
-                 points: item.points || 10,
-                 media_url: item.media_url || null,
-                 media_type: item.media_type || 'text',
-                 is_active: true
-             }));
-
-        if (newItems.length === 0) {
-            return { success: true, count: 0, message: "Nessuna nuova domanda." };
-        }
-
-        const { error } = await supabase.from('quiz_catalog').insert(newItems);
-        if(error) throw error;
-        
-        return { success: true, count: newItems.length };
-    } catch (e) { throw new Error("Errore Importazione: " + e.message); }
-}
-
-// ============================================
-// SONG REQUESTS
-// ============================================
-
-export const requestSong = async (data) => {
-  const participant = getParticipantFromToken()
-  const { data: request, error } = await supabase.from('song_requests').insert({
-      event_id: participant.event_id, participant_id: participant.participant_id,
-      title: data.title, artist: data.artist, youtube_url: data.youtube_url, status: 'pending'
-    }).select().single()
+    .order('category', { ascending: true })
+  
   if (error) throw error
-  return { data: request }
-}
-
-export const getSongQueue = async () => {
-  const participant = getParticipantFromToken()
-  const { data, error } = await supabase.from('song_requests')
-    .select('*, participants (nickname)')
-    .eq('event_id', participant.event_id)
-    .eq('status', 'queued')
-    .order('position', { ascending: true })
-  if (error) throw error
-  return { data: (data || []).map(req => ({...req, user_nickname: req.participants?.nickname || 'Unknown'})) }
-}
-
-export const getMyRequests = async () => {
-  const participant = getParticipantFromToken()
-  const { data, error } = await supabase.from('song_requests').select('*').eq('participant_id', participant.participant_id).order('requested_at', { ascending: false })
-  if (error) throw error; return { data }
-}
-
-export const getAdminQueue = async () => {
-  const event = await getAdminEvent()
-  const { data, error } = await supabase.from('song_requests')
-    .select('*, participants (nickname)')
-    .eq('event_id', event.id)
-    .in('status', ['pending', 'queued']) 
-    .order('requested_at', { ascending: false })
-  if (error) throw error
-  return { data: (data || []).map(req => ({...req, user_nickname: req.participants?.nickname || 'Unknown'})) }
-}
-
-export const approveRequest = async (requestId) => {
-  const { data, error } = await supabase.from('song_requests').update({ status: 'queued' }).eq('id', requestId).select()
-  if (error) throw error; return { data }
-}
-
-export const rejectRequest = async (requestId) => {
-  const { data, error } = await supabase.from('song_requests').update({ status: 'rejected' }).eq('id', requestId).select()
-  if (error) throw error; return { data }
-}
-
-export const deleteRequest = async (requestId) => {
-    const { data, error } = await supabase.from('song_requests').update({ status: 'rejected' }).eq('id', requestId).select();
-    if (error) throw error;
-    return { data };
-}
-
-// ============================================
-// PERFORMANCES
-// ============================================
-
-export const startPerformance = async (requestId, youtubeUrl) => {
-  const { data: request } = await supabase.from('song_requests').select('*, participants(nickname)').eq('id', requestId).single()
-  await supabase.from('performances').update({ status: 'ended' }).eq('event_id', request.event_id).neq('status', 'ended');
-  await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', request.event_id).neq('status', 'ended');
-
-  const { data: performance, error } = await supabase.from('performances').insert({
-      event_id: request.event_id, song_request_id: request.id, participant_id: request.participant_id,
-      song_title: request.title, song_artist: request.artist, youtube_url: youtubeUrl || request.youtube_url, status: 'live',
-      average_score: 0 
-    }).select().single()
-  if (error) throw error
-  await supabase.from('song_requests').update({ status: 'performing' }).eq('id', requestId)
-  await supabase.from('events').update({ active_module: 'karaoke' }).eq('id', request.event_id);
-  return { data: performance }
-}
-
-export const endPerformance = async (performanceId) => {
-  const { data, error } = await supabase.from('performances').update({ status: 'voting', ended_at: new Date().toISOString() }).eq('id', performanceId).select().single();
-  if (error) throw error; 
   return { data }
 }
 
-export const closeVoting = async (performanceId) => {
-  const { data: perf } = await supabase.from('performances').select('*, participants(score)').eq('id', performanceId).single();
-  if (!perf) throw new Error("Performance not found");
-  const { data, error } = await supabase.from('performances').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', performanceId).select();
-  if (error) throw error;
-  if (perf.song_request_id) {
-      await supabase.from('song_requests').update({ status: 'ended' }).eq('id', perf.song_request_id);
-  }
-  if (perf.participant_id && perf.average_score > 0) {
-      const currentScore = perf.participants?.score || 0;
-      const newScore = currentScore + perf.average_score;
-      await supabase.from('participants').update({ score: newScore }).eq('id', perf.participant_id);
-  }
-  return { data }
-}
-
-export const stopAndNext = async (performanceId) => {
-    const { data: perf } = await supabase.from('performances').select('song_request_id').eq('id', performanceId).single();
-    if (perf?.song_request_id) {
-        await supabase.from('song_requests').update({ status: 'ended' }).eq('id', perf.song_request_id);
-    }
-    const { data, error } = await supabase.from('performances').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', performanceId).select()
-    if (error) throw error; 
-    return { data };
-}
-
-export const pausePerformance = async (performanceId) => {
-  const { data, error } = await supabase.from('performances').update({ status: 'paused' }).eq('id', performanceId).select()
-  if (error) throw error; return { data };
-}
-
-export const resumePerformance = async (performanceId) => {
-  const { data, error } = await supabase.from('performances').update({ status: 'live' }).eq('id', performanceId).select()
-  if (error) throw error; return { data };
-}
-
-export const restartPerformance = async (performanceId) => {
-  const { data, error } = await supabase.from('performances')
-      .update({ status: 'live', started_at: new Date().toISOString() })
-      .eq('id', performanceId).select();
-  if (error) throw error;
-  return { data };
-}
-
-export const toggleMute = async (isMuted) => {
-    const pubCode = localStorage.getItem('neonpub_pub_code');
-    const channel = supabase.channel(`display_control_${pubCode}`);
-    await channel.send({
-        type: 'broadcast',
-        event: 'control',
-        payload: { command: 'mute', value: isMuted }
-    });
-}
-
-export const getCurrentPerformance = async () => {
-  const participant = getParticipantFromToken()
-  const { data, error } = await supabase.from('performances')
-    .select('*, participants (nickname)')
-    .eq('event_id', participant.event_id)
-    .in('status', ['live', 'voting', 'paused']) 
-    .order('started_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  if (error) throw error
-  return { data: data ? { ...data, user_nickname: data.participants?.nickname || 'Unknown' } : null }
-}
-
-export const getAdminCurrentPerformance = async () => {
+export const addQuizToCatalog = async (quizData) => {
   const event = await getAdminEvent()
-  const { data, error } = await supabase.from('performances')
-    .select('*, participants (nickname)')
-    .eq('event_id', event.id)
-    .in('status', ['live', 'voting', 'paused']) 
-    .order('started_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  if (error) throw error
-  return { data: data ? { ...data, user_nickname: data.participants?.nickname || 'Unknown' } : null }
-}
+  const { data: user } = await supabase.auth.getUser()
+  if (!user?.user) throw new Error('Not authenticated')
 
-// ============================================
-// VOTING & MESSAGES
-// ============================================
-
-export const submitVote = async (data) => {
-  const participant = getParticipantFromToken();
-  const { data: vote, error } = await supabase.from('votes').insert({
-      performance_id: data.performance_id, participant_id: participant.participant_id, score: data.score
-    }).select().single();
-  if (error) { if (error.code === '23505') throw new Error('Hai già votato'); throw error; }
-  const { data: allVotes } = await supabase.from('votes').select('score').eq('performance_id', data.performance_id);
-  if (allVotes && allVotes.length > 0) {
-      const total = allVotes.reduce((acc, v) => acc + v.score, 0);
-      const avg = total / allVotes.length;
-      await supabase.from('performances').update({ average_score: avg }).eq('id', data.performance_id);
-  }
-  return { data: vote };
-}
-
-export const sendReaction = async (data) => {
-  const participant = getParticipantFromToken()
-  const { data: reaction, error } = await supabase.from('reactions').insert({
-      event_id: participant.event_id, participant_id: participant.participant_id, emoji: data.emoji, nickname: participant.nickname 
-    }).select().single()
-  if (error) throw error
-  return { data: reaction }
-}
-
-export const sendMessage = async (data) => {
-  let participantId = null;
-  let eventId = null;
-  let status = data.status || 'pending';
-
-  try {
-     const p = getParticipantFromToken(); 
-     participantId = p.participant_id;
-     eventId = p.event_id;
-  } catch (e) {
-     const pubCode = localStorage.getItem('neonpub_pub_code');
-     if(pubCode) {
-        const { data: event } = await supabase.from('events').select('id').eq('code', pubCode).single();
-        if(event) {
-           eventId = event.id;
-           status = 'approved'; 
-        }
-     }
-  }
-
-  if (!eventId) throw new Error("Errore contesto evento: ricarica la pagina");
-  
-  const text = typeof data === 'string' ? data : (data.text || data.message);
-  
-  const { data: message, error } = await supabase.from('messages').insert({
-      event_id: eventId, participant_id: participantId, text: text, status: status
-    }).select().single()
-
-  if (error) throw error
-  return { data: message }
-}
-
-export const getAdminPendingMessages = async () => {
-  const event = await getAdminEvent()
-  const { data, error } = await supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'pending')
-  if (error) throw error
-  return { data: data.map(m => ({...m, user_nickname: m.participants?.nickname})) }
-}
-
-export const approveMessage = async (id) => {
-  const { error } = await supabase.from('messages').update({status:'approved'}).eq('id', id);
-  if (error) throw error; return {data:'ok'}
-}
-
-export const rejectMessage = async (id) => {
-  const { error } = await supabase.from('messages').update({status:'rejected'}).eq('id', id);
-  if (error) throw error; return {data:'ok'}
-}
-
-// ============================================
-// QUIZ & DISPLAY DATA
-// ============================================
-
-export const startQuiz = async (data) => {
-  const event = await getAdminEvent()
-  
-  await supabase.from('performances').update({ status: 'ended' }).eq('event_id', event.id).in('status', ['live','paused']);
-  await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
-
-  const { data: quiz, error } = await supabase.from('quizzes').insert({
-    event_id: event.id, 
-    category: data.category, 
-    question: data.question, 
-    options: data.options, 
-    correct_index: data.correct_index, 
-    points: data.points, 
-    status: 'active',
-    media_url: data.media_url || null,
-    media_type: data.media_type || 'text'
-  }).select().single()
-  
-  if (error) throw error; 
-  await supabase.from('events').update({ active_module: 'quiz' }).eq('id', event.id);
-  return { data: quiz }
-}
-
-export const closeQuizVoting = async (quizId) => {
-  const { data, error } = await supabase.from('quizzes').update({ status: 'closed' }).eq('id', quizId).select()
-  if (error) throw error; return { data };
-}
-
-export const showQuizResults = async (quizId) => {
-  const { data, error } = await supabase.from('quizzes').update({ status: 'showing_results' }).eq('id', quizId).select().single()
-  if (error) throw error; return { data }
-}
-
-export const showQuizLeaderboard = async (quizId) => {
-    const { data, error } = await supabase.from('quizzes').update({ status: 'leaderboard' }).eq('id', quizId).select().single()
-    if (error) throw error; return { data }
-}
-
-export const endQuiz = async (id) => {
-  const { error } = await supabase.from('quizzes').update({status: 'ended', ended_at: new Date().toISOString()}).eq('id', id);
-  if (error) throw error; return { data: 'ok' }
-}
-
-export const getQuizResults = async (quizId) => {
-  const { data: quiz } = await supabase.from('quizzes').select('*').eq('id', quizId).single()
-  const { data: answers, error } = await supabase.from('quiz_answers').select('*, participants(nickname)').eq('quiz_id', quizId)
-  if (error) throw error
-  const correctAnswers = answers.filter(a => a.is_correct)
-  return {
-    data: {
-      quiz_id: quizId, question: quiz.question, correct_option: quiz.options[quiz.correct_index], correct_index: quiz.correct_index,
-      total_answers: answers.length, correct_count: correctAnswers.length, winners: correctAnswers.map(a => a.participants?.nickname || 'Unknown'), points: quiz.points
-    }
-  }
-}
-
-export const answerQuiz = async (data) => {
-  const participant = getParticipantFromToken()
-  const { data: quiz, error: quizError } = await supabase.from('quizzes').select('correct_index, points').eq('id', data.quiz_id).single();
-  if (quizError) throw quizError;
-  const isCorrect = quiz.correct_index === data.answer_index;
-  const pointsEarned = isCorrect ? quiz.points : 0;
-  const { data: ans, error } = await supabase.from('quiz_answers').insert({
-    quiz_id: data.quiz_id, participant_id: participant.participant_id, answer_index: data.answer_index, is_correct: isCorrect
-  }).select().single()
-  if (error) { if (error.code==='23505') throw new Error('Già risposto'); throw error; }
-  if (isCorrect) {
-      const { data: p } = await supabase.from('participants').select('score').eq('id', participant.participant_id).single();
-      if (p) {
-          await supabase.from('participants').update({ score: (p.score || 0) + pointsEarned }).eq('id', participant.participant_id);
-      }
-  }
-  return { data: { ...ans, points_earned: pointsEarned } }
-}
-
-export const getActiveQuiz = async () => {
-  try {
-      const participant = getParticipantFromToken()
-      const { data, error } = await supabase.from('quizzes').select('*').eq('event_id', participant.event_id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle()
-      if (error) throw error; return { data }
-  } catch (e) {
-      const event = await getAdminEvent();
-      const { data } = await supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle()
-      return { data };
-  }
-}
-
-export const getLeaderboard = async () => {
-  const participant = getParticipantFromToken()
-  const { data, error } = await supabase.from('participants').select('id, nickname, score').eq('event_id', participant.event_id).order('score', {ascending:false}).limit(20)
-  if (error) throw error; return { data }
-}
-
-export const getAdminLeaderboard = async () => {
-  const event = await getAdminEvent()
-  const { data, error } = await supabase.from('participants').select('id, nickname, score').eq('event_id', event.id).order('score', {ascending:false}).limit(20)
-  if (error) throw error; return { data }
-}
-
-export const getDisplayData = async (pubCode) => {
-  const { data: event } = await supabase.from('events').select('*').eq('code', pubCode.toUpperCase()).single()
-  
-  if (!event || event.status === 'ended' || (event.expires_at && new Date(event.expires_at) < new Date())) {
-      return { data: null };
-  }
-
-  const [perf, queue, lb, activeQuiz, msg] = await Promise.all([
-    supabase.from('performances').select('*, participants(nickname)').eq('event_id', event.id).in('status', ['live','voting','paused']).maybeSingle(),
-    supabase.from('song_requests').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'queued').limit(10), 
-    supabase.from('participants').select('nickname, score').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
-    supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
-    supabase.from('messages').select('*').eq('event_id', event.id).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle()
-  ])
-  return {
-    data: {
-      pub: event,
-      current_performance: perf.data ? {...perf.data, user_nickname: perf.data.participants?.nickname} : null,
-      queue: queue.data?.map(q => ({...q, user_nickname: q.participants?.nickname})),
-      leaderboard: lb.data,
-      active_quiz: activeQuiz.data,
-      latest_message: msg.data
-    }
-  }
-}
-export const controlQuizMedia = async (quizId, state) => {
-  // state può essere 'playing' o 'paused'
   const { data, error } = await supabase
-    .from('quizzes')
-    .update({ media_state: state })
-    .eq('id', quizId)
+    .from('quiz_catalog')
+    .insert({
+      category: quizData.category,
+      question: quizData.question,
+      options: quizData.options,
+      correct_index: quizData.correct_index,
+      media_url: quizData.media_url || null,
+      media_type: quizData.media_type || 'text',
+      created_by: user.user.id
+    })
     .select()
-    .single();
+    .single()
   
-  if (error) throw error;
-  return { data };
+  if (error) throw error
+  return { data }
 }
+
+export const deleteQuizQuestion = async (questionId) => {
+  const { error } = await supabase
+    .from('quiz_catalog')
+    .delete()
+    .eq('id', questionId)
+  
+  if (error) throw error
+  return { data: 'ok' }
+}
+
+export const importQuizCatalog = async (jsonText) => {
+  const { data: user } = await supabase.auth.getUser()
+  if (!user?.user) throw new Error('Not authenticated')
+
+  let questions
+  try {
+    questions = JSON.parse(jsonText)
+  } catch (e) {
+    throw new Error('JSON non valido')
+  }
+
+  if (!Array.isArray(questions)) {
+    throw new Error('Il JSON deve contenere un array di domande')
+  }
+
+  const toInsert = questions.map(q => ({
+    category: q.category || 'Generale',
+    question: q.question,
+    options: q.options,
+    correct_index: q.correct_index,
+    media_url: q.media_url || null,
+    media_type: q.media_type || 'text',
+    created_by: user.user.id
+  }))
+
+  const { data, error } = await supabase
+    .from('quiz_catalog')
+    .insert(toInsert)
+    .select()
+  
+  if (error) throw error
+  
+  return { count: data.length, data }
+}
+
 
 export const restartQuizMedia = async (quizId) => {
   // Per riavviare, possiamo usare un trick: aggiorniamo media_state o un timestamp
@@ -730,4 +636,27 @@ export default {
   deleteQuizQuestion,
   controlQuizMedia,
   restartQuizMedia
+}
+  // Crediti
+  getOperatorCredits,
+  getCreditHistory,
+  purchaseCredits,
+  completeCreditPurchase,
+  
+  // Sessioni Quiz
+  startQuizSession,
+  getActiveQuizSession,
+  quizTransition,
+  
+  // Partecipanti
+  joinQuizSession,
+  submitQuizAnswer,
+  getQuizLeaderboard,
+  getQuizLiveStats,
+  
+  // Catalogo
+  getQuizCatalog,
+  addQuizToCatalog,
+  deleteQuizQuestion,
+  importQuizCatalog
 }

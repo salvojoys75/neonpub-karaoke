@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import api, { createPub, updateEventSettings, uploadLogo } from "@/lib/api";
+import QuizAdminControl from "@/components/QuizAdminControl";
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -674,7 +675,27 @@ export default function AdminDashboard() {
                )}
 
                {libraryTab === 'quiz' && (
-                    <div className="flex flex-col h-full">
+  <div className="flex flex-col h-full">
+    {/* Import del nuovo componente */}
+    <QuizAdminControl 
+      operatorCredits={profile?.credits || 0}
+      onCreditsChange={() => checkUserProfile()}
+      onLoadData={loadData}
+    />
+    
+    {/* Divider */}
+    <div className="my-6 border-t border-zinc-800" />
+    
+    {/* Catalogo Quiz (mantieni il codice esistente) */}
+    <div className="flex-1 overflow-hidden">
+      <h3 className="text-xs font-bold text-zinc-500 uppercase mb-2">
+        Catalogo Quiz
+      </h3>
+      {/* ... il tuo catalogo esistente ... */}
+    </div>
+  </div>
+)}
+
                         <div className="grid grid-cols-2 gap-2 mb-4">
                             <Button className="bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-xs" onClick={()=>setShowCustomQuizModal(true)}>
                                 <Plus className="w-3 h-3 mr-1"/> Crea Manuale
