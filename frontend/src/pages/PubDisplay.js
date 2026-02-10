@@ -246,8 +246,9 @@ export default function PubDisplay() {
 
   useEffect(() => {
     loadDisplayData();
-    const interval = setInterval(loadDisplayData, 5000);
-    return () => clearInterval(interval);
+    // RIMOSSO IL POLLING CONTINUO - Usiamo solo Supabase Realtime
+    // const interval = setInterval(loadDisplayData, 5000);
+    // return () => clearInterval(interval);
   }, [loadDisplayData]);
 
   useEffect(() => {
@@ -273,7 +274,31 @@ export default function PubDisplay() {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${displayData.pub.id}` }, 
             (payload) => {
                 setDisplayData(prev => ({ ...prev, current_performance: payload.new }));
-                if (payload.new.status === 'voting' || payload.new.status === 'ended') loadDisplayData();
+                // NON ricaricare tutto, solo se necessario per i voti
+                if (payload.new.status === 'voting' || payload.new.status === 'ended') {
+                    loadDisplayData();
+                }
+            }
+        )
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'song_requests', filter: `event_id=eq.${displayData.pub.id}` },
+            async (payload) => {
+                // Aggiorna la coda in real-time per il ticker
+                const { data: queueData } = await supabase
+                    .from('song_requests')
+                    .select('*, participants(nickname)')
+                    .eq('event_id', displayData.pub.id)
+                    .eq('status', 'queued')
+                    .limit(10);
+                
+                const queue = queueData?.map(q => ({...q, user_nickname: q.participants?.nickname})) || [];
+                setDisplayData(prev => ({ ...prev, queue }));
+                
+                // Aggiorna ticker
+                if (queue.length > 0) {
+                    setTicker(queue.slice(0, 5).map((s, i) => `${i + 1}. ${s.title} (${s.user_nickname})`).join(' • '));
+                } else {
+                    setTicker("Inquadra il QR Code per cantare!");
+                }
             }
         )
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `event_id=eq.${displayData.pub.id}` }, 
@@ -289,6 +314,19 @@ export default function PubDisplay() {
                      }
                      showFlashMessage({ text: payload.new.text, nickname: nick });
                  }
+            }
+        )
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'participants', filter: `event_id=eq.${displayData.pub.id}` },
+            async (payload) => {
+                // Aggiorna la leaderboard quando cambiano i punteggi
+                const { data: lbData } = await supabase
+                    .from('participants')
+                    .select('id, nickname, score')
+                    .eq('event_id', displayData.pub.id)
+                    .order('score', { ascending: false })
+                    .limit(20);
+                
+                setDisplayData(prev => ({ ...prev, leaderboard: lbData || [] }));
             }
         )
         .on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${displayData.pub.id}` }, 
