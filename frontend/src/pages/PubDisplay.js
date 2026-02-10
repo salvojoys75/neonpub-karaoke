@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import QuizMediaFixed from "@/components/QuizMediaFixed";
 
 // ===========================================
-// UTILS & SUB-COMPONENTS
+// UTILS
 // ===========================================
 const getYoutubeId = (url) => {
     if (!url) return null;
@@ -16,19 +16,22 @@ const getYoutubeId = (url) => {
     return (match && match[2].length === 11) ? match[2] : null;
 };
 
-// --- KARAOKE SCREEN ---
-const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
+// ===========================================
+// KARAOKE LAYER (Z-INDEX 10)
+// ===========================================
+const KaraokeScreen = ({ performance, isVoting, voteResult, isVisible }) => {
     const playerRef = useRef(null);
     const prevStartedAt = useRef(performance?.started_at);
 
+    // Gestione Inizializzazione
     useEffect(() => {
-        if (!performance || isVoting || voteResult) return;
+        if (!isVisible || !performance) return; // Non caricare se non serve
+
         const videoId = getYoutubeId(performance.youtube_url);
         if (!videoId) return;
 
         const onPlayerReady = (event) => {
             if (performance.status === 'live') event.target.playVideo();
-            else if (performance.status === 'paused') event.target.pauseVideo();
         };
 
         if (!window.YT) {
@@ -36,34 +39,52 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
             tag.src = "https://www.youtube.com/iframe_api";
             const firstScriptTag = document.getElementsByTagName('script')[0];
             firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-            window.onYouTubeIframeAPIReady = () => createPlayer(videoId, onPlayerReady);
+            // Non sovrascrivere window.onYouTubeIframeAPIReady qui se c'è già QuizMediaFixed
+            // Usiamo un check ciclico per sicurezza
+            const checkYT = setInterval(() => {
+                if (window.YT && window.YT.Player) {
+                    createPlayer(videoId, onPlayerReady);
+                    clearInterval(checkYT);
+                }
+            }, 100);
         } else if (!playerRef.current) {
              createPlayer(videoId, onPlayerReady);
         } else {
+             // Update existing
              const currentVideoData = playerRef.current.getVideoData();
              if (currentVideoData && currentVideoData.video_id !== videoId) {
                  playerRef.current.loadVideoById(videoId);
              }
-             if (playerRef.current && typeof playerRef.current.playVideo === 'function') {
-                 if (performance.status === 'live') playerRef.current.playVideo();
-                 else if (performance.status === 'paused') playerRef.current.pauseVideo();
-                 
-                 if (performance.started_at !== prevStartedAt.current) {
-                      prevStartedAt.current = performance.started_at; 
-                      playerRef.current.seekTo(0);
-                      playerRef.current.playVideo();
-                 }
+             if (performance.status === 'live') playerRef.current.playVideo();
+             else if (performance.status === 'paused') playerRef.current.pauseVideo();
+             
+             if (performance.started_at !== prevStartedAt.current) {
+                  prevStartedAt.current = performance.started_at; 
+                  playerRef.current.seekTo(0);
+                  playerRef.current.playVideo();
              }
         }
-    }, [performance, isVoting, voteResult]);
+    }, [performance, isVoting, voteResult, isVisible]);
 
     const createPlayer = (videoId, onReady) => {
+        // Doppio check per evitare errori se il div non esiste
+        if(!document.getElementById('karaoke-player')) return;
+        
         playerRef.current = new window.YT.Player('karaoke-player', {
             videoId: videoId,
             playerVars: { autoplay: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, modestbranding: 1, rel: 0, showinfo: 0, origin: window.location.origin },
             events: { onReady: onReady }
         });
     };
+
+    // Se non visibile, stoppa tutto
+    useEffect(() => {
+        if(!isVisible && playerRef.current && typeof playerRef.current.stopVideo === 'function') {
+            playerRef.current.stopVideo();
+        }
+    }, [isVisible]);
+
+    if (!isVisible) return null; // Smonta completamente se non serve, per risparmiare risorse e evitare conflitti audio
 
     return (
         <div className="absolute inset-0 bg-black flex flex-col justify-center overflow-hidden z-20">
@@ -96,8 +117,12 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
     );
 };
 
-// --- QUIZ OVERLAY SCREEN ---
-const QuizOverlay = ({ quiz, quizResults, leaderboard }) => {
+// ===========================================
+// QUIZ OVERLAY TEXT (Z-INDEX 30)
+// ===========================================
+const QuizOverlay = ({ quiz, quizResults, leaderboard, isVisible }) => {
+    if (!isVisible) return null;
+
     if (quiz.status === 'leaderboard') {
         return (
             <div className="absolute inset-0 bg-zinc-900 z-50 flex flex-col p-8 overflow-hidden animate-fade-in">
@@ -114,10 +139,7 @@ const QuizOverlay = ({ quiz, quizResults, leaderboard }) => {
         );
     }
 
-    const hasVideo = quiz.media_type === 'video' || (quiz.media_url && quiz.media_url.includes('youtu'));
-    const isShowingResult = !!quizResults;
-
-    if (isShowingResult) {
+    if (quizResults) {
         return (
             <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-xl animate-fade-in">
                 <div className="bg-black/60 p-12 rounded-[3rem] border border-white/20 text-center max-w-5xl w-full shadow-2xl">
@@ -130,7 +152,10 @@ const QuizOverlay = ({ quiz, quizResults, leaderboard }) => {
         );
     }
 
-    if (hasVideo) {
+    // Se c'è un media, mostriamo il testo in overlay trasparente
+    const hasMedia = quiz.media_type === 'video' || (quiz.media_url && quiz.media_url.length > 5);
+
+    if (hasMedia) {
         return (
             <div className="absolute inset-0 z-30 flex flex-col justify-between pointer-events-none">
                 <div className="bg-black/80 backdrop-blur-md p-6 border-b border-white/10 animate-slide-down">
@@ -153,6 +178,7 @@ const QuizOverlay = ({ quiz, quizResults, leaderboard }) => {
         );
     }
 
+    // Se NON c'è media, sfondo colorato
     return (
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-center p-10 bg-gradient-to-b from-purple-900/90 to-black/90">
              <div className="w-full max-w-6xl text-center animate-zoom-in">
@@ -227,6 +253,7 @@ export default function PubDisplay() {
             async (payload) => {
                 const updatedQuiz = payload.new;
                 setDisplayData(prev => {
+                    // Evita re-render inutili se i dati sono identici
                     if (prev.active_quiz?.id === updatedQuiz.id && prev.active_quiz?.status === updatedQuiz.status) return prev;
                     return { ...prev, active_quiz: updatedQuiz };
                 });
@@ -267,31 +294,16 @@ export default function PubDisplay() {
       );
   }
 
-  // LOGICA CHIAVE PER RISOLVERE SOVRAPPOSIZIONE AUDIO
+  // --- LOGICA DI VISUALIZZAZIONE PRIORITARIA ---
   const activeQuiz = displayData?.active_quiz;
   const currentPerf = displayData?.current_performance;
   const joinUrl = `${window.location.origin}/join/${pubCode}`;
 
+  // Se c'è una performance karaoke ATTIVA (live/paused/voting/result)
   const isKaraokeActive = currentPerf && (currentPerf.status === 'live' || currentPerf.status === 'paused' || currentPerf.status === 'voting' || voteResult);
   
-  // Il quiz è visibile SOLO se NON c'è karaoke in corso E se lo stato non è 'ended'
+  // Il Quiz è visibile SOLO se il karaoke NON è attivo e il quiz stesso non è ended
   const isQuizVisible = activeQuiz && activeQuiz.status !== 'ended' && !isKaraokeActive;
-
-  let OverlayComponent = null;
-
-  if (isQuizVisible) {
-      OverlayComponent = <QuizOverlay quiz={activeQuiz} quizResults={quizResults} leaderboard={displayData?.leaderboard || []} />;
-  } else if (isKaraokeActive) {
-      OverlayComponent = <KaraokeScreen performance={currentPerf} isVoting={currentPerf.status === 'voting'} voteResult={voteResult} />;
-  } else {
-      OverlayComponent = (
-         <div className="flex flex-col items-center justify-center h-full z-10 bg-zinc-950 animate-fade-in relative">
-            <h2 className="text-7xl font-bold mb-8 text-white">PROSSIMO CANTANTE... TU?</h2>
-            <div className="bg-white p-6 rounded-3xl shadow-[0_0_50px_rgba(255,255,255,0.2)]"><QRCodeSVG value={joinUrl} size={300} /></div>
-            <p className="text-4xl text-zinc-400 mt-8 font-mono tracking-widest">{pubCode}</p>
-         </div>
-      );
-  }
 
   return (
     <div className="h-screen bg-black text-white overflow-hidden flex flex-col font-sans">
@@ -299,18 +311,36 @@ export default function PubDisplay() {
          <div className="font-bold text-xl mr-8 text-fuchsia-500">{displayData?.pub?.name || "NEONPUB"}</div>
          <div className="flex-1 overflow-hidden relative h-full flex items-center"><div className="ticker-container w-full"><div className="ticker-content text-lg font-medium text-cyan-300">{ticker}</div></div></div>
       </div>
+      
       <div className="flex-1 flex overflow-hidden relative">
         <div className="flex-1 relative bg-black flex flex-col justify-center overflow-hidden">
            
-           {/* BACKGROUND LAYER - VISIBILE SOLO SE IL QUIZ È ATTIVO E KARAOKE FERMO */}
-           <QuizMediaFixed mediaUrl={activeQuiz?.media_url} mediaType={activeQuiz?.media_type} isVisible={isQuizVisible}/>
+           {/* 1. QUIZ MEDIA LAYER (Sempre montato per stabilità, ma opaco solo se serve) */}
+           <QuizMediaFixed 
+                mediaUrl={activeQuiz?.media_url} 
+                mediaType={activeQuiz?.media_type} 
+                isVisible={isQuizVisible}
+           />
            
-           {/* FOREGROUND CONTENT */}
-           {OverlayComponent}
+           {/* 2. QUIZ TEXT LAYER (Sopra il media) */}
+           <QuizOverlay 
+                quiz={activeQuiz} 
+                quizResults={quizResults} 
+                leaderboard={displayData?.leaderboard || []} 
+                isVisible={isQuizVisible}
+           />
+
+           {/* 3. KARAOKE LAYER (Sopra tutto se attivo) */}
+           <KaraokeScreen 
+                performance={currentPerf} 
+                isVoting={currentPerf?.status === 'voting'} 
+                voteResult={voteResult}
+                isVisible={isKaraokeActive}
+           />
 
         </div>
         
-        {/* SIDEBAR */}
+        {/* SIDEBAR - Nascosta se c'è classifica full screen */}
         {!(activeQuiz && activeQuiz.status === 'leaderboard') && (
             <div className="w-[350px] bg-zinc-900/95 border-l border-zinc-800 flex flex-col z-30 shadow-2xl relative">
                 <div className="p-6 flex flex-col items-center bg-white/5 border-b border-white/10">
