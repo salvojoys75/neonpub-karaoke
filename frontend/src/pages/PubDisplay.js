@@ -252,66 +252,138 @@ QuizScreen.displayName = 'QuizScreen';
 export default function PubDisplay() {
   const { pubCode } = useParams();
   const [displayData, setDisplayData] = useState(null);
+  const [ticker, setTicker] = useState("");
+  
+  const [floatingReactions, setFloatingReactions] = useState([]);
+  const [flashMessages, setFlashMessages] = useState([]);
+  
   const [quizResults, setQuizResults] = useState(null);
   const [voteResult, setVoteResult] = useState(null);
-  const [ticker, setTicker] = useState("Benvenuti su NEONPUB! 🎤 Cantate, giocate, divertitevi!");
-  const [flashMessages, setFlashMessages] = useState([]);
-  const [floatingReactions, setFloatingReactions] = useState([]);
+
+  const loadDisplayData = useCallback(async () => {
+    try {
+      const { data } = await api.getDisplayData(pubCode);
+      setDisplayData(data);
+      
+      if (data.queue?.length > 0) {
+        setTicker(data.queue.slice(0, 5).map((s, i) => `${i + 1}. ${s.title} (${s.user_nickname})`).join(' • '));
+      } else {
+        setTicker("Inquadra il QR Code per cantare!");
+      }
+
+      if (data.current_performance?.status === 'ended' && !voteResult && data.current_performance.average_score > 0) {
+         setVoteResult(data.current_performance.average_score);
+         setTimeout(() => setVoteResult(null), 10000);
+      }
+    } catch (error) { console.error(error); }
+  }, [pubCode, voteResult]);
 
   useEffect(() => {
-    if (!pubCode) return;
+    loadDisplayData();
+    const interval = setInterval(loadDisplayData, 3000);
+    return () => clearInterval(interval);
+  }, [loadDisplayData]);
 
-    api.getPublicDisplayData(pubCode)
-      .then(res => setDisplayData(res.data))
-      .catch(err => console.error(err));
-
-    const channel = supabase
-        .channel(`public:pub_displays:pub_code=eq.${pubCode}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'pub_displays', filter: `pub_code=eq.${pubCode}` },
-            payload => {
-                setDisplayData(prev => {
-                    if (!prev) return prev;
-                    const updatedPub = payload.new;
-                    const relevantFieldsChanged = (
-                        prev.pub?.name !== updatedPub.name ||
-                        prev.pub?.ticker_text !== updatedPub.ticker_text ||
-                        prev.pub?.logo_url !== updatedPub.logo_url
-                    );
-                    if (!relevantFieldsChanged) return prev;
-                    
-                    return {
-                        ...prev,
-                        pub: {
-                            ...prev.pub,
-                            name: updatedPub.name,
-                            ticker_text: updatedPub.ticker_text,
-                            logo_url: updatedPub.logo_url
-                        }
-                    };
-                });
-                if (payload.new.ticker_text) setTicker(payload.new.ticker_text);
+  useEffect(() => {
+    if (!displayData?.pub?.id) return;
+    
+    // MUTE GLOBAL
+    const controlChannel = supabase.channel(`display_control_${pubCode}`)
+        .on('broadcast', { event: 'control' }, (payload) => {
+            if(payload.payload.command === 'mute') {
+                const ytKaraoke = window.YT?.get && window.YT.get('karaoke-player');
+                if (ytKaraoke && typeof ytKaraoke.mute === 'function') {
+                    if (payload.payload.value) ytKaraoke.mute(); else ytKaraoke.unMute();
+                }
+                const ytQuiz = window.YT?.get && window.YT.get('quiz-fixed-player');
+                if (ytQuiz && typeof ytQuiz.mute === 'function') {
+                    if (payload.payload.value) ytQuiz.mute(); else ytQuiz.unMute();
+                }
             }
-        )
+        })
         .subscribe();
 
-    const controlChannel = supabase
-        .channel(`public:quiz_sessions:pub_code=eq.${pubCode}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'quiz_sessions', filter: `pub_code=eq.${pubCode}` },
-            async payload => {
+    const channel = supabase.channel(`display_realtime`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${displayData.pub.id}` }, 
+            (payload) => {
+                setDisplayData(prev => ({ ...prev, current_performance: payload.new }));
+                // NON ricaricare tutto, solo se necessario per i voti
+                if (payload.new.status === 'voting' || payload.new.status === 'ended') {
+                    loadDisplayData();
+                }
+            }
+        )
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'song_requests', filter: `event_id=eq.${displayData.pub.id}` },
+            async (payload) => {
+                // Aggiorna la coda in real-time per il ticker
+                const { data: queueData } = await supabase
+                    .from('song_requests')
+                    .select('*, participants(nickname)')
+                    .eq('event_id', displayData.pub.id)
+                    .eq('status', 'queued')
+                    .limit(10);
+                
+                const queue = queueData?.map(q => ({...q, user_nickname: q.participants?.nickname})) || [];
+                setDisplayData(prev => ({ ...prev, queue }));
+                
+                // Aggiorna ticker
+                if (queue.length > 0) {
+                    setTicker(queue.slice(0, 5).map((s, i) => `${i + 1}. ${s.title} (${s.user_nickname})`).join(' • '));
+                } else {
+                    setTicker("Inquadra il QR Code per cantare!");
+                }
+            }
+        )
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `event_id=eq.${displayData.pub.id}` }, 
+            (payload) => addFloatingReaction(payload.new.emoji, payload.new.nickname)
+        )
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `event_id=eq.${displayData.pub.id}` }, 
+            async (payload) => {
+                 if(payload.new.status === 'approved') {
+                     let nick = "Regia";
+                     if(payload.new.participant_id) {
+                         const { data } = await supabase.from('participants').select('nickname').eq('id', payload.new.participant_id).single();
+                         if(data) nick = data.nickname;
+                     }
+                     showFlashMessage({ text: payload.new.text, nickname: nick });
+                 }
+            }
+        )
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'participants', filter: `event_id=eq.${displayData.pub.id}` },
+            async (payload) => {
+                // Aggiorna la leaderboard quando cambiano i punteggi
+                const { data: lbData } = await supabase
+                    .from('participants')
+                    .select('id, nickname, score')
+                    .eq('event_id', displayData.pub.id)
+                    .order('score', { ascending: false })
+                    .limit(20);
+                
+                setDisplayData(prev => ({ ...prev, leaderboard: lbData || [] }));
+            }
+        )
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${displayData.pub.id}` }, 
+            async (payload) => {
                 const updatedQuiz = payload.new;
                 
+                // OTTIMIZZAZIONE CRITICA: Aggiorna SOLO se i campi importanti sono cambiati
                 setDisplayData(prev => {
-                    if (!prev) return prev;
                     const current = prev.active_quiz;
                     
-                    const relevantFieldsChanged = !current || (
-                        current.id !== updatedQuiz.id ||
+                    // Se non c'è quiz attivo, aggiorna sempre
+                    if (!current) {
+                        return { ...prev, active_quiz: updatedQuiz };
+                    }
+                    
+                    // Confronta SOLO i campi che influenzano il rendering
+                    const relevantFieldsChanged = (
                         current.status !== updatedQuiz.status ||
                         current.media_state !== updatedQuiz.media_state ||
                         current.media_url !== updatedQuiz.media_url ||
                         current.question !== updatedQuiz.question
                     );
                     
+                    // Se nulla è cambiato nei campi rilevanti, NON aggiornare
                     if (!relevantFieldsChanged) {
                         console.log('[PubDisplay] Quiz update ignorato - nessun campo rilevante cambiato');
                         return prev;
@@ -340,7 +412,7 @@ export default function PubDisplay() {
         supabase.removeChannel(channel);
         supabase.removeChannel(controlChannel);
     }
-  }, [displayData?.pub?.id, pubCode]);
+  }, [displayData?.pub?.id, pubCode, loadDisplayData]);
 
   const showFlashMessage = (msg) => {
     const id = Date.now();
