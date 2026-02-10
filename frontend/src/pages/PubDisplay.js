@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, memo } from "react";
 import { useParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import { Mic2, Trophy, Star, MessageSquare } from "lucide-react";
@@ -19,7 +19,7 @@ const getYoutubeId = (url) => {
 // ===========================================
 // COMPONENTE: KARAOKE SCREEN
 // ===========================================
-const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
+const KaraokeScreen = memo(({ performance, isVoting, voteResult }) => {
     const playerRef = useRef(null);
     const prevStartedAt = useRef(performance?.started_at);
 
@@ -121,12 +121,22 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
             )}
         </div>
     );
-};
+}, (prevProps, nextProps) => {
+    return (
+        prevProps.performance?.id === nextProps.performance?.id &&
+        prevProps.performance?.status === nextProps.performance?.status &&
+        prevProps.performance?.started_at === nextProps.performance?.started_at &&
+        prevProps.isVoting === nextProps.isVoting &&
+        prevProps.voteResult === nextProps.voteResult
+    );
+});
+
+KaraokeScreen.displayName = 'KaraokeScreen';
 
 // ===========================================
 // COMPONENTE: QUIZ SCREEN (LAYOUT CORRETTO)
 // ===========================================
-const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
+const QuizScreen = memo(({ quiz, quizResults, leaderboard }) => {
     // 1. CLASSIFICA
     if (quiz.status === 'leaderboard') {
         return (
@@ -210,7 +220,30 @@ const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
             </div>
         </div>
     );
-}
+}, (prevProps, nextProps) => {
+    // Confronta SOLO i campi rilevanti per evitare re-render inutili
+    const quizEqual = (
+        prevProps.quiz?.id === nextProps.quiz?.id &&
+        prevProps.quiz?.status === nextProps.quiz?.status &&
+        prevProps.quiz?.media_state === nextProps.quiz?.media_state &&
+        prevProps.quiz?.media_url === nextProps.quiz?.media_url &&
+        prevProps.quiz?.question === nextProps.quiz?.question
+    );
+    
+    const resultsEqual = (
+        prevProps.quizResults?.quiz_id === nextProps.quizResults?.quiz_id &&
+        prevProps.quizResults?.correct_count === nextProps.quizResults?.correct_count
+    );
+    
+    const leaderboardEqual = (
+        prevProps.leaderboard?.length === nextProps.leaderboard?.length &&
+        prevProps.leaderboard?.[0]?.id === nextProps.leaderboard?.[0]?.id
+    );
+    
+    return quizEqual && resultsEqual && leaderboardEqual;
+});
+
+QuizScreen.displayName = 'QuizScreen';
 
 // ===========================================
 // MAIN COMPONENT: PUB DISPLAY
