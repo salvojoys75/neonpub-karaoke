@@ -1,414 +1,23 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
-import { Mic2, Trophy, Star, MessageSquare, CheckCircle2, XCircle } from "lucide-react";
+import { Mic2, Trophy, Star, MessageSquare } from "lucide-react";
 import api from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import QuizMediaFixed from "@/components/QuizMediaFixed";
 
 // ===========================================
-// QUIZ SCENES - PROFESSIONAL VERSION
+// UTILS
 // ===========================================
-
-const QuizQuestionScene = ({ session, question, participantsCount }) => {
-    const [timeLeft, setTimeLeft] = useState(30);
-    const [liveStats, setLiveStats] = useState(null);
-
-    useEffect(() => {
-        if (session.state !== 'answers_open') return;
-
-        // Countdown timer
-        const startTime = new Date(session.answers_opened_at).getTime();
-        const interval = setInterval(() => {
-            const elapsed = Math.floor((Date.now() - startTime) / 1000);
-            const remaining = Math.max(0, session.time_per_question - elapsed);
-            setTimeLeft(remaining);
-            
-            if (remaining === 0) {
-                clearInterval(interval);
-            }
-        }, 100);
-
-        return () => clearInterval(interval);
-    }, [session.state, session.answers_opened_at, session.time_per_question]);
-
-    useEffect(() => {
-        if (session.state !== 'answers_open') return;
-
-        // Poll live stats
-        const fetchStats = async () => {
-            try {
-                const stats = await api.getQuizLiveStats(session.id, session.current_question_index);
-                setLiveStats(stats);
-            } catch (e) {
-                console.error('Error fetching live stats:', e);
-            }
-        };
-
-        fetchStats();
-        const interval = setInterval(fetchStats, 2000);
-        return () => clearInterval(interval);
-    }, [session.state, session.id, session.current_question_index]);
-
-    const showAnswers = session.state === 'answers_open';
-    const answeredCount = liveStats?.total_answers || 0;
-
-    return (
-        <div className="absolute inset-0 flex flex-col">
-            {/* Media Background */}
-            <QuizMediaFixed 
-                mediaUrl={question.media_url}
-                mediaType={question.media_type}
-                state={session.state}
-                autoplay={true}
-                volume={100}
-            />
-
-            {/* Question Overlay */}
-            <div className="relative z-10 flex-1 flex flex-col p-12">
-                {/* Header */}
-                <div className="flex justify-between items-start mb-8">
-                    <div className="bg-fuchsia-600 px-6 py-3 rounded-full text-white font-bold text-2xl">
-                        DOMANDA {session.current_question_index + 1}/{session.total_questions}
-                    </div>
-                    {showAnswers && (
-                        <div className="bg-white/10 backdrop-blur-md px-6 py-3 rounded-full border-2 border-white/30">
-                            <div className="text-white text-3xl font-bold font-mono">
-                                {timeLeft}s
-                            </div>
-                        </div>
-                    )}
-                    {showAnswers && (
-                        <div className="bg-white/10 backdrop-blur-md px-6 py-3 rounded-full text-white text-xl">
-                            {answeredCount}/{participantsCount} risposte
-                        </div>
-                    )}
-                </div>
-
-                {/* Question Text */}
-                <div className="flex-1 flex items-center justify-center mb-8">
-                    <div className="bg-black/60 backdrop-blur-lg p-12 rounded-3xl border-2 border-white/20 max-w-6xl w-full animate-slide-down">
-                        <h2 className="text-6xl font-black text-white leading-tight text-center">
-                            {question.question}
-                        </h2>
-                    </div>
-                </div>
-
-                {/* Answer Options */}
-                {showAnswers && (
-                    <div className="grid grid-cols-2 gap-6">
-                        {question.options.map((opt, i) => {
-                            const letter = ['A', 'B', 'C', 'D'][i];
-                            const count = liveStats?.distribution?.[i] || 0;
-                            const percentage = liveStats ? Math.round((count / answeredCount) * 100) || 0 : 0;
-                            
-                            return (
-                                <div 
-                                    key={i}
-                                    className="relative bg-white/10 backdrop-blur-md border-2 border-white/30 rounded-2xl p-6 animate-pop-in"
-                                    style={{ animationDelay: `${i * 100}ms` }}
-                                >
-                                    <div className="flex items-center gap-4">
-                                        <div className="bg-fuchsia-600 text-white font-black text-4xl w-16 h-16 rounded-full flex items-center justify-center flex-shrink-0">
-                                            {letter}
-                                        </div>
-                                        <div className="flex-1 text-white text-3xl font-bold">
-                                            {opt}
-                                        </div>
-                                    </div>
-                                    {session.show_live_stats && answeredCount > 0 && (
-                                        <div className="mt-4 flex items-center gap-2">
-                                            <div className="flex-1 bg-white/20 rounded-full h-4 overflow-hidden">
-                                                <div 
-                                                    className="bg-fuchsia-500 h-full transition-all duration-500"
-                                                    style={{ width: `${percentage}%` }}
-                                                />
-                                            </div>
-                                            <span className="text-white font-bold text-xl w-16 text-right">
-                                                {percentage}%
-                                            </span>
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
-
-                {/* Waiting Message */}
-                {!showAnswers && (
-                    <div className="text-center">
-                        <div className="bg-yellow-500/20 text-yellow-500 px-8 py-4 rounded-full text-3xl font-bold inline-block animate-pulse">
-                            Prepara la risposta...
-                        </div>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-};
-
-const QuizRevealScene = ({ session, question }) => {
-    const correctOption = question.options[question.correct_index];
-    const correctLetter = ['A', 'B', 'C', 'D'][question.correct_index];
-
-    return (
-        <div className="absolute inset-0 flex items-center justify-center">
-            {/* Dimmed Media Background */}
-            <QuizMediaFixed 
-                mediaUrl={question.media_url}
-                mediaType={question.media_type}
-                state="reveal_answer"
-                autoplay={false}
-                volume={0}
-            />
-
-            {/* Reveal Content */}
-            <div className="relative z-10 w-full max-w-5xl px-12 animate-zoom-in">
-                <div className="bg-gradient-to-b from-green-600 to-green-800 p-12 rounded-[3rem] border-4 border-green-400 shadow-[0_0_60px_rgba(34,197,94,0.6)]">
-                    {/* Checkmark Icon */}
-                    <div className="flex justify-center mb-8">
-                        <CheckCircle2 className="w-32 h-32 text-white animate-bounce" />
-                    </div>
-
-                    {/* Title */}
-                    <h2 className="text-5xl font-black text-white text-center mb-8 uppercase tracking-wider">
-                        Risposta Corretta
-                    </h2>
-
-                    {/* Correct Answer */}
-                    <div className="bg-white/20 backdrop-blur-md rounded-3xl p-8 border-2 border-white/40">
-                        <div className="flex items-center justify-center gap-6">
-                            <div className="bg-white text-green-800 font-black text-6xl w-24 h-24 rounded-full flex items-center justify-center">
-                                {correctLetter}
-                            </div>
-                            <div className="text-white text-5xl font-bold flex-1 text-center">
-                                {correctOption}
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Confetti Effect Placeholder */}
-                    <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                        {[...Array(20)].map((_, i) => (
-                            <div
-                                key={i}
-                                className="absolute w-4 h-4 bg-yellow-400 animate-confetti"
-                                style={{
-                                    left: `${Math.random() * 100}%`,
-                                    animationDelay: `${Math.random() * 0.5}s`,
-                                    animationDuration: `${2 + Math.random()}s`
-                                }}
-                            />
-                        ))}
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const QuizResultsScene = ({ session, question, stats }) => {
-    const total = stats.total_answers || 0;
-    const correctCount = stats.correct_count || 0;
-    const correctPercentage = total > 0 ? Math.round((correctCount / total) * 100) : 0;
-
-    return (
-        <div className="absolute inset-0 bg-gradient-to-b from-zinc-900 to-black flex flex-col p-12 animate-fade-in">
-            {/* Title */}
-            <div className="text-center mb-8">
-                <h1 className="text-6xl font-black text-white uppercase">
-                    Statistiche Risposte
-                </h1>
-                <p className="text-3xl text-zinc-400 mt-4">
-                    {total} partecipanti hanno risposto
-                </p>
-            </div>
-
-            {/* Answer Breakdown */}
-            <div className="flex-1 flex flex-col justify-center max-w-6xl mx-auto w-full space-y-6">
-                {question.options.map((opt, i) => {
-                    const count = stats.distribution?.[i] || 0;
-                    const percentage = total > 0 ? Math.round((count / total) * 100) : 0;
-                    const isCorrect = i === question.correct_index;
-                    const letter = ['A', 'B', 'C', 'D'][i];
-
-                    return (
-                        <div 
-                            key={i}
-                            className={`relative overflow-hidden rounded-3xl p-6 border-4 transition-all animate-slide-in ${
-                                isCorrect 
-                                    ? 'bg-green-600/20 border-green-500' 
-                                    : 'bg-white/5 border-white/10'
-                            }`}
-                            style={{ animationDelay: `${i * 100}ms` }}
-                        >
-                            <div className="relative z-10 flex items-center gap-6">
-                                {/* Letter */}
-                                <div className={`font-black text-5xl w-20 h-20 rounded-full flex items-center justify-center flex-shrink-0 ${
-                                    isCorrect 
-                                        ? 'bg-green-500 text-white' 
-                                        : 'bg-white/10 text-white'
-                                }`}>
-                                    {letter}
-                                </div>
-
-                                {/* Option Text */}
-                                <div className="flex-1">
-                                    <div className="text-white text-3xl font-bold mb-2">
-                                        {opt}
-                                        {isCorrect && (
-                                            <CheckCircle2 className="inline-block ml-4 w-8 h-8 text-green-400" />
-                                        )}
-                                    </div>
-                                    <div className="flex items-center gap-4">
-                                        <div className="flex-1 bg-white/10 rounded-full h-6 overflow-hidden">
-                                            <div 
-                                                className={`h-full transition-all duration-1000 ${
-                                                    isCorrect ? 'bg-green-500' : 'bg-zinc-600'
-                                                }`}
-                                                style={{ width: `${percentage}%` }}
-                                            />
-                                        </div>
-                                        <span className="text-white font-bold text-2xl w-20 text-right">
-                                            {percentage}%
-                                        </span>
-                                        <span className="text-zinc-400 text-xl w-24 text-right">
-                                            {count} voti
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    );
-                })}
-            </div>
-
-            {/* Summary */}
-            <div className="text-center mt-8">
-                <div className="inline-flex items-center gap-8 bg-white/10 backdrop-blur-md px-12 py-6 rounded-full">
-                    <div className="flex items-center gap-3">
-                        <CheckCircle2 className="w-10 h-10 text-green-500" />
-                        <span className="text-white text-3xl font-bold">
-                            {correctCount} corrette ({correctPercentage}%)
-                        </span>
-                    </div>
-                    <div className="w-px h-12 bg-white/20" />
-                    <div className="flex items-center gap-3">
-                        <XCircle className="w-10 h-10 text-red-500" />
-                        <span className="text-white text-3xl font-bold">
-                            {total - correctCount} sbagliate ({100 - correctPercentage}%)
-                        </span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const QuizLeaderboardScene = ({ leaderboard }) => {
-    const topThree = leaderboard.slice(0, 3);
-    const rest = leaderboard.slice(3);
-
-    return (
-        <div className="absolute inset-0 bg-gradient-to-b from-yellow-900 to-black flex flex-col p-12 animate-fade-in">
-            {/* Title */}
-            <div className="text-center mb-12">
-                <div className="flex items-center justify-center gap-4 mb-4">
-                    <Trophy className="w-20 h-20 text-yellow-500 animate-bounce" />
-                    <h1 className="text-7xl font-black text-yellow-500 uppercase drop-shadow-[0_0_20px_rgba(234,179,8,0.8)]">
-                        Classifica
-                    </h1>
-                    <Trophy className="w-20 h-20 text-yellow-500 animate-bounce" />
-                </div>
-            </div>
-
-            {/* Podium */}
-            {topThree.length > 0 && (
-                <div className="flex items-end justify-center gap-8 mb-12">
-                    {/* 2nd Place */}
-                    {topThree[1] && (
-                        <div className="flex flex-col items-center animate-rise" style={{ animationDelay: '200ms' }}>
-                            <div className="text-6xl mb-2">🥈</div>
-                            <div className="bg-zinc-400 text-black font-black text-3xl w-24 h-24 rounded-full flex items-center justify-center mb-2 border-4 border-zinc-200">
-                                2
-                            </div>
-                            <div className="text-white text-2xl font-bold mb-2 text-center max-w-xs truncate">
-                                {topThree[1].nickname}
-                            </div>
-                            <div className="text-yellow-400 text-3xl font-mono font-bold">
-                                {topThree[1].score}
-                            </div>
-                            <div className="bg-zinc-400 w-32 rounded-t-2xl" style={{ height: '140px' }} />
-                        </div>
-                    )}
-
-                    {/* 1st Place */}
-                    {topThree[0] && (
-                        <div className="flex flex-col items-center animate-rise" style={{ animationDelay: '0ms' }}>
-                            <div className="text-8xl mb-2">🥇</div>
-                            <div className="bg-yellow-500 text-black font-black text-4xl w-32 h-32 rounded-full flex items-center justify-center mb-2 border-4 border-yellow-300 shadow-[0_0_40px_rgba(234,179,8,0.6)]">
-                                1
-                            </div>
-                            <div className="text-white text-3xl font-bold mb-2 text-center max-w-xs truncate">
-                                {topThree[0].nickname}
-                            </div>
-                            <div className="text-yellow-400 text-4xl font-mono font-bold">
-                                {topThree[0].score}
-                            </div>
-                            <div className="bg-yellow-500 w-40 rounded-t-2xl" style={{ height: '180px' }} />
-                        </div>
-                    )}
-
-                    {/* 3rd Place */}
-                    {topThree[2] && (
-                        <div className="flex flex-col items-center animate-rise" style={{ animationDelay: '400ms' }}>
-                            <div className="text-6xl mb-2">🥉</div>
-                            <div className="bg-amber-700 text-white font-black text-3xl w-24 h-24 rounded-full flex items-center justify-center mb-2 border-4 border-amber-500">
-                                3
-                            </div>
-                            <div className="text-white text-2xl font-bold mb-2 text-center max-w-xs truncate">
-                                {topThree[2].nickname}
-                            </div>
-                            <div className="text-yellow-400 text-3xl font-mono font-bold">
-                                {topThree[2].score}
-                            </div>
-                            <div className="bg-amber-700 w-32 rounded-t-2xl" style={{ height: '120px' }} />
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {/* Rest of Leaderboard */}
-            {rest.length > 0 && (
-                <div className="flex-1 overflow-y-auto px-12">
-                    <div className="grid grid-cols-2 gap-4">
-                        {rest.map((player, i) => (
-                            <div 
-                                key={player.id}
-                                className="flex items-center bg-white/5 p-4 rounded-xl animate-fade-in"
-                                style={{ animationDelay: `${(i + 3) * 50}ms` }}
-                            >
-                                <span className="w-12 h-12 flex items-center justify-center bg-zinc-800 text-zinc-400 rounded-full mr-4 text-xl font-bold border-2 border-zinc-600">
-                                    {i + 4}
-                                </span>
-                                <span className="flex-1 text-white text-2xl font-medium truncate">
-                                    {player.nickname}
-                                </span>
-                                <span className="text-yellow-400 text-2xl font-mono font-bold">
-                                    {player.score}
-                                </span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-        </div>
-    );
+const getYoutubeId = (url) => {
+    if (!url) return null;
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? match[2] : null;
 };
 
 // ===========================================
-// KARAOKE SCREEN (mantieni esistente)
+// COMPONENTE: KARAOKE SCREEN
 // ===========================================
 const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
     const playerRef = useRef(null);
@@ -416,7 +25,7 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
 
     useEffect(() => {
         if (!performance || isVoting || voteResult) return;
-        const videoId = performance.youtube_url?.match(/(?:youtu\.be\/|v=)([^&#?]*)/)?.[1];
+        const videoId = getYoutubeId(performance.youtube_url);
         if (!videoId) return;
 
         const onPlayerReady = (event) => {
@@ -515,7 +124,75 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
 };
 
 // ===========================================
-// MAIN COMPONENT
+// COMPONENTE: QUIZ SCREEN
+// ===========================================
+const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
+    if (quiz.status === 'leaderboard') {
+        return (
+            <div className="absolute inset-0 bg-zinc-900 z-50 flex flex-col p-8 overflow-hidden animate-fade-in">
+                <div className="text-center mb-6">
+                    <h1 className="text-6xl font-black text-yellow-500 uppercase drop-shadow-[0_0_15px_rgba(234,179,8,0.5)]">CLASSIFICA GENERALE</h1>
+                </div>
+                <div className="flex-1 overflow-y-auto grid grid-cols-2 gap-x-12 gap-y-4 px-12 content-start custom-scrollbar">
+                    {leaderboard.map((p, i) => (
+                        <div key={p.id} className={`flex items-center p-4 rounded-xl text-3xl font-bold transform transition-all ${i<3 ? 'scale-105 bg-gradient-to-r from-yellow-600/30 to-transparent border border-yellow-500/50' : 'bg-white/5'}`}>
+                            <span className={`w-16 h-16 flex items-center justify-center rounded-full mr-6 text-2xl border-4 ${i===0 ? 'bg-yellow-500 text-black border-yellow-300' : i===1 ? 'bg-zinc-400 text-black border-zinc-200' : i===2 ? 'bg-amber-700 text-white border-amber-500' : 'bg-zinc-800 text-zinc-500 border-zinc-600'}`}>
+                                {i+1}
+                            </span>
+                            <span className="flex-1 truncate text-white">{p.nickname}</span>
+                            <span className="text-yellow-400 font-mono">{p.score}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="absolute inset-0 bg-gradient-to-b from-purple-900 to-black z-40 flex flex-col items-center justify-center p-10">
+            <QuizMediaFixed mediaUrl={quiz.media_url} mediaType={quiz.media_type} isResult={!!quizResults} />
+
+            <div className="z-10 w-full max-w-6xl text-center">
+                {!quizResults ? (
+                    <div className="animate-zoom-in">
+                        <div className="mb-8">
+                             <span className={`px-12 py-4 rounded-full text-4xl font-black uppercase tracking-widest shadow-[0_0_30px_rgba(217,70,239,0.6)] ${quiz.status === 'closed' ? 'bg-red-600 text-white' : 'bg-fuchsia-600 text-white animate-pulse'}`}>
+                                {quiz.status === 'closed' ? "STOP AL TELEVOTO!" : "QUIZ IN ONDA"}
+                             </span>
+                        </div>
+                        <h2 className="text-7xl font-black text-white mb-16 leading-tight drop-shadow-2xl bg-black/40 p-6 rounded-3xl backdrop-blur-sm border border-white/10">
+                            {quiz.question}
+                        </h2>
+                        <div className="grid grid-cols-2 gap-8">
+                            {quiz.options.map((opt, i) => (
+                                <div key={i} className={`p-8 rounded-3xl text-5xl font-bold border-4 transition-all transform ${quiz.status === 'closed' ? 'border-zinc-700 text-zinc-500 bg-black/60' : 'border-white/20 bg-white/10 text-white shadow-xl'}`}>
+                                    <span className="text-fuchsia-500 mr-4">{String.fromCharCode(65+i)}.</span> {opt}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ) : (
+                    <div className="animate-zoom-in bg-black/60 backdrop-blur-md p-12 rounded-[3rem] border border-white/20">
+                        <Trophy className="w-40 h-40 text-yellow-400 mx-auto mb-8 animate-bounce" />
+                        <h2 className="text-6xl font-black text-white mb-6">RISPOSTA ESATTA</h2>
+                        <div className="bg-green-600 text-white px-16 py-8 rounded-3xl mb-12 transform scale-110">
+                            <p className="text-7xl font-bold">{quizResults.correct_option}</p>
+                        </div>
+                        <div className="text-center">
+                            <p className="text-2xl text-green-300 uppercase tracking-widest mb-4">I Più Veloci</p>
+                            <p className="text-4xl text-white font-medium max-w-5xl leading-relaxed">
+                                {quizResults.winners.length > 0 ? quizResults.winners.slice(0, 5).join(' • ') : "Nessuno ha indovinato!"}
+                            </p>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// ===========================================
+// MAIN COMPONENT: PUB DISPLAY
 // ===========================================
 export default function PubDisplay() {
   const { pubCode } = useParams();
@@ -525,280 +202,228 @@ export default function PubDisplay() {
   const [floatingReactions, setFloatingReactions] = useState([]);
   const [flashMessages, setFlashMessages] = useState([]);
   
+  const [quizResults, setQuizResults] = useState(null);
   const [voteResult, setVoteResult] = useState(null);
-  
-  // Quiz state
-  const [quizSession, setQuizSession] = useState(null);
-  const [quizLeaderboard, setQuizLeaderboard] = useState([]);
-  const [quizStats, setQuizStats] = useState(null);
-  const [participantsCount, setParticipantsCount] = useState(0);
 
   const loadDisplayData = useCallback(async () => {
     try {
       const { data } = await api.getDisplayData(pubCode);
       setDisplayData(data);
       
-      // Ticker management
       if (data.queue?.length > 0) {
         setTicker(data.queue.slice(0, 5).map((s, i) => `${i + 1}. ${s.title} (${s.user_nickname})`).join(' • '));
       } else {
         setTicker("Inquadra il QR Code per cantare!");
       }
 
-      // Vote result management
       if (data.current_performance?.status === 'ended' && !voteResult && data.current_performance.average_score > 0) {
          setVoteResult(data.current_performance.average_score);
          setTimeout(() => setVoteResult(null), 10000);
       }
-
-      // Quiz session management
-      if (data.active_module === 'quiz' && data.active_module_id) {
-        loadQuizData(data.active_module_id);
-      } else {
-        setQuizSession(null);
-      }
-    } catch (error) { 
-      console.error('Error loading display data:', error); 
-    }
+    } catch (error) { console.error(error); }
   }, [pubCode, voteResult]);
-
-  const loadQuizData = async (sessionId) => {
-    try {
-      // Load session
-      const session = await api.getActiveQuizSession();
-      if (session) {
-        setQuizSession(session);
-
-        // Load leaderboard if in leaderboard state
-        if (session.state === 'leaderboard') {
-          const leaderboard = await api.getQuizLeaderboard(session.id);
-          setQuizLeaderboard(leaderboard || []);
-        }
-
-        // Load stats if in show_results state
-        if (session.state === 'show_results') {
-          const stats = await api.getQuizLiveStats(session.id, session.current_question_index);
-          setQuizStats(stats);
-        }
-
-        // Count participants
-        const { data: participants } = await supabase
-          .from('quiz_participants')
-          .select('id', { count: 'exact', head: true })
-          .eq('session_id', session.id);
-        setParticipantsCount(participants || 0);
-      }
-    } catch (error) {
-      console.error('Error loading quiz data:', error);
-    }
-  };
 
   useEffect(() => {
     loadDisplayData();
-    const interval = setInterval(loadDisplayData, 3000);
+    const interval = setInterval(loadDisplayData, 5000);
     return () => clearInterval(interval);
   }, [loadDisplayData]);
 
-  // Realtime subscriptions
   useEffect(() => {
     if (!displayData?.pub?.id) return;
     
-    // Control channel
+    // MUTE GLOBAL
     const controlChannel = supabase.channel(`display_control_${pubCode}`)
         .on('broadcast', { event: 'control' }, (payload) => {
             if(payload.payload.command === 'mute') {
-                const ytKaraoke = window.YT?.get?.('karaoke-player');
-                const ytQuiz = window.YT?.get?.('quiz-media-player');
-                
+                const ytKaraoke = window.YT?.get && window.YT.get('karaoke-player');
                 if (ytKaraoke && typeof ytKaraoke.mute === 'function') {
-                    payload.payload.value ? ytKaraoke.mute() : ytKaraoke.unMute();
+                    if (payload.payload.value) ytKaraoke.mute(); else ytKaraoke.unMute();
                 }
+                const ytQuiz = window.YT?.get && window.YT.get('quiz-fixed-player');
                 if (ytQuiz && typeof ytQuiz.mute === 'function') {
-                    payload.payload.value ? ytQuiz.mute() : ytQuiz.unMute();
+                    if (payload.payload.value) ytQuiz.mute(); else ytQuiz.unMute();
                 }
             }
         })
         .subscribe();
 
-    // Reactions channel
-    const reactionsChannel = supabase.channel(`pub_reactions_${displayData.pub.id}`)
+    const channel = supabase.channel(`display_realtime`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${displayData.pub.id}` }, 
+            (payload) => {
+                setDisplayData(prev => ({ ...prev, current_performance: payload.new }));
+                if (payload.new.status === 'voting' || payload.new.status === 'ended') loadDisplayData();
+            }
+        )
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `event_id=eq.${displayData.pub.id}` }, 
-            (payload) => {
-                const newReaction = { id: Date.now(), emoji: payload.new.emoji, x: Math.random() * 90 + 5, y: 100 };
-                setFloatingReactions(prev => [...prev, newReaction]);
-                setTimeout(() => setFloatingReactions(prev => prev.filter(r => r.id !== newReaction.id)), 4000);
-            })
-        .subscribe();
-
-    // Messages channel
-    const messagesChannel = supabase.channel(`pub_messages_${displayData.pub.id}`)
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `event_id=eq.${displayData.pub.id}` }, 
-            (payload) => {
-                if (payload.new.status === 'approved' && payload.old.status === 'pending') {
-                    const newFlash = { id: Date.now(), text: payload.new.text };
-                    setFlashMessages(prev => [...prev, newFlash]);
-                    setTimeout(() => setFlashMessages(prev => prev.filter(m => m.id !== newFlash.id)), 10000);
+            (payload) => addFloatingReaction(payload.new.emoji, payload.new.nickname)
+        )
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `event_id=eq.${displayData.pub.id}` }, 
+            async (payload) => {
+                 if(payload.new.status === 'approved') {
+                     let nick = "Regia";
+                     if(payload.new.participant_id) {
+                         const { data } = await supabase.from('participants').select('nickname').eq('id', payload.new.participant_id).single();
+                         if(data) nick = data.nickname;
+                     }
+                     showFlashMessage({ text: payload.new.text, nickname: nick });
+                 }
+            }
+        )
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${displayData.pub.id}` }, 
+            async (payload) => {
+                const updatedQuiz = payload.new;
+                setDisplayData(prev => ({ ...prev, active_quiz: updatedQuiz }));
+                
+                if (updatedQuiz.status === 'active' || updatedQuiz.status === 'closed') { 
+                    setQuizResults(null); 
+                } else if (updatedQuiz.status === 'showing_results') {
+                    const res = await api.getQuizResults(updatedQuiz.id); 
+                    setQuizResults(res.data);
+                } else if (updatedQuiz.status === 'ended') {
+                    setTimeout(() => { 
+                        setDisplayData(prev => ({ ...prev, active_quiz: null })); 
+                        setQuizResults(null); 
+                    }, 5000);
                 }
-            })
-        .subscribe();
-
-    // Quiz state changes
-    const quizChannel = supabase.channel(`quiz_state_${pubCode}`)
-        .on('postgres_changes', { 
-            event: 'UPDATE', 
-            schema: 'public', 
-            table: 'quiz_sessions',
-            filter: `pub_code=eq.${pubCode}`
-        }, () => {
-            loadDisplayData();
-        })
+            }
+        )
         .subscribe();
 
     return () => {
-      controlChannel.unsubscribe();
-      reactionsChannel.unsubscribe();
-      messagesChannel.unsubscribe();
-      quizChannel.unsubscribe();
-    };
-  }, [displayData?.pub?.id, pubCode, loadDisplayData]);
-
-  if (!displayData) {
-    return <div className="h-screen bg-black flex items-center justify-center text-white text-2xl">Caricamento...</div>;
-  }
-
-  const { pub, active_module, current_performance } = displayData;
-  const isVoting = current_performance?.status === 'ended' && !voteResult;
-
-  // Determine which scene to show
-  let mainContent = null;
-
-  if (quizSession && active_module === 'quiz') {
-    const currentQuestion = quizSession.questions_data[quizSession.current_question_index];
-
-    switch (quizSession.state) {
-      case 'idle':
-        mainContent = (
-          <div className="absolute inset-0 bg-gradient-to-br from-purple-900 to-black flex items-center justify-center">
-            <div className="text-center animate-pulse">
-              <h1 className="text-8xl font-black text-fuchsia-500 mb-4">QUIZ</h1>
-              <p className="text-4xl text-white">Preparati...</p>
-            </div>
-          </div>
-        );
-        break;
-
-      case 'question_shown':
-      case 'answers_open':
-      case 'answers_closed':
-        mainContent = (
-          <QuizQuestionScene 
-            session={quizSession}
-            question={currentQuestion}
-            participantsCount={participantsCount}
-          />
-        );
-        break;
-
-      case 'reveal_answer':
-        mainContent = (
-          <QuizRevealScene 
-            session={quizSession}
-            question={currentQuestion}
-          />
-        );
-        break;
-
-      case 'show_results':
-        mainContent = (
-          <QuizResultsScene 
-            session={quizSession}
-            question={currentQuestion}
-            stats={quizStats || {}}
-          />
-        );
-        break;
-
-      case 'leaderboard':
-        mainContent = (
-          <QuizLeaderboardScene 
-            leaderboard={quizLeaderboard}
-          />
-        );
-        break;
-
-      case 'finished':
-        mainContent = (
-          <div className="absolute inset-0 bg-gradient-to-br from-yellow-900 to-black flex flex-col items-center justify-center">
-            <Trophy className="w-48 h-48 text-yellow-500 mb-8 animate-bounce" />
-            <h1 className="text-8xl font-black text-yellow-500 mb-4">QUIZ TERMINATO!</h1>
-            <p className="text-4xl text-white">Grazie a tutti i partecipanti</p>
-          </div>
-        );
-        break;
-
-      default:
-        mainContent = (
-          <div className="absolute inset-0 bg-black flex items-center justify-center">
-            <p className="text-4xl text-white">Stato sconosciuto: {quizSession.state}</p>
-          </div>
-        );
+        supabase.removeChannel(channel);
+        supabase.removeChannel(controlChannel);
     }
-  } else if (current_performance) {
-    mainContent = (
-      <KaraokeScreen 
-        performance={current_performance}
-        isVoting={isVoting}
-        voteResult={voteResult}
-      />
-    );
+  }, [displayData?.pub?.id, pubCode]);
+
+  const showFlashMessage = (msg) => {
+    const id = Date.now();
+    setFlashMessages(prev => [...prev, { ...msg, internalId: id }]);
+    setTimeout(() => setFlashMessages(prev => prev.filter(m => m.internalId !== id)), 10000);
+  };
+
+  const addFloatingReaction = (emoji, nickname) => {
+    const id = Date.now() + Math.random();
+    const left = Math.random() * 80 + 10;
+    setFloatingReactions(prev => [...prev, { id, emoji, nickname, left }]);
+    setTimeout(() => setFloatingReactions(prev => prev.filter(r => r.id !== id)), 4000);
+  };
+
+  const currentPerf = displayData?.current_performance;
+  const activeQuiz = displayData?.active_quiz;
+  const joinUrl = `${window.location.origin}/join/${pubCode}`;
+  
+  let ScreenComponent = null;
+  const isLeaderboardMode = activeQuiz && activeQuiz.status === 'leaderboard';
+
+  if (activeQuiz && activeQuiz.status !== 'ended') {
+      ScreenComponent = <QuizScreen quiz={activeQuiz} quizResults={quizResults} leaderboard={displayData?.leaderboard || []} />;
+  } else if (currentPerf && (currentPerf.status === 'live' || currentPerf.status === 'paused' || currentPerf.status === 'restarted' || currentPerf.status === 'voting' || voteResult)) {
+      ScreenComponent = <KaraokeScreen performance={currentPerf} isVoting={currentPerf.status === 'voting'} voteResult={voteResult} />;
   } else {
-    // Idle screen
-    mainContent = (
-      <div className="absolute inset-0 bg-gradient-to-br from-purple-900 to-black flex flex-col items-center justify-center p-12">
-        <div className="max-w-4xl w-full bg-black/40 backdrop-blur-lg p-12 rounded-3xl border-2 border-fuchsia-500/30">
-          <h1 className="text-7xl font-black text-center mb-8 text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-500 to-purple-600">
-            {pub.name || "KARAOKE NIGHT"}
-          </h1>
-          <div className="flex justify-center mb-12">
-            <QRCodeSVG value={`${window.location.origin}/join/${pub.code}`} size={300} bgColor="white" fgColor="black" level="H" />
-          </div>
-          <p className="text-4xl text-center text-white font-bold">
-            Inquadra il QR per partecipare!
-          </p>
-        </div>
-      </div>
-    );
+      ScreenComponent = (
+         <div className="flex flex-col items-center justify-center h-full z-10 bg-zinc-950 animate-fade-in relative">
+            <h2 className="text-7xl font-bold mb-8 text-white">PROSSIMO CANTANTE... TU?</h2>
+            <div className="bg-white p-6 rounded-3xl shadow-[0_0_50px_rgba(255,255,255,0.2)]">
+                <QRCodeSVG value={joinUrl} size={300} />
+            </div>
+            <p className="text-4xl text-zinc-400 mt-8 font-mono tracking-widest">{pubCode}</p>
+         </div>
+      );
   }
 
   return (
-    <div className="h-screen w-screen overflow-hidden relative bg-black">
-      {mainContent}
+    <div className="h-screen bg-black text-white overflow-hidden flex flex-col font-sans">
+      
+      <div className="h-16 bg-zinc-900 flex items-center px-6 border-b border-zinc-800 z-50 relative shadow-xl">
+         <div className="font-bold text-xl mr-8 text-fuchsia-500">{displayData?.pub?.name || "NEONPUB"}</div>
+         <div className="flex-1 overflow-hidden relative h-full flex items-center">
+            <div className="ticker-container w-full"><div className="ticker-content text-lg font-medium text-cyan-300">{ticker}</div></div>
+         </div>
+      </div>
 
-      {/* Ticker (hide during quiz) */}
-      {(!quizSession || quizSession.state === 'idle') && ticker && (
-        <div className="absolute bottom-0 left-0 right-0 bg-black/80 backdrop-blur-sm py-4 z-30 overflow-hidden">
-          <div className="ticker-content text-white text-2xl font-bold whitespace-nowrap animate-ticker">
-            {ticker}
-          </div>
+      <div className="flex-1 flex overflow-hidden relative">
+        <div className="flex-1 relative bg-black flex flex-col justify-center overflow-hidden">
+           {ScreenComponent}
+        </div>
+
+        {!isLeaderboardMode && (
+            <div className="w-[350px] bg-zinc-900/95 border-l border-zinc-800 flex flex-col z-30 shadow-2xl relative">
+                <div className="p-6 flex flex-col items-center bg-white/5 border-b border-white/10">
+                    <div className="bg-white p-3 rounded-xl mb-3 shadow-lg transform hover:scale-105 transition"><QRCodeSVG value={joinUrl} size={150} /></div>
+                    <p className="font-mono text-3xl font-bold text-cyan-400 tracking-widest drop-shadow">{pubCode}</p>
+                </div>
+                
+                <div className="flex-1 overflow-hidden flex flex-col p-8 items-center justify-center text-center space-y-6">
+                    {displayData?.pub?.logo_url ? (
+                        <img src={displayData.pub.logo_url} alt="Logo" className="w-40 h-40 object-contain drop-shadow-2xl"/>
+                    ) : (
+                        <div className="w-40 h-40 bg-zinc-800 rounded-full flex items-center justify-center text-zinc-600 text-4xl font-bold border-4 border-zinc-700">LOGO</div>
+                    )}
+                    <div className="mt-2">
+                        <h2 className="text-3xl font-black text-white uppercase tracking-wider">{displayData?.pub?.name || "NEONPUB"}</h2>
+                    </div>
+                </div>
+
+                <div className="h-[35%] border-t border-white/10 p-4 bg-gradient-to-b from-zinc-900 to-black">
+                    <h3 className="text-lg font-bold text-yellow-500 mb-4 flex items-center gap-2 uppercase tracking-wider"><Trophy className="w-5 h-5"/> Top Player</h3>
+                    <div className="space-y-2 overflow-y-auto custom-scrollbar h-full pb-4">
+                        {(displayData?.leaderboard || []).slice(0, 5).map((p, i) => (
+                            <div key={p.id} className={`flex justify-between items-center p-2 rounded ${i===0 ? 'bg-yellow-500/20 border border-yellow-500/30' : ''}`}>
+                                <div className="flex items-center gap-3">
+                                    <span className={`font-bold w-6 h-6 flex items-center justify-center rounded-full text-xs ${i===0 ? 'bg-yellow-500 text-black' : 'bg-zinc-800 text-zinc-400'}`}>{i+1}</span>
+                                    <span className={`font-medium ${i===0 ? 'text-white' : 'text-zinc-300'}`}>{p.nickname}</span>
+                                </div>
+                                <span className="text-cyan-400 font-mono font-bold">{p.score}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        )}
+      </div>
+
+      <div className="reactions-overlay pointer-events-none fixed inset-0 z-[100] overflow-hidden">
+        {floatingReactions.map(r => (
+            <div key={r.id} className="absolute flex flex-col items-center animate-float-up" style={{ left: `${r.left}%`, bottom: '-50px' }}>
+              <span className="text-7xl filter drop-shadow-2xl">{r.emoji}</span>
+              <span className="text-xl text-white font-bold mt-1 bg-black/70 px-4 py-1 rounded-full border border-white/20 shadow-xl">{r.nickname}</span>
+            </div>
+        ))}
+      </div>
+
+      {flashMessages.length > 0 && (
+        <div className="fixed top-24 left-8 z-[110] w-2/3 max-w-4xl flex flex-col gap-4">
+          {flashMessages.map(msg => (
+            <div key={msg.internalId} className="bg-black/90 backdrop-blur-xl border-l-8 border-cyan-500 text-white p-6 rounded-r-2xl shadow-2xl animate-slide-in-left flex items-start gap-6">
+              <div className="bg-cyan-500/20 p-4 rounded-full"><MessageSquare className="w-10 h-10 text-cyan-400" /></div>
+              <div>
+                <p className="text-sm text-cyan-400 font-bold uppercase tracking-widest mb-1">{msg.nickname === 'Regia' ? '📢 MESSAGGIO DALLA REGIA' : `Messaggio da ${msg.nickname}`}</p>
+                <p className="text-4xl font-bold leading-tight">{msg.text}</p>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
-      {/* Floating reactions */}
-      {floatingReactions.map(reaction => (
-        <div key={reaction.id} className="absolute z-50 text-8xl animate-float-up pointer-events-none" style={{ left: `${reaction.x}%`, bottom: `${reaction.y}%` }}>
-          {reaction.emoji}
-        </div>
-      ))}
-
-      {/* Flash messages */}
-      {flashMessages.map(msg => (
-        <div key={msg.id} className="absolute top-1/3 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 animate-flash-message">
-          <div className="bg-cyan-600 text-white px-12 py-6 rounded-3xl text-4xl font-bold shadow-[0_0_40px_rgba(6,182,212,0.6)] border-4 border-cyan-400 flex items-center gap-4">
-            <MessageSquare className="w-12 h-12" />
-            <span>{msg.text}</span>
-          </div>
-        </div>
-      ))}
+      <style jsx>{`
+        .ticker-container { width: 100%; overflow: hidden; }
+        .ticker-content { display: inline-block; white-space: nowrap; animation: ticker 30s linear infinite; }
+        @keyframes ticker { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
+        .animate-float-up { animation: floatUp 4s ease-out forwards; }
+        @keyframes floatUp { 0% { transform: translateY(0) scale(0.5); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateY(-80vh) scale(1.5); opacity: 0; } }
+        .animate-spin-slow { animation: spin 8s linear infinite; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        .animate-slide-in-left { animation: slideInLeft 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        @keyframes slideInLeft { from { transform: translateX(-100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .animate-zoom-in { animation: zoomIn 0.4s ease-out; }
+        @keyframes zoomIn { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .animate-fade-in { animation: fadeIn 0.5s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #444; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+      `}</style>
     </div>
   );
 }

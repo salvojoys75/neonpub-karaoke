@@ -20,7 +20,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import api, { createPub, updateEventSettings, uploadLogo } from "@/lib/api";
-import QuizAdminControl from "@/components/QuizAdminControl";
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -50,7 +49,7 @@ export default function AdminDashboard() {
   const [userList, setUserList] = useState([]);
   const [showCreateUserModal, setShowCreateUserModal] = useState(false);
   const [newUserEmail, setNewUserEmail] = useState("");
-  const [newUserPassword, setNewUserPassword] = useState(""); 
+  const [newUserPassword, setNewUserPassword] = useState(""); // Aggiunto stato password
   const [newUserName, setNewUserName] = useState("");
 
   // --- IMPOSTAZIONI EVENTO ---
@@ -91,7 +90,7 @@ export default function AdminDashboard() {
   // --- SETUP & MULTI EVENTO ---
   const [newEventName, setNewEventName] = useState("");
   const [creatingEvent, setCreatingEvent] = useState(false);
-  const [activeEventsList, setActiveEventsList] = useState([]); 
+  const [activeEventsList, setActiveEventsList] = useState([]); // Lista eventi attivi dell'operatore
 
   const pollIntervalRef = useRef(null);
   const timerIntervalRef = useRef(null);
@@ -106,22 +105,36 @@ export default function AdminDashboard() {
       
       let { data: userProfile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
       
+      // LOGICA ADMIN: Se è l'admin, forza sempre il ruolo e lo stato attivo se non corretti
       if (user.email === 'admin@neonpub.com') {
           if (!userProfile || userProfile.role !== 'super_admin' || userProfile.is_active !== true) {
               const { error } = await supabase.from('profiles').upsert({ 
-                  id: user.id, email: user.email, role: 'super_admin', credits: 9999, is_active: true 
+                  id: user.id, 
+                  email: user.email, 
+                  role: 'super_admin', 
+                  credits: 9999, 
+                  is_active: true 
               });
-              if(!error) userProfile = { id: user.id, email: user.email, role: 'super_admin', credits: 9999, is_active: true };
+              if(!error) {
+                  // Aggiorna l'oggetto locale dopo l'upsert
+                  userProfile = { id: user.id, email: user.email, role: 'super_admin', credits: 9999, is_active: true };
+              }
           }
       }
       
+      // CREAZIONE PROFILO STANDARD (Se non esiste)
       if (!userProfile) {
          const { data: newProfile } = await supabase.from('profiles').insert([{ 
-             id: user.id, email: user.email, role: 'operator', credits: 0, is_active: true 
+             id: user.id, 
+             email: user.email, 
+             role: 'operator', 
+             credits: 0, 
+             is_active: true 
          }]).select().single();
          userProfile = newProfile;
       }
 
+      // CONTROLLO BAN (Solo se esplicitamente false, così se è null/undefined entra lo stesso)
       if (userProfile.is_active === false) {
           toast.error("Account disabilitato. Contatta l'amministratore.");
           logout();
@@ -130,13 +143,17 @@ export default function AdminDashboard() {
 
       setProfile(userProfile);
       
+      // ROUTING IN BASE AL RUOLO
       if (userProfile.role === 'super_admin') { 
           setAppState("super_admin"); 
           loadSuperAdminData(); 
       } else {
+        // Logica Operatore
         const storedCode = localStorage.getItem("neonpub_pub_code");
+        
         if (storedCode) { 
             const pubData = await api.getPub(storedCode);
+            // Verifica validità evento
             if (pubData.data && (!pubData.data.expires_at || new Date(pubData.data.expires_at) > new Date())) {
                 setPubCode(storedCode); 
                 setAppState("dashboard"); 
@@ -174,7 +191,10 @@ export default function AdminDashboard() {
         const { data: pubData } = await createPub({ name: newEventName });
         localStorage.setItem("neonpub_pub_code", pubData.code);
         setPubCode(pubData.code);
+        
+        // Aggiorna crediti locali per UI veloce
         setProfile(prev => ({...prev, credits: prev.credits - 1}));
+        
         setAppState("dashboard");
         toast.success("Evento Iniziato! (-1 Credito, Valido 8 ore)");
     } catch (error) { toast.error(error.message); } finally { setCreatingEvent(false); }
@@ -199,6 +219,7 @@ export default function AdminDashboard() {
           return;
       }
       
+      // Calcolo tempo rimanente
       const expires = new Date(pubRes.data.expires_at);
       const now = new Date();
       const diff = expires - now;
@@ -479,6 +500,7 @@ export default function AdminDashboard() {
                 ))}
             </div>
             
+            {/* MODALE CREAZIONE USER */}
             <Dialog open={showCreateUserModal} onOpenChange={setShowCreateUserModal}>
                 <DialogContent className="bg-zinc-900 border-zinc-800">
                     <DialogHeader><DialogTitle>Crea Operatore</DialogTitle></DialogHeader>
@@ -500,6 +522,8 @@ export default function AdminDashboard() {
       return (
         <div className="min-h-screen bg-zinc-950 text-white flex flex-col items-center justify-center p-4">
             <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-8">
+                
+                {/* COLONNA 1: NUOVO EVENTO */}
                 <Card className="bg-zinc-900 border-zinc-800 border-2 border-fuchsia-900/50 shadow-2xl">
                     <CardHeader>
                         <CardTitle className="text-center text-white flex items-center justify-center gap-2">
@@ -521,6 +545,7 @@ export default function AdminDashboard() {
                     </CardFooter>
                 </Card>
 
+                {/* COLONNA 2: EVENTI ATTIVI */}
                 <Card className="bg-zinc-900 border-zinc-800">
                     <CardHeader>
                         <CardTitle className="text-center text-white flex items-center justify-center gap-2">
@@ -649,95 +674,105 @@ export default function AdminDashboard() {
                )}
 
                {libraryTab === 'quiz' && (
-                  <div className="flex flex-col space-y-4">
-                     {/* --- COMPONENTE GESTIONE SESSIONE AVANZATA --- */}
-                     <QuizAdminControl 
-                         operatorCredits={profile?.credits || 0}
-                         onCreditsChange={() => checkUserProfile()}
-                         onLoadData={loadData}
-                     />
-                     
-                     <div className="border-t border-white/10" />
-
-                     {/* --- BOTTONI RAPIDI --- */}
-                     <div className="grid grid-cols-2 gap-2">
-                        <Button className="bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-xs" onClick={()=>setShowCustomQuizModal(true)}>
-                            <Plus className="w-3 h-3 mr-1"/> Crea Manuale
-                        </Button>
-                        <Button className="bg-blue-600 hover:bg-blue-500 text-xs" onClick={()=>setShowImportModal(true)}>
-                            <Download className="w-3 h-3 mr-1"/> Importa JSON
-                        </Button>
-                     </div>
-
-                     {/* --- CARD QUIZ ATTIVO (LEGACY/MANUALE) --- */}
-                     {activeQuizId && quizStatus !== 'ended' && (
-                        <Card className="bg-zinc-900 border-2 border-fuchsia-600 shadow-2xl shadow-fuchsia-900/20">
-                            <CardHeader className="pb-2 border-b border-white/10 bg-fuchsia-900/20">
-                                <CardTitle className="text-sm font-bold text-white flex justify-between items-center">
-                                    <span className="flex items-center gap-2"><Gamepad2 className="w-4 h-4 text-fuchsia-400"/> IN ONDA (Manual)</span>
-                                    <span className="text-xs font-mono px-2 py-1 bg-black rounded text-fuchsia-300">STATUS: {quizStatus?.toUpperCase()}</span>
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className="pt-4 space-y-4">
-                                <div className="text-center">
-                                    <div className="text-xs text-zinc-400 uppercase tracking-widest mb-1">Domanda Attuale</div>
-                                    <div className="font-bold text-lg leading-tight text-white mb-2">{activeQuizData?.question || "Caricamento..."}</div>
-                                </div>
-                                
-                                {/* REGIA AUDIO/VIDEO */}
-                                <div className="bg-zinc-800 p-3 rounded-lg border border-zinc-700">
-                                    <div className="text-[10px] text-zinc-400 uppercase mb-2 font-bold tracking-wider">Regia Audio/Video</div>
-                                    <div className="flex justify-center gap-4">
-                                        <Button size="lg" variant={activeQuizData?.media_state === 'playing' ? 'default' : 'secondary'} className={`rounded-full w-12 h-12 ${activeQuizData?.media_state === 'playing' ? 'bg-green-600 hover:bg-green-500' : 'bg-zinc-700'}`} onClick={() => api.controlQuizMedia(activeQuizId, 'playing').then(loadData)}><Play className="w-5 h-5 fill-current" /></Button>
-                                        <Button size="lg" variant={activeQuizData?.media_state === 'paused' ? 'default' : 'secondary'} className={`rounded-full w-12 h-12 ${activeQuizData?.media_state === 'paused' ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-zinc-700'}`} onClick={() => api.controlQuizMedia(activeQuizId, 'paused').then(loadData)}><Pause className="w-5 h-5 fill-current" /></Button>
-                                        <Button size="lg" variant="outline" className={`rounded-full w-12 h-12 border-red-500/50 ${isMuted ? 'bg-red-500/20 text-red-500' : 'text-zinc-400'}`} onClick={handleToggleMute}>{isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}</Button>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-1 gap-2">
-                                    {quizStatus === 'active' && (
-                                        <Button className="w-full bg-red-600 hover:bg-red-500 h-10 font-bold animate-pulse" onClick={() => ctrlQuiz('close_vote')}><StopCircle className="w-4 h-4 mr-2"/> STOP AL TELEVOTO</Button>
-                                    )}
-                                    {quizStatus === 'closed' && (
-                                        <Button className="bg-blue-600 hover:bg-blue-500" onClick={() => ctrlQuiz('show_results')}><Eye className="w-4 h-4 mr-2"/> MOSTRA RISPOSTA</Button>
-                                    )}
-                                    {(quizStatus === 'showing_results' || quizStatus === 'leaderboard') && (
-                                        <>
-                                            {quizStatus !== 'leaderboard' && <Button className="bg-yellow-600 hover:bg-yellow-500 text-black font-bold" onClick={() => ctrlQuiz('leaderboard')}><ListOrdered className="w-4 h-4 mr-2"/> MOSTRA CLASSIFICA</Button>}
-                                            <Button variant="destructive" onClick={() => ctrlQuiz('end')}><MonitorPlay className="w-4 h-4 mr-2"/> CHIUDI E TORNA AL KARAOKE</Button>
-                                        </>
-                                    )}
-                                </div>
-                            </CardContent>
-                        </Card>
-                     )}
-                     
-                     {/* --- FILTRI CATALOGO --- */}
-                     <div className="flex gap-1 bg-zinc-950 p-1 rounded">
-                        <Button size="sm" variant={quizCategoryFilter==='all'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('all')}>Tutti</Button>
-                        <Button size="sm" variant={quizCategoryFilter==='intro'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('intro')}>Intro</Button>
-                        <Button size="sm" variant={quizCategoryFilter==='lyrics'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('lyrics')}>Testi</Button>
-                        <Button size="sm" variant={quizCategoryFilter==='video'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('video')}>Video</Button>
-                     </div>
-
-                     {/* --- LISTA CATALOGO --- */}
-                     <div className="flex-1 flex flex-col">
-                        <h3 className="text-xs font-bold text-zinc-500 uppercase mb-2 flex justify-between items-center">Catalogo ({filteredCatalog.length})</h3>
-                        <div className="space-y-2 pb-20">
-                            {filteredCatalog.map((item, index) => (
-                                <div key={item.id || index} className="group relative bg-zinc-800 hover:bg-zinc-700 border border-transparent hover:border-yellow-500 rounded p-3 cursor-pointer transition-all" onClick={() => launchCatalogQuiz(item)}>
-                                    <div className="absolute top-2 right-2 flex gap-1 z-10">
-                                        {item.media_type === 'audio' && <span className="bg-yellow-500/20 text-yellow-500 p-1 rounded"><Music2 className="w-3 h-3"/></span>}
-                                        {item.media_type === 'video' && <span className="bg-blue-500/20 text-blue-500 p-1 rounded"><Film className="w-3 h-3"/></span>}
-                                        <Button size="icon" variant="ghost" className="h-6 w-6 bg-red-900/50 hover:bg-red-600 text-white rounded-full ml-1" onClick={(e) => handleDeleteQuestion(e, item)}><Trash2 className="w-3 h-3" /></Button>
-                                    </div>
-                                    <div className="text-[10px] font-bold text-fuchsia-500 uppercase tracking-wider mb-1 flex items-center gap-1">{item.category}</div>
-                                    <div className="text-sm font-medium text-white pr-6 line-clamp-2">{item.question}</div>
-                                </div>
-                            ))}
+                    <div className="flex flex-col h-full">
+                        <div className="grid grid-cols-2 gap-2 mb-4">
+                            <Button className="bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-xs" onClick={()=>setShowCustomQuizModal(true)}>
+                                <Plus className="w-3 h-3 mr-1"/> Crea Manuale
+                            </Button>
+                            <Button className="bg-blue-600 hover:bg-blue-500 text-xs" onClick={()=>setShowImportModal(true)}>
+                                <Download className="w-3 h-3 mr-1"/> Importa JSON
+                            </Button>
                         </div>
-                     </div>
-                  </div>
+
+                        {activeQuizId && quizStatus !== 'ended' ? (
+                            <Card className="bg-zinc-900 border-2 border-fuchsia-600 mb-6 shadow-2xl shadow-fuchsia-900/20">
+                                <CardHeader className="pb-2 border-b border-white/10 bg-fuchsia-900/20">
+                                    <CardTitle className="text-sm font-bold text-white flex justify-between items-center">
+                                        <span className="flex items-center gap-2">
+                                            <Gamepad2 className="w-4 h-4 text-fuchsia-400"/> IN ONDA
+                                        </span>
+                                        <span className="text-xs font-mono px-2 py-1 bg-black rounded text-fuchsia-300">
+                                            STATUS: {quizStatus?.toUpperCase()}
+                                        </span>
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="pt-4 space-y-4">
+                                    <div className="text-center">
+                                        <div className="text-xs text-zinc-400 uppercase tracking-widest mb-1">Domanda Attuale</div>
+                                        <div className="font-bold text-lg leading-tight text-white mb-2">
+                                            {activeQuizData?.question || "Caricamento..."}
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 gap-2">
+                                        {quizStatus === 'active' && (
+                                            <Button className="w-full bg-red-600 hover:bg-red-500 h-10 font-bold animate-pulse" 
+                                                onClick={() => ctrlQuiz('close_vote')}>
+                                                <StopCircle className="w-4 h-4 mr-2"/> STOP AL TELEVOTO
+                                            </Button>
+                                        )}
+                                        
+                                        {quizStatus === 'closed' && (
+                                            <div className="grid grid-cols-1 gap-2">
+                                                <Button className="bg-blue-600 hover:bg-blue-500" onClick={() => ctrlQuiz('show_results')}>
+                                                    <Eye className="w-4 h-4 mr-2"/> MOSTRA RISPOSTA
+                                                </Button>
+                                            </div>
+                                        )}
+
+                                        {(quizStatus === 'showing_results' || quizStatus === 'leaderboard') && (
+                                            <div className="grid grid-cols-1 gap-2">
+                                                {quizStatus !== 'leaderboard' && (
+                                                    <Button className="bg-yellow-600 hover:bg-yellow-500 text-black font-bold" 
+                                                        onClick={() => ctrlQuiz('leaderboard')}>
+                                                        <ListOrdered className="w-4 h-4 mr-2"/> MOSTRA CLASSIFICA
+                                                    </Button>
+                                                )}
+                                                <Button variant="destructive" onClick={() => ctrlQuiz('end')}>
+                                                    <MonitorPlay className="w-4 h-4 mr-2"/> CHIUDI E TORNA AL KARAOKE
+                                                </Button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        ) : (
+                            <div className="p-4 bg-zinc-900/50 border border-dashed border-zinc-700 rounded mb-4 text-center text-zinc-500 text-xs">
+                                NESSUN QUIZ ATTIVO. SELEZIONA DAL CATALOGO.
+                            </div>
+                        )}
+
+                        <div className="flex gap-1 mb-2 bg-zinc-950 p-1 rounded">
+                            <Button size="sm" variant={quizCategoryFilter==='all'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('all')}>Tutti</Button>
+                            <Button size="sm" variant={quizCategoryFilter==='intro'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('intro')}>Intro</Button>
+                            <Button size="sm" variant={quizCategoryFilter==='lyrics'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('lyrics')}>Testi</Button>
+                            <Button size="sm" variant={quizCategoryFilter==='video'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('video')}>Video</Button>
+                        </div>
+
+                        <div className="flex-1 overflow-hidden flex flex-col">
+                            <h3 className="text-xs font-bold text-zinc-500 uppercase mb-2 flex justify-between items-center">
+                                Catalogo ({filteredCatalog.length})
+                            </h3>
+                            
+                            <ScrollArea className="flex-1 pr-2">
+                                <div className="space-y-2 pb-20">
+                                    {filteredCatalog.map((item, index) => (
+                                        <div key={item.id || index} 
+                                            className="group relative bg-zinc-800 hover:bg-zinc-700 border border-transparent hover:border-yellow-500 rounded p-3 cursor-pointer transition-all"
+                                            onClick={() => launchCatalogQuiz(item)}>
+                                            <div className="absolute top-2 right-2 flex gap-1 z-10">
+                                                {item.media_type === 'audio' && <span className="bg-yellow-500/20 text-yellow-500 p-1 rounded"><Music2 className="w-3 h-3"/></span>}
+                                                {item.media_type === 'video' && <span className="bg-blue-500/20 text-blue-500 p-1 rounded"><Film className="w-3 h-3"/></span>}
+                                                <Button size="icon" variant="ghost" className="h-6 w-6 bg-red-900/50 hover:bg-red-600 text-white rounded-full ml-1" onClick={(e) => handleDeleteQuestion(e, item)}><Trash2 className="w-3 h-3" /></Button>
+                                            </div>
+                                            <div className="text-[10px] font-bold text-fuchsia-500 uppercase tracking-wider mb-1 flex items-center gap-1">{item.category}</div>
+                                            <div className="text-sm font-medium text-white pr-6 line-clamp-2">{item.question}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </ScrollArea>
+                        </div>
+                    </div>
                )}
 
                {libraryTab === 'challenges' && (
