@@ -124,10 +124,10 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
 };
 
 // ===========================================
-// COMPONENTE: QUIZ SCREEN (LAYOUT OTTIMIZZATO)
+// COMPONENTE: QUIZ SCREEN (LAYOUT CORRETTO)
 // ===========================================
 const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
-    // 1. VISTA CLASSIFICA
+    // 1. CLASSIFICA
     if (quiz.status === 'leaderboard') {
         return (
             <div className="absolute inset-0 bg-zinc-900 z-50 flex flex-col p-8 overflow-hidden animate-fade-in">
@@ -150,13 +150,13 @@ const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
     }
 
     // 2. LOGICA VISUALIZZAZIONE "CINEMA MODE"
-    // Se è un video e sta suonando, nascondiamo la domanda per far vedere il video a tutto schermo.
+    // Se è un video e sta suonando, la domanda sparisce.
     const isCinemaMode = quiz.media_type === 'video' && quiz.media_state === 'playing' && !quizResults;
 
     return (
         <div className="absolute inset-0 bg-black z-40 flex flex-col items-center justify-center overflow-hidden">
             
-            {/* LAYER 1: MEDIA (Sempre sotto) */}
+            {/* LAYER 1: MEDIA (Sempre montato, gestito internamente per non riavviarsi) */}
             <QuizMediaFixed 
                 mediaUrl={quiz.media_url} 
                 mediaType={quiz.media_type} 
@@ -164,8 +164,9 @@ const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
                 mediaState={quiz.media_state} 
             />
 
-            {/* LAYER 2: CONTENUTO DOMANDA (Sopra il media) 
-                Usa transition-all per sfumare dolcemente quando parte il video */}
+            {/* LAYER 2: CONTENUTO DOMANDA
+                Usa opacity/pointer-events invece di smontare il componente 
+                per evitare scatti del layout */}
             <div className={`z-10 w-full max-w-6xl text-center transition-all duration-700 ease-in-out ${isCinemaMode ? 'opacity-0 translate-y-20 pointer-events-none' : 'opacity-100 translate-y-0'}`}>
                 
                 {!quizResults ? (
@@ -177,7 +178,7 @@ const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
                              </span>
                         </div>
                         
-                        {/* Box Domanda con Sfondo Sfumato (per leggibilità sopra video in pausa) */}
+                        {/* Box Domanda con Sfondo Sfumato */}
                         <div className="bg-black/70 backdrop-blur-md p-10 rounded-[3rem] border border-white/10 shadow-2xl">
                             <h2 className="text-7xl font-black text-white mb-12 leading-tight drop-shadow-2xl">
                                 {quiz.question}
@@ -207,15 +208,6 @@ const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
                     </div>
                 )}
             </div>
-            
-            {/* Opzionale: Indicatore durante Cinema Mode */}
-            {isCinemaMode && (
-                <div className="absolute bottom-10 left-0 right-0 text-center z-20 animate-fade-in pointer-events-none">
-                     <span className="bg-black/60 backdrop-blur text-white/80 px-8 py-3 rounded-full text-2xl font-bold uppercase tracking-widest border border-white/10">
-                        Guarda il video
-                     </span>
-                </div>
-            )}
         </div>
     );
 }
