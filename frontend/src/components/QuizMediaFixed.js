@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, memo } from "react";
 import { Music2, Loader2, VolumeX } from "lucide-react";
 
-// Helper interni
+// Helper
 const getYoutubeId = (url) => {
     if (!url) return null;
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
@@ -19,11 +19,14 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isVisible }) => {
     const playerRef = useRef(null);
     const [isPlayerReady, setIsPlayerReady] = useState(false);
     const [audioBlocked, setAudioBlocked] = useState(false);
+    
+    // Track dell'ultimo video caricato per evitare loop
+    const loadedVideoId = useRef(null);
 
     const detectedType = getMediaType(mediaUrl, mediaType);
     const videoId = detectedType === 'youtube' ? getYoutubeId(mediaUrl) : null;
 
-    // 1. INIZIALIZZAZIONE PLAYER (Eseguita una sola volta)
+    // 1. INIZIALIZZAZIONE PLAYER (Una volta sola)
     useEffect(() => {
         if (!window.YT) {
             const tag = document.createElement('script');
@@ -34,75 +37,82 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isVisible }) => {
         } else {
             initPlayer();
         }
-        // Non mettiamo cleanup distruttivo per mantenere l'istanza viva
     }, []);
 
     const initPlayer = () => {
-        if (playerRef.current) return; // Già inizializzato
+        if (playerRef.current) return;
 
-        playerRef.current = new window.YT.Player('quiz-fixed-player', {
-            height: '100%',
-            width: '100%',
-            videoId: null, // Parte vuoto
-            playerVars: {
-                autoplay: 0, // ✅ FONDAMENTALE: Decide React, non YouTube
-                controls: 0,
-                disablekb: 1,
-                fs: 0,
-                iv_load_policy: 3,
-                modestbranding: 1,
-                rel: 0,
-                showinfo: 0,
-                mute: 0,
-                origin: window.location.origin
-            },
-            events: {
-                onReady: (event) => {
-                    setIsPlayerReady(true);
-                    event.target.unMute();
-                    event.target.setVolume(100);
+        try {
+            playerRef.current = new window.YT.Player('quiz-fixed-player', {
+                height: '100%',
+                width: '100%',
+                videoId: null, // Parte vuoto
+                playerVars: {
+                    autoplay: 0, // NO Autoplay
+                    controls: 0,
+                    disablekb: 1,
+                    fs: 0,
+                    iv_load_policy: 3,
+                    modestbranding: 1,
+                    rel: 0,
+                    showinfo: 0,
+                    mute: 0,
+                    origin: window.location.origin
                 },
-                onStateChange: (event) => {
-                    // Se sta suonando (1) e non è muto, rimuovi avviso
-                    if (event.data === 1 && !event.target.isMuted()) {
-                        setAudioBlocked(false);
+                events: {
+                    onReady: (event) => {
+                        setIsPlayerReady(true);
+                        event.target.unMute();
+                        event.target.setVolume(100);
+                    },
+                    onStateChange: (event) => {
+                        // Se sta suonando (1) e non è muto, rimuovi avviso
+                        if (event.data === 1 && !event.target.isMuted()) {
+                            setAudioBlocked(false);
+                        }
                     }
                 }
-            }
-        });
+            });
+        } catch (e) {
+            console.error("Errore init YT:", e);
+        }
     };
 
-    // 2. GESTIONE CARICAMENTO (Solo se cambia Video ID)
+    // 2. COORDINATORE CENTRALE: Gestisce Caricamento E Play/Pause
     useEffect(() => {
-        if (!isPlayerReady || !playerRef.current || !videoId) return;
+        // Se il player non è pronto o non esiste, esci subito per evitare crash
+        if (!isPlayerReady || !playerRef.current || typeof playerRef.current.cueVideoById !== 'function') return;
 
-        // Carica il video ma NON farlo partire automaticamente se non necessario
-        // loadVideoById di default fa autoplay, quindi lo mettiamo in pausa subito dopo se non è visibile
-        playerRef.current.loadVideoById(videoId);
-        playerRef.current.setVolume(100);
-        playerRef.current.unMute();
-
-    }, [videoId, isPlayerReady]); // 🔥 Scatta SOLO se cambia ID o il player diventa pronto
-
-    // 3. GESTIONE PLAY/PAUSE (Solo se cambia isVisible)
-    useEffect(() => {
-        if (!isPlayerReady || !playerRef.current) return;
-
-        if (isVisible) {
-            // Se deve essere visibile, PLAY
-            const state = playerRef.current.getPlayerState();
-            // -1: unstarted, 2: paused, 5: cued
-            if (state !== 1) { 
-                playerRef.current.playVideo();
-                // Check blocco audio
-                if (playerRef.current.isMuted()) setAudioBlocked(true);
+        try {
+            // A. CAMBIO VIDEO
+            if (videoId && videoId !== loadedVideoId.current) {
+                loadedVideoId.current = videoId;
+                // "Cue" prepara il video ma non lo fa partire. Ideale per la stabilità.
+                playerRef.current.cueVideoById(videoId);
+                playerRef.current.unMute();
+                playerRef.current.setVolume(100);
             }
-        } else {
-            // Se non deve essere visibile, PAUSA
-            playerRef.current.pauseVideo();
+
+            // B. GESTIONE VISIBILITÀ (Play/Pause)
+            if (isVisible && videoId) {
+                const state = playerRef.current.getPlayerState();
+                // Se non sta suonando (1) e non è in buffering (3), FALLO PARTIRE
+                if (state !== 1 && state !== 3) {
+                    playerRef.current.playVideo();
+                }
+                
+                // Controllo blocco audio
+                if (playerRef.current.isMuted()) setAudioBlocked(true);
+            } else {
+                // Se non è visibile o non c'è video, PAUSA
+                playerRef.current.pauseVideo();
+            }
+
+        } catch (error) {
+            console.error("Errore comando YT:", error);
         }
 
-    }, [isVisible, isPlayerReady]); // 🔥 Scatta SOLO se cambia visibilità
+    }, [videoId, isVisible, isPlayerReady]); // Reagisce a qualsiasi cambiamento di stato
 
     // Force Unmute manuale
     const handleForceUnmute = () => {
@@ -118,12 +128,11 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isVisible }) => {
     if (detectedType === 'audio_file') {
         return (
             <div className={containerClass}>
-                {/* Gestione Audio HTML5: Play/Pause basato su isVisible */}
                 <audio 
                     src={mediaUrl} 
                     ref={(el) => {
                         if (el) {
-                            if (isVisible) el.play().catch(() => {});
+                            if (isVisible) el.play().catch(e => console.log("Audio play prevented", e));
                             else el.pause();
                         }
                     }} 
@@ -141,7 +150,6 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isVisible }) => {
 
     return (
         <div className={containerClass} style={{ zIndex: 0 }}>
-            {/* Div Placeholder per YouTube API */}
             <div id="quiz-fixed-player" className="absolute inset-0 w-full h-full object-cover pointer-events-none" />
             
             {audioBlocked && isVisible && (
@@ -157,7 +165,6 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isVisible }) => {
         </div>
     );
 }, (prev, next) => {
-    // Memoizzazione stretta: Re-renderizza solo se cambiano questi valori
     return prev.mediaUrl === next.mediaUrl && prev.isVisible === next.isVisible;
 });
 

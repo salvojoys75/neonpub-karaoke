@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import QuizMediaFixed from "@/components/QuizMediaFixed";
 
 // ===========================================
-// UTILS
+// UTILS & SUB-COMPONENTS
 // ===========================================
 const getYoutubeId = (url) => {
     if (!url) return null;
@@ -16,9 +16,7 @@ const getYoutubeId = (url) => {
     return (match && match[2].length === 11) ? match[2] : null;
 };
 
-// ===========================================
-// SUB-COMPONENTS
-// ===========================================
+// --- KARAOKE SCREEN ---
 const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
     const playerRef = useRef(null);
     const prevStartedAt = useRef(performance?.started_at);
@@ -98,6 +96,7 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
     );
 };
 
+// --- QUIZ OVERLAY SCREEN ---
 const QuizOverlay = ({ quiz, quizResults, leaderboard }) => {
     if (quiz.status === 'leaderboard') {
         return (
@@ -274,6 +273,8 @@ export default function PubDisplay() {
   const joinUrl = `${window.location.origin}/join/${pubCode}`;
 
   const isKaraokeActive = currentPerf && (currentPerf.status === 'live' || currentPerf.status === 'paused' || currentPerf.status === 'voting' || voteResult);
+  
+  // Il quiz è visibile SOLO se NON c'è karaoke in corso E se lo stato non è 'ended'
   const isQuizVisible = activeQuiz && activeQuiz.status !== 'ended' && !isKaraokeActive;
 
   let OverlayComponent = null;
@@ -300,11 +301,16 @@ export default function PubDisplay() {
       </div>
       <div className="flex-1 flex overflow-hidden relative">
         <div className="flex-1 relative bg-black flex flex-col justify-center overflow-hidden">
+           
            {/* BACKGROUND LAYER - VISIBILE SOLO SE IL QUIZ È ATTIVO E KARAOKE FERMO */}
            <QuizMediaFixed mediaUrl={activeQuiz?.media_url} mediaType={activeQuiz?.media_type} isVisible={isQuizVisible}/>
+           
            {/* FOREGROUND CONTENT */}
            {OverlayComponent}
+
         </div>
+        
+        {/* SIDEBAR */}
         {!(activeQuiz && activeQuiz.status === 'leaderboard') && (
             <div className="w-[350px] bg-zinc-900/95 border-l border-zinc-800 flex flex-col z-30 shadow-2xl relative">
                 <div className="p-6 flex flex-col items-center bg-white/5 border-b border-white/10">
