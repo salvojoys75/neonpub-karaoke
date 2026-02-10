@@ -16,7 +16,7 @@ const getMediaType = (url, type) => {
     return 'unknown';
 };
 
-// Singleton API YouTube
+// Singleton API YouTube - Caricamento unico globale
 let youtubeApiLoading = false;
 let youtubeApiReady = false;
 const youtubeApiCallbacks = [];
@@ -48,33 +48,32 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult, mediaState = 'play
     const currentVideoIdRef = useRef(null);
     const isPlayerReadyRef = useRef(false);
     
-    const [status, setStatus] = useState('loading');
+    const [status, setStatus] = useState('idle'); // idle, loading, ready, error, blocked
     const [audioBlocked, setAudioBlocked] = useState(false);
     const [apiLoaded, setApiLoaded] = useState(false);
 
     const detectedType = getMediaType(mediaUrl, mediaType);
     const videoId = getYoutubeId(mediaUrl);
 
-    // 1. Load API
+    // 1. Caricamento API
     useEffect(() => {
-        if (detectedType !== 'youtube' || !videoId) return;
+        if (detectedType !== 'youtube') return;
         let mounted = true;
         loadYouTubeAPI().then(() => { if (mounted) setApiLoaded(true); });
         return () => { mounted = false; };
-    }, [detectedType, videoId]);
+    }, [detectedType]);
 
-    // 2. Init Player
+    // 2. Inizializzazione Player (UNA VOLTA SOLA)
     useEffect(() => {
-        if (!apiLoaded || detectedType !== 'youtube' || !videoId || !playerContainerRef.current) return;
-        if (playerRef.current) return; 
+        if (!apiLoaded || !playerContainerRef.current) return;
+        if (playerRef.current) return; // Il player esiste già, non fare nulla!
 
-        console.log('[QuizMedia] CREATING PLAYER:', videoId);
+        console.log('[QuizMedia] INITIALIZING PLAYER INSTANCE (Global)');
 
         const onPlayerReady = (event) => {
             isPlayerReadyRef.current = true;
             event.target.unMute();
             event.target.setVolume(100);
-            if (mediaState === 'playing') event.target.playVideo();
             setStatus('ready');
         };
 
@@ -88,9 +87,9 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult, mediaState = 'play
         };
 
         try {
-            currentVideoIdRef.current = videoId;
             playerRef.current = new window.YT.Player(playerContainerRef.current, {
-                height: '100%', width: '100%', videoId: videoId,
+                height: '100%', width: '100%',
+                videoId: videoId || '', // Inizializza anche vuoto se necessario
                 playerVars: {
                     autoplay: 1, controls: 0, disablekb: 1, fs: 0, 
                     iv_load_policy: 3, modestbranding: 1, rel: 0, 
@@ -99,42 +98,53 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult, mediaState = 'play
                 },
                 events: { onReady: onPlayerReady, onStateChange: onPlayerStateChange, onError: onPlayerError }
             });
-        } catch (e) { setStatus('error'); }
+        } catch (e) { console.error(e); }
 
-        return () => {
-            if (playerRef.current) {
-                playerRef.current.destroy();
-                playerRef.current = null;
-            }
-        };
-    }, [apiLoaded, detectedType]); 
+        // MAI DISTRUGGERE IL PLAYER QUI. 
+        // Lo lasciamo vivere per tutta la durata della pagina.
+    }, [apiLoaded]);
 
-    // 3. Swap Video (FIX RIAVVOLGIMENTO)
+    // 3. Cambio Video / Gestione URL vuoto
     useEffect(() => {
-        if (!playerRef.current || !isPlayerReadyRef.current || !videoId) return;
-        
-        // 🔥 FIX CRITICO: Se l'ID è lo stesso, NON fare nulla.
-        if (currentVideoIdRef.current === videoId) {
-            return; 
+        // Se non c'è player o non siamo pronti, esci
+        if (!playerRef.current || !isPlayerReadyRef.current) return;
+
+        // Caso A: Nessun video (es. quiz solo testo o dati persi momentaneamente)
+        if (!videoId) {
+            if (currentVideoIdRef.current) {
+                console.log('[QuizMedia] No video ID, pausing player');
+                playerRef.current.pauseVideo();
+                currentVideoIdRef.current = null;
+                setStatus('idle');
+            }
+            return;
         }
 
-        console.log('[QuizMedia] SWAPPING VIDEO:', videoId);
+        // Caso B: Stesso video
+        if (currentVideoIdRef.current === videoId) return;
+
+        // Caso C: Nuovo video
+        console.log('[QuizMedia] LOADING NEW VIDEO:', videoId);
         setStatus('loading');
         currentVideoIdRef.current = videoId;
         playerRef.current.loadVideoById(videoId);
-    }, [videoId]);
+        if (mediaState === 'playing') {
+            playerRef.current.playVideo();
+        }
 
-    // 4. Play/Pause
+    }, [videoId, mediaState]);
+
+    // 4. Play/Pause Control
     useEffect(() => {
-        if (!playerRef.current || !isPlayerReadyRef.current || status === 'blocked') return;
+        if (!playerRef.current || !isPlayerReadyRef.current || !videoId || status === 'blocked') return;
         try {
             const s = playerRef.current.getPlayerState();
             if (mediaState === 'playing' && s !== 1) playerRef.current.playVideo();
             else if (mediaState === 'paused' && s !== 2) playerRef.current.pauseVideo();
         } catch (e) {}
-    }, [mediaState, status]);
+    }, [mediaState, status, videoId]);
 
-    // 5. Audio File
+    // 5. Audio File Handling
     useEffect(() => {
         if (detectedType !== 'audio_file' || !mediaUrl || !audioRef.current) return;
         setStatus('ready');
@@ -142,28 +152,49 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult, mediaState = 'play
         else audioRef.current.pause();
     }, [detectedType, mediaUrl, mediaState]);
 
-    const isVisible = !isResult && (status === 'ready');
-    
+    // Logica Visibilità:
+    // Deve esserci un URL valido, lo stato deve essere ready (o loading) e NON deve essere un risultato.
+    const showVideo = videoId && !isResult && (status === 'ready' || status === 'loading');
+    const showAudio = detectedType === 'audio_file' && !isResult;
+
     return (
         <div className="absolute inset-0 w-full h-full overflow-hidden flex items-center justify-center bg-black">
-            {detectedType === 'youtube' && (
-                <div className={`absolute inset-0 w-full h-full transition-opacity duration-300 ${isVisible ? 'opacity-100' : 'opacity-0'}`}>
-                    <div ref={playerContainerRef} className="w-full h-full" />
+            
+            {/* CONTAINER YOUTUBE - SEMPRE PRESENTE NEL DOM */}
+            <div className={`absolute inset-0 w-full h-full transition-opacity duration-500 ${showVideo ? 'opacity-100' : 'opacity-0'}`}>
+                <div ref={playerContainerRef} className="w-full h-full" />
+            </div>
+
+            {/* LOADING SPINNER */}
+            {status === 'loading' && videoId && !isResult && (
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center pointer-events-none">
+                    <Loader2 size={64} className="text-white animate-spin mb-4" />
                 </div>
             )}
-            
-            {(status === 'blocked' || status === 'error') && !isResult && (
+
+            {/* ERROR / BLOCKED */}
+            {(status === 'blocked' || status === 'error') && videoId && !isResult && (
                 <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/95">
                     {status === 'blocked' ? <Ban size={80} className="text-red-500 mb-6"/> : <AlertTriangle size={80} className="text-yellow-500 mb-6"/>}
                     <h3 className="text-4xl font-black text-white uppercase mb-2">{status === 'blocked' ? 'VIDEO NON DISPONIBILE' : 'ERRORE'}</h3>
-                    <p className="text-zinc-400 text-xl text-center max-w-md">{status === 'blocked' ? "Copyright Restriction (Err 150)" : "Impossibile riprodurre."}</p>
+                    <p className="text-zinc-400 text-xl text-center max-w-md">{status === 'blocked' ? "Restrizione Copyright (Err 150)" : "Errore riproduzione."}</p>
                 </div>
             )}
-            {/* Audio UI logic omitted for brevity but preserved in full file if needed */}
+
+            {/* AUDIO FILE UI */}
+            {showAudio && (
+                <>
+                    <audio ref={audioRef} src={mediaUrl} loop onError={() => setStatus('error')} />
+                    <div className={`absolute z-20 flex flex-col items-center transition-opacity duration-500 ${mediaState === 'paused' ? 'opacity-50' : 'opacity-100'}`}>
+                        <div className="bg-fuchsia-600/20 p-12 rounded-full border-4 border-fuchsia-500 animate-pulse">
+                            <Music2 size={80} className="text-white" />
+                        </div>
+                    </div>
+                </>
+            )}
         </div>
     );
 }, (prev, next) => {
-    // Memoizzazione stretta: aggiorna solo se cambiano i valori chiave
     return prev.mediaUrl === next.mediaUrl && 
            prev.mediaType === next.mediaType && 
            prev.mediaState === next.mediaState &&
