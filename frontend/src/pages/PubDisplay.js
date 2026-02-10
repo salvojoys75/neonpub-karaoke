@@ -124,10 +124,10 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
 };
 
 // ===========================================
-// COMPONENTE: QUIZ SCREEN
+// COMPONENTE: QUIZ SCREEN (LAYOUT OTTIMIZZATO)
 // ===========================================
 const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
-    // VISTA CLASSIFICA
+    // 1. VISTA CLASSIFICA
     if (quiz.status === 'leaderboard') {
         return (
             <div className="absolute inset-0 bg-zinc-900 z-50 flex flex-col p-8 overflow-hidden animate-fade-in">
@@ -149,9 +149,14 @@ const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
         );
     }
 
-    // VISTA PRINCIPALE QUIZ
+    // 2. LOGICA VISUALIZZAZIONE "CINEMA MODE"
+    // Se è un video e sta suonando, nascondiamo la domanda per far vedere il video a tutto schermo.
+    const isCinemaMode = quiz.media_type === 'video' && quiz.media_state === 'playing' && !quizResults;
+
     return (
-        <div className="absolute inset-0 bg-gradient-to-b from-purple-900 to-black z-40 flex flex-col items-center justify-center p-10">
+        <div className="absolute inset-0 bg-black z-40 flex flex-col items-center justify-center overflow-hidden">
+            
+            {/* LAYER 1: MEDIA (Sempre sotto) */}
             <QuizMediaFixed 
                 mediaUrl={quiz.media_url} 
                 mediaType={quiz.media_type} 
@@ -159,27 +164,35 @@ const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
                 mediaState={quiz.media_state} 
             />
 
-            <div className="z-10 w-full max-w-6xl text-center">
+            {/* LAYER 2: CONTENUTO DOMANDA (Sopra il media) 
+                Usa transition-all per sfumare dolcemente quando parte il video */}
+            <div className={`z-10 w-full max-w-6xl text-center transition-all duration-700 ease-in-out ${isCinemaMode ? 'opacity-0 translate-y-20 pointer-events-none' : 'opacity-100 translate-y-0'}`}>
+                
                 {!quizResults ? (
-                    <div className="animate-zoom-in">
+                    <div className="animate-zoom-in p-8">
+                        {/* Status Badge */}
                         <div className="mb-8">
                              <span className={`px-12 py-4 rounded-full text-4xl font-black uppercase tracking-widest shadow-[0_0_30px_rgba(217,70,239,0.6)] ${quiz.status === 'closed' ? 'bg-red-600 text-white' : 'bg-fuchsia-600 text-white animate-pulse'}`}>
                                 {quiz.status === 'closed' ? "STOP AL TELEVOTO!" : "QUIZ IN ONDA"}
                              </span>
                         </div>
-                        <h2 className="text-7xl font-black text-white mb-16 leading-tight drop-shadow-2xl bg-black/40 p-6 rounded-3xl backdrop-blur-sm border border-white/10">
-                            {quiz.question}
-                        </h2>
-                        <div className="grid grid-cols-2 gap-8">
-                            {quiz.options.map((opt, i) => (
-                                <div key={i} className={`p-8 rounded-3xl text-5xl font-bold border-4 transition-all transform ${quiz.status === 'closed' ? 'border-zinc-700 text-zinc-500 bg-black/60' : 'border-white/20 bg-white/10 text-white shadow-xl'}`}>
-                                    <span className="text-fuchsia-500 mr-4">{String.fromCharCode(65+i)}.</span> {opt}
-                                </div>
-                            ))}
+                        
+                        {/* Box Domanda con Sfondo Sfumato (per leggibilità sopra video in pausa) */}
+                        <div className="bg-black/70 backdrop-blur-md p-10 rounded-[3rem] border border-white/10 shadow-2xl">
+                            <h2 className="text-7xl font-black text-white mb-12 leading-tight drop-shadow-2xl">
+                                {quiz.question}
+                            </h2>
+                            <div className="grid grid-cols-2 gap-8">
+                                {quiz.options.map((opt, i) => (
+                                    <div key={i} className={`p-8 rounded-3xl text-5xl font-bold border-4 transition-all transform ${quiz.status === 'closed' ? 'border-zinc-700 text-zinc-500 bg-zinc-900/50' : 'border-white/20 bg-white/10 text-white shadow-xl'}`}>
+                                        <span className="text-fuchsia-500 mr-4">{String.fromCharCode(65+i)}.</span> {opt}
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 ) : (
-                    <div className="animate-zoom-in bg-black/60 backdrop-blur-md p-12 rounded-[3rem] border border-white/20">
+                    <div className="animate-zoom-in bg-black/80 backdrop-blur-xl p-12 rounded-[3rem] border border-white/20 shadow-2xl">
                         <Trophy className="w-40 h-40 text-yellow-400 mx-auto mb-8 animate-bounce" />
                         <h2 className="text-6xl font-black text-white mb-6">RISPOSTA ESATTA</h2>
                         <div className="bg-green-600 text-white px-16 py-8 rounded-3xl mb-12 transform scale-110">
@@ -194,6 +207,15 @@ const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
                     </div>
                 )}
             </div>
+            
+            {/* Opzionale: Indicatore durante Cinema Mode */}
+            {isCinemaMode && (
+                <div className="absolute bottom-10 left-0 right-0 text-center z-20 animate-fade-in pointer-events-none">
+                     <span className="bg-black/60 backdrop-blur text-white/80 px-8 py-3 rounded-full text-2xl font-bold uppercase tracking-widest border border-white/10">
+                        Guarda il video
+                     </span>
+                </div>
+            )}
         </div>
     );
 }

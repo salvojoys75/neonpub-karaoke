@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, memo } from "react";
 import { Music2, Loader2, VolumeX, AlertTriangle, Ban } from "lucide-react";
 
+// Helper per estrarre ID YouTube
 const getYoutubeId = (url) => {
     if (!url || typeof url !== 'string') return null;
     try {
@@ -10,6 +11,7 @@ const getYoutubeId = (url) => {
     } catch (e) { return null; }
 };
 
+// Helper per determinare il tipo
 const getMediaType = (url, type) => {
     if (type === 'video' || (url && (url.includes('youtube.com') || url.includes('youtu.be')))) return 'youtube';
     if (type === 'audio') return 'audio_file'; 
@@ -19,36 +21,36 @@ const getMediaType = (url, type) => {
 const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult, mediaState = 'playing' }) => {
     const containerRef = useRef(null); 
     const playerRef = useRef(null);    
-    const currentVideoId = useRef(null); 
+    const currentVideoId = useRef(null); // Tiene traccia dell'ID per evitare reload inutili
     
     const [status, setStatus] = useState('loading'); // loading, ready, error, blocked
     const [audioBlocked, setAudioBlocked] = useState(false);
 
     const detectedType = getMediaType(mediaUrl, mediaType);
 
-    // 1. INIZIALIZZAZIONE PLAYER (Isolamento DOM)
+    // 1. GESTIONE CARICAMENTO PLAYER (Eseguito solo se cambia URL)
     useEffect(() => {
         if (isResult || !mediaUrl) return;
 
         if (detectedType === 'youtube') {
             const videoId = getYoutubeId(mediaUrl);
             
-            // Se il video è lo stesso, non rifare l'init
+            // FIX CRUCIALE: Se l'ID è lo stesso di prima, NON fare nulla (non distruggere, non ricreare)
             if (currentVideoId.current === videoId && playerRef.current) {
                 return; 
+            }
+
+            // Se cambia video veramente, pulisci il vecchio
+            if (playerRef.current) {
+                try { playerRef.current.destroy(); } catch(e) {}
+                playerRef.current = null;
             }
 
             currentVideoId.current = videoId;
             setStatus('loading');
             setAudioBlocked(false);
 
-            // Distruzione sicura istanza precedente
-            if (playerRef.current) {
-                try { playerRef.current.destroy(); } catch(e) {}
-                playerRef.current = null;
-            }
-
-            // CREAZIONE MANUALE DEL DIV (React non lo toccherà più)
+            // Preparazione DOM isolato per YouTube
             if (containerRef.current) {
                 containerRef.current.innerHTML = ''; 
                 const placeholder = document.createElement('div');
@@ -71,6 +73,8 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult, mediaState = 'play
                             onReady: (event) => {
                                 event.target.setVolume(100);
                                 event.target.unMute();
+                                
+                                // Sincronizza lo stato iniziale
                                 if (mediaState === 'paused') event.target.pauseVideo();
                                 else event.target.playVideo();
                                 
@@ -79,7 +83,7 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult, mediaState = 'play
                             },
                             onError: (event) => {
                                 console.error("YT Error:", event.data);
-                                // 150 o 101 = Video bloccato su siti esterni
+                                // 150 o 101 = Video bloccato su siti esterni (copyright)
                                 if (event.data === 150 || event.data === 101) {
                                     setStatus('blocked');
                                 } else {
@@ -108,16 +112,20 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult, mediaState = 'play
             setStatus('ready');
         }
 
-    }, [mediaUrl, detectedType]); 
+    }, [mediaUrl, detectedType]); // NOTA: mediaState NON è qui, per evitare reload
 
-    // 2. GESTIONE REGIA (Play/Pause)
+    // 2. GESTIONE CONTROLLO REMOTO (Play/Pause senza ricaricare)
     useEffect(() => {
         if (status !== 'ready') return;
 
         if (detectedType === 'youtube' && playerRef.current && typeof playerRef.current.getPlayerState === 'function') {
             const pState = playerRef.current.getPlayerState();
-            if (mediaState === 'paused' && pState !== 2) playerRef.current.pauseVideo();
-            else if (mediaState === 'playing' && pState !== 1 && pState !== 3) playerRef.current.playVideo();
+            // 1 = playing, 2 = paused
+            if (mediaState === 'paused' && pState !== 2) {
+                playerRef.current.pauseVideo();
+            } else if (mediaState === 'playing' && pState !== 1 && pState !== 3) {
+                playerRef.current.playVideo();
+            }
         }
     }, [mediaState, status, detectedType]);
 
@@ -127,20 +135,20 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult, mediaState = 'play
     return (
         <div className="absolute inset-0 z-0 bg-black overflow-hidden flex items-center justify-center">
             
-            {/* CONTAINER YOUTUBE ISOLATO */}
+            {/* CONTAINER YOUTUBE */}
             <div 
                 ref={containerRef} 
-                className={`absolute inset-0 w-full h-full ${detectedType === 'youtube' && status === 'ready' && mediaType !== 'audio' ? 'opacity-60' : 'opacity-0'}`} 
+                className={`absolute inset-0 w-full h-full transition-opacity duration-1000 ${detectedType === 'youtube' && status === 'ready' && mediaType !== 'audio' ? 'opacity-100' : 'opacity-0'}`} 
             />
 
-            {/* LOADING */}
+            {/* LOADING SPINNER */}
             {status === 'loading' && detectedType === 'youtube' && (
                 <div className="absolute z-10 text-fuchsia-500 animate-spin"><Loader2 size={64} /></div>
             )}
 
-            {/* ERRORI VISIVI (Gestione Codice 150/Block) */}
+            {/* ERRORI (Copyright/Block) */}
             {status === 'blocked' && (
-                <div className="absolute z-20 flex flex-col items-center bg-red-900/80 p-8 rounded-xl border-2 border-red-500 backdrop-blur-md animate-pulse">
+                <div className="absolute z-20 flex flex-col items-center bg-red-900/90 p-8 rounded-xl border-2 border-red-500 backdrop-blur-md animate-pulse">
                     <Ban size={64} className="text-white mb-4" />
                     <h3 className="text-2xl font-bold text-white uppercase mb-2">VIDEO NON DISPONIBILE</h3>
                     <p className="text-white/80 text-center">L'autore ha bloccato la riproduzione<br/>su siti esterni (Err. 150).</p>
@@ -155,7 +163,7 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult, mediaState = 'play
                 </div>
             )}
 
-            {/* AUDIO HTML5 */}
+            {/* PLAYER AUDIO STANDARD */}
             {detectedType === 'audio_file' && (
                 <audio 
                     src={mediaUrl} 
@@ -170,7 +178,7 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult, mediaState = 'play
                 />
             )}
 
-            {/* PULSANTE SBLOCCO AUDIO */}
+            {/* BOTTONE EMERGENZA AUDIO (Se il browser blocca l'autoplay) */}
             {audioBlocked && status === 'ready' && (
                 <div className="absolute top-10 right-10 z-50 bg-red-600 text-white p-4 rounded-full animate-bounce cursor-pointer shadow-lg border-4 border-white"
                      onClick={() => {
@@ -180,11 +188,11 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult, mediaState = 'play
                          }
                          setAudioBlocked(false);
                      }}>
-                    <div className="flex items-center gap-2 font-bold text-xl"><VolumeX size={32} /> ATTIVA AUDIO</div>
+                    <div className="flex items-center gap-2 font-bold text-xl"><VolumeX size={32} /> TOCCA PER AUDIO</div>
                 </div>
             )}
 
-            {/* MODALITÀ SOLO AUDIO (ICONCINA) */}
+            {/* MODALITÀ SOLO AUDIO (Visualizer statico) */}
             {(mediaType === 'audio' || detectedType === 'audio_file') && status === 'ready' && (
                 <div className={`absolute z-20 flex flex-col items-center transition-all duration-500 ${mediaState === 'paused' ? 'opacity-50 scale-90' : 'animate-pulse opacity-100 scale-100'}`}>
                     <div className="bg-fuchsia-600/20 p-12 rounded-full border-4 border-fuchsia-500 mb-4 shadow-[0_0_50px_rgba(192,38,211,0.5)]">
