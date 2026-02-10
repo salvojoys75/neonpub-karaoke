@@ -127,12 +127,12 @@ const KaraokeScreen = ({ performance, isVoting, voteResult }) => {
 // COMPONENTE: QUIZ SCREEN
 // ===========================================
 const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
+    // 1. VISTA CLASSIFICA (Nessun player qui)
     if (quiz.status === 'leaderboard') {
         return (
             <div className="absolute inset-0 bg-zinc-900 z-50 flex flex-col p-8 overflow-hidden animate-fade-in">
                 <div className="text-center mb-6">
                     <h1 className="text-6xl font-black text-yellow-500 uppercase drop-shadow-[0_0_15px_rgba(234,179,8,0.5)]">CLASSIFICA GENERALE</h1>
-
                 </div>
                 <div className="flex-1 overflow-y-auto grid grid-cols-2 gap-x-12 gap-y-4 px-12 content-start custom-scrollbar">
                     {leaderboard.map((p, i) => (
@@ -149,15 +149,17 @@ const QuizScreen = ({ quiz, quizResults, leaderboard }) => {
         );
     }
 
-
+    // 2. VISTA QUIZ PRINCIPALE
     return (
         <div className="absolute inset-0 bg-gradient-to-b from-purple-900 to-black z-40 flex flex-col items-center justify-center p-10">
+            
+            {/* COMPONENTE MEDIA OTTIMIZZATO (MEMO) */}
             <QuizMediaFixed 
-    mediaUrl={quiz.media_url} 
-    mediaType={quiz.media_type} 
-    isResult={!!quizResults} 
-    mediaState={quiz.media_state} // <--- FONDAMENTALE: Passiamo lo stato dal DB
-/>
+                mediaUrl={quiz.media_url} 
+                mediaType={quiz.media_type} 
+                isResult={!!quizResults} 
+                mediaState={quiz.media_state} 
+            />
 
             <div className="z-10 w-full max-w-6xl text-center">
                 {!quizResults ? (
