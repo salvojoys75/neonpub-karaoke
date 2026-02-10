@@ -102,7 +102,7 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isVisible }) => {
                     initPlayer();
                 }
             }, 100);
-            return () => clearInterval(checkInterval);
+            return () => { clearInterval(checkInterval); };
         } else {
             initPlayer();
         }
@@ -131,8 +131,14 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isVisible }) => {
             // Non stoppare completamente, metti in pausa per ripresa rapida
             playerRef.current.pauseVideo();
         }
-    }, [youtubeId, isVisible, detectedType]);
 
+        return () => {
+            if (playerRef.current && typeof playerRef.current.destroy === 'function') {
+                playerRef.current.destroy();
+                playerRef.current = null;
+            }
+        };
+    }, [youtubeId, isVisible, detectedType]);
 
     // --- 3. GESTIONE AUDIO FILE (MP3) ---
     useEffect(() => {
@@ -150,6 +156,11 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isVisible }) => {
                 audioRef.current.currentTime = 0;
             }
         }
+
+        return () => {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+        };
     }, [mediaUrl, isVisible, detectedType]);
 
     // Force Unmute per interazione utente
@@ -157,7 +168,7 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isVisible }) => {
         setAudioBlocked(false);
         if (detectedType === 'youtube' && playerRef.current) {
             playerRef.current.unMute();
-            playerRef.current.setVolume(100);
+            playerRef.current.setVolume(100); 
         } else if (detectedType === 'audio_file' && audioRef.current) {
             audioRef.current.play();
         }

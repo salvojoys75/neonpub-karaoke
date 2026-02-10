@@ -16,7 +16,7 @@ const getYoutubeId = (url) => {
     return (match && match[2].length === 11) ? match[2] : null;
 };
 
-// ===========================================
+// ============================================
 // KARAOKE LAYER (Z-INDEX 20)
 // ===========================================
 const KaraokeScreen = ({ performance, isVoting, voteResult, isVisible }) => {
@@ -25,7 +25,7 @@ const KaraokeScreen = ({ performance, isVoting, voteResult, isVisible }) => {
 
     useEffect(() => {
         if (!isVisible || !performance) {
-             // Se diventiamo invisibili, stoppiamo il video per liberare l'audio per il Quiz
+             // Se diventiamo invisibili, stoppiamo il video per liberare l'audio per il Quiz 
              if (playerRef.current && typeof playerRef.current.stopVideo === 'function') {
                  playerRef.current.stopVideo();
              }
@@ -70,16 +70,21 @@ const KaraokeScreen = ({ performance, isVoting, voteResult, isVisible }) => {
             }
         };
 
-        // Polling leggero per attendere API o DOM
+        // Polling leggero per attendere API o DOM 
         const timer = setInterval(() => {
             if (window.YT && window.YT.Player) {
                 initKaraoke();
                 clearInterval(timer);
             }
         }, 100);
-
-        return () => clearInterval(timer);
-
+        
+        return () => {
+            clearInterval(timer);
+            if (playerRef.current && typeof playerRef.current.destroy === 'function') {
+                playerRef.current.destroy();
+                playerRef.current = null;
+            }
+        };
     }, [performance, isVoting, voteResult, isVisible]);
 
     // Render condizionale: Se non visibile, non renderizzare nulla (Unmount)
@@ -204,31 +209,7 @@ export default function PubDisplay() {
   const [quizResults, setQuizResults] = useState(null);
   const [voteResult, setVoteResult] = useState(null);
 
-  // --- GLOBAL YOUTUBE API LOADER ---
-  // Carichiamo l'API una volta sola a livello di App per evitare conflitti tra i componenti
-  useEffect(() => {
-    if (hasInteracted && !window.YT) {
-        const tag = document.createElement('script');
-        tag.src = "https://www.youtube.com/iframe_api";
-        const firstScriptTag = document.getElementsByTagName('script')[0];
-        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-    }
-  }, [hasInteracted]);
-
-  const loadDisplayData = useCallback(async () => {
-    try {
-      const { data } = await api.getDisplayData(pubCode);
-      if(!data) return;
-      
-      // FIX: Aggiorniamo lo stato solo se i dati critici sono cambiati per evitare re-render del video
-      setDisplayData(prev => {
-          if (!prev) return data;
-          // Controlli profondi su oggetti che causano re-render
-          const activeQuizChanged = prev.active_quiz?.id !== data.active_quiz?.id || prev.active_quiz?.status !== data.active_quiz?.status;
-          const perfChanged = prev.current_performance?.id !== data.current_performance?.id || prev.current_performance?.status !== data.current_performance?.status;
-          
-          if (!activeQuizChanged && !perfChanged && prev.queue?.length === data.queue?.length) {
-              return prev; // Ritorna l'oggetto precedente per mantenere la stabilità
+  //...(truncated 1307 characters)... l'oggetto precedente per mantenere la stabilità
           }
           return data;
       });
