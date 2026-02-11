@@ -14,9 +14,10 @@ const STYLES = `
   body { background: #000; overflow: hidden; font-family: 'Montserrat', sans-serif; color: white; }
   .glass-panel { background: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5); }
   
+  /* Animazione Ticker Messaggi (A nastro infinito) */
   @keyframes ticker-scroll { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-  .ticker-container { display: flex; width: max-content; animation: ticker-scroll 30s linear infinite; }
-  .ticker-item { display: flex; items-center: center; gap: 12px; margin-right: 60px; white-space: nowrap; }
+  .ticker-container { display: flex; width: max-content; animation: ticker-scroll 40s linear infinite; }
+  .ticker-item { display: flex; align-items: center; gap: 15px; margin-right: 80px; white-space: nowrap; }
 
   @keyframes gradient-move { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
   .animated-bg { background: linear-gradient(-45deg, #101010, #1a0b2e, #0f172a, #000); background-size: 400% 400%; animation: gradient-move 20s ease infinite; }
@@ -24,8 +25,8 @@ const STYLES = `
 `;
 
 const TopBar = ({ pubName, logoUrl, onlineCount, messages = [], isMuted }) => {
-  // Prepariamo i messaggi per lo scroll infinito (duplicandoli)
-  const displayMessages = messages.length > 0 ? [...messages, ...messages] : [];
+  // Duplichiamo i messaggi per creare l'effetto infinito nel nastro
+  const scrollMessages = messages.length > 0 ? [...messages, ...messages] : [];
 
   return (
     <div className="absolute top-0 left-0 right-0 h-24 z-[100] flex items-center justify-between px-8 bg-gradient-to-b from-black/90 via-black/60 to-transparent">
@@ -35,16 +36,17 @@ const TopBar = ({ pubName, logoUrl, onlineCount, messages = [], isMuted }) => {
           <h1 className="text-3xl font-black text-white tracking-wider uppercase">{pubName || "NEONPUB"}</h1>
           <div className="flex items-center gap-3">
             <span className="bg-red-600 px-2 py-0.5 rounded text-[10px] font-bold animate-pulse uppercase">LIVE</span>
-            {isMuted && <span className="bg-red-900 border border-red-500 px-2 py-0.5 rounded text-[10px] font-bold uppercase">AUDIO OFF</span>}
+            {onlineCount > 0 && <span className="text-fuchsia-400 font-bold text-xs">● {onlineCount} ONLINE</span>}
+            {isMuted && <span className="bg-red-900 border border-red-500 px-2 py-0.5 rounded text-[10px] font-bold">AUDIO OFF</span>}
           </div>
         </div>
       </div>
       
-      {/* TICKER MESSAGGI: SCORRONO TUTTI INSIEME */}
-      <div className="flex-1 mx-12 h-14 glass-panel rounded-full flex items-center overflow-hidden">
-        {displayMessages.length > 0 ? (
+      {/* TICKER MESSAGGI (IL NASTRO CONTINUO) */}
+      <div className="flex-1 mx-16 h-14 glass-panel rounded-full flex items-center overflow-hidden">
+        {scrollMessages.length > 0 ? (
           <div className="ticker-container">
-            {displayMessages.map((m, i) => (
+            {scrollMessages.map((m, i) => (
               <div key={i} className="ticker-item">
                 <MessageSquare className="w-5 h-5 text-fuchsia-400" />
                 <span className="text-fuchsia-300 font-bold">{m.nickname}:</span>
@@ -53,13 +55,13 @@ const TopBar = ({ pubName, logoUrl, onlineCount, messages = [], isMuted }) => {
             ))}
           </div>
         ) : (
-          <div className="px-8 text-white/30 text-sm uppercase tracking-widest font-bold">In attesa di messaggi dalla sala...</div>
+          <div className="px-10 text-white/30 text-sm font-bold tracking-widest uppercase">In attesa di messaggi dalla sala...</div>
         )}
       </div>
 
-      <div className="glass-panel px-4 py-2 rounded-xl flex items-center gap-3">
-        <Users className="w-5 h-5 text-fuchsia-400"/> 
-        <span className="text-2xl font-mono font-bold">{onlineCount}</span>
+      <div className="glass-panel px-6 py-2 rounded-xl flex flex-col items-center justify-center">
+         <span className="text-[10px] text-fuchsia-400 font-bold uppercase tracking-widest">Ora al</span>
+         <span className="text-xl font-black">{pubName || "NeonPub"}</span>
       </div>
     </div>
   );
@@ -68,35 +70,34 @@ const TopBar = ({ pubName, logoUrl, onlineCount, messages = [], isMuted }) => {
 const Sidebar = ({ pubCode, queue, leaderboard }) => (
   <div className="absolute top-28 right-6 bottom-6 w-[350px] z-[90] flex flex-col gap-6">
     <div className="glass-panel p-6 rounded-3xl flex flex-col items-center justify-center relative overflow-hidden">
-      <div className="bg-white p-3 rounded-2xl mb-4 relative z-10">
+      <div className="bg-white p-3 rounded-2xl mb-4 relative z-10 shadow-2xl">
         <QRCodeSVG value={`${window.location.origin}/join/${pubCode}`} size={180} />
       </div>
-      <div className="text-5xl font-black text-white tracking-widest font-mono relative z-10">{pubCode}</div>
+      <div className="text-5xl font-black text-white tracking-widest font-mono relative z-10 drop-shadow-xl">{pubCode}</div>
       <div className="text-xs text-white/60 uppercase mt-2 font-bold tracking-widest relative z-10">Scansiona e partecipa</div>
     </div>
     
     <div className="glass-panel rounded-3xl flex flex-col overflow-hidden flex-1 max-h-[40%]">
-      <div className="p-4 border-b border-white/10 bg-black/40 sticky top-0">
+      <div className="p-4 border-b border-white/10 bg-black/40 sticky top-0 z-10">
         <div className="flex items-center gap-2 text-fuchsia-400 font-black uppercase text-xs tracking-widest">
           <Clock className="w-4 h-4"/> In Arrivo
         </div>
       </div>
       <div className="flex-1 p-4 space-y-3 overflow-y-auto custom-scrollbar">
         {queue?.length > 0 ? queue.slice(0, 5).map((req, i) => (
-          <div key={i} className="bg-white/5 p-3 rounded-2xl border-l-4 border-fuchsia-600 flex items-center gap-3">
-            <div className="text-white/20 font-black text-lg w-6">#{i+1}</div>
+          <div key={i} className="bg-white/5 p-3 rounded-2xl border-l-4 border-fuchsia-600 flex items-center gap-4">
             <img src={req.user_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${req.user_nickname}`} className="w-10 h-10 rounded-full border border-white/10" />
             <div className="overflow-hidden">
               <div className="text-white font-bold text-sm truncate">{req.user_nickname}</div>
               <div className="text-white/50 text-xs truncate">{req.title}</div>
             </div>
           </div>
-        )) : <div className="text-center text-white/20 p-8 italic">Coda vuota...</div>}
+        )) : <div className="text-center text-white/10 p-10 italic text-sm">Coda vuota...</div>}
       </div>
     </div>
 
     <div className="glass-panel rounded-3xl flex flex-col overflow-hidden flex-1">
-      <div className="p-4 border-b border-white/10 bg-black/40 sticky top-0">
+      <div className="p-4 border-b border-white/10 bg-black/40 sticky top-0 z-10">
         <div className="flex items-center gap-2 text-yellow-400 font-black uppercase text-xs tracking-widest">
           <Trophy className="w-4 h-4"/> Classifica Generale
         </div>
@@ -125,25 +126,25 @@ const QuizMode = ({ quiz, result }) => (
       </div>
 
       {result ? (
-        <div className="w-full max-w-4xl animate-in zoom-in duration-500 flex flex-col items-center">
+        <div className="w-full max-w-5xl animate-in zoom-in duration-500 flex flex-col items-center">
           <div className="bg-green-600/90 backdrop-blur-md p-10 rounded-[3rem] mb-12 border-4 border-green-400 text-center w-full shadow-2xl">
             <div className="text-white/60 uppercase font-bold tracking-widest text-sm mb-2">Risposta Corretta</div>
             <span className="text-7xl font-black text-white leading-tight">{result.correct_option}</span>
           </div>
 
-          <div className="w-full glass-panel p-8 rounded-[3rem] border-t-8 border-fuchsia-500">
-            <h3 className="text-fuchsia-400 font-black uppercase tracking-widest mb-8 flex items-center gap-3 text-2xl justify-center">
+          <div className="w-full glass-panel p-10 rounded-[3rem] border-t-8 border-fuchsia-500">
+            <h3 className="text-fuchsia-400 font-black uppercase tracking-widest mb-8 flex items-center gap-4 text-3xl justify-center">
               <Zap className="w-8 h-8"/> CHI HA INDOVINATO
             </h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-6">
               {result.winners?.length > 0 ? result.winners.map((w, i) => (
                 <div key={i} className="flex items-center gap-4 bg-white/5 p-4 rounded-2xl border border-white/10">
                   <div className="bg-yellow-500 text-black font-black w-8 h-8 rounded-lg flex items-center justify-center text-lg">{i+1}</div>
-                  <img src={w.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${w.nickname}`} className="w-12 h-12 rounded-full border-2 border-fuchsia-500/50 object-cover" />
-                  <span className="text-white font-black text-2xl truncate flex-1">{w.nickname}</span>
-                  <div className="text-green-400 font-mono font-black text-xl">+{w.points}</div>
+                  <img src={w.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${w.nickname}`} className="w-14 h-14 rounded-full border-2 border-fuchsia-500/50 object-cover" />
+                  <span className="text-white font-black text-3xl truncate flex-1">{w.nickname}</span>
+                  <div className="text-green-400 font-mono font-black text-2xl">+{w.points}</div>
                 </div>
-              )) : <div className="col-span-2 text-center text-white/20 italic text-2xl py-8">Nessun vincitore in questa manche!</div>}
+              )) : <div className="col-span-2 text-center text-white/20 italic text-2xl py-10">Nessuno ha indovinato!</div>}
             </div>
           </div>
         </div>
@@ -152,7 +153,7 @@ const QuizMode = ({ quiz, result }) => (
           <h1 className="text-8xl font-black text-white leading-tight mb-20 drop-shadow-2xl">{quiz.question}</h1>
           <div className="grid grid-cols-2 gap-8">
             {quiz.options.map((opt, i) => (
-              <div key={i} className="glass-panel border-l-[15px] border-fuchsia-600 p-10 rounded-r-3xl flex items-center gap-8 text-left transition-all">
+              <div key={i} className="glass-panel border-l-[15px] border-fuchsia-600 p-10 rounded-r-3xl flex items-center gap-8 text-left transition-all hover:scale-105 duration-300">
                 <div className="w-24 h-24 bg-black/40 rounded-2xl flex items-center justify-center text-5xl font-black text-white shrink-0 font-mono border border-white/10">
                   {String.fromCharCode(65+i)}
                 </div>
@@ -175,13 +176,13 @@ const KaraokeMode = ({ perf, isMuted }) => (
       <div className="glass-panel p-6 rounded-2xl border-l-[12px] border-fuchsia-500 flex items-end gap-6 shadow-2xl">
         <div className="relative">
           <div className="absolute inset-0 bg-fuchsia-500 blur-2xl opacity-40 rounded-full"></div>
-          <img src={perf.user_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${perf.user_nickname}`} className="w-24 h-24 rounded-full border-4 border-white/20 relative z-10 bg-zinc-900" />
-          <div className="absolute -bottom-2 -right-2 bg-red-600 text-white text-xs font-black px-3 py-1 rounded-full z-20 border-2 border-white/20">LIVE</div>
+          <img src={perf.user_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${perf.user_nickname}`} className="w-24 h-24 rounded-full border-4 border-white/20 relative z-10 bg-zinc-900 shadow-2xl" />
+          <div className="absolute -bottom-2 -right-2 bg-red-600 text-white text-xs font-black px-3 py-1 rounded-full z-20 border-2 border-white/20 animate-pulse">LIVE</div>
         </div>
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-2">
             <Mic2 className="w-5 h-5 text-fuchsia-400" />
-            <span className="text-2xl font-black text-white">{perf.user_nickname}</span>
+            <span className="text-2xl font-black text-white tracking-wide">{perf.user_nickname}</span>
           </div>
           <h1 className="text-5xl font-black text-white leading-none line-clamp-1 text-glow mb-1">{perf.song_title}</h1>
           <h2 className="text-2xl text-white/60 font-bold uppercase tracking-widest">{perf.song_artist}</h2>
@@ -192,13 +193,13 @@ const KaraokeMode = ({ perf, isMuted }) => (
 );
 
 const VotingMode = ({ perf }) => (
-  <div className="w-full h-full flex flex-col items-center justify-center bg-black relative">
-    <div className="absolute inset-0 bg-fuchsia-900/20 animate-pulse"></div>
+  <div className="w-full h-full flex flex-col items-center justify-center bg-black relative overflow-hidden">
+    <div className="absolute inset-0 bg-fuchsia-900/30 animate-pulse"></div>
     <div className="relative z-10 text-center mr-[350px]">
-      <Star className="w-64 h-64 text-yellow-400 fill-yellow-400 mx-auto mb-8 animate-bounce drop-shadow-[0_0_80px_red]" />
-      <h1 className="text-[12rem] font-black text-white leading-none transform -skew-x-6">VOTA ORA!</h1>
+      <Star className="w-64 h-64 text-yellow-400 fill-yellow-400 mx-auto mb-10 animate-bounce drop-shadow-[0_0_80px_rgba(234,179,8,0.8)]" />
+      <h1 className="text-[12rem] font-black text-white leading-none transform -skew-x-6 drop-shadow-2xl">VOTA ORA!</h1>
       <div className="glass-panel px-16 py-8 rounded-full mt-10 border-4 border-yellow-500/50">
-        <p className="text-5xl text-white font-black">Dai un voto a <span className="text-yellow-400 underline">{perf.user_nickname}</span></p>
+        <p className="text-5xl text-white font-black">Vota l'esibizione di <span className="text-yellow-400 underline decoration-fuchsia-500 decoration-8">{perf.user_nickname}</span></p>
       </div>
     </div>
   </div>
@@ -207,9 +208,9 @@ const VotingMode = ({ perf }) => (
 const ScoreMode = ({ perf }) => (
   <div className="w-full h-full flex flex-col items-center justify-center bg-black relative">
     <div className="relative z-10 mr-[350px] text-center">
-      <Trophy className="w-48 h-48 text-yellow-500 mx-auto mb-6" />
-      <h2 className="text-4xl text-white/50 font-black uppercase tracking-widest mb-4">Risultato Esibizione</h2>
-      <div className="text-[18rem] font-black text-white leading-none drop-shadow-2xl">
+      <Trophy className="w-64 h-64 text-yellow-500 mx-auto mb-8 drop-shadow-[0_0_80px_rgba(234,179,8,0.4)]" />
+      <h2 className="text-5xl text-white/50 font-black uppercase tracking-[0.3em] mb-6">Punteggio Finale</h2>
+      <div className="text-[20rem] font-black text-white leading-none drop-shadow-2xl scale-110">
         {perf.average_score?.toFixed(1) || "0.0"}
       </div>
     </div>
@@ -219,10 +220,10 @@ const ScoreMode = ({ perf }) => (
 const IdleMode = ({ pub }) => (
   <div className="w-full h-full flex flex-col items-center justify-center animated-bg relative">
     <div className="relative z-10 text-center mr-[350px]">
-      {pub.logo_url && <img src={pub.logo_url} className="w-80 h-80 rounded-[4rem] mb-12 mx-auto shadow-2xl object-cover bg-black" />}
-      <h1 className="text-[10rem] font-black text-white tracking-tighter leading-none mb-8">{pub.name}</h1>
+      {pub.logo_url && <img src={pub.logo_url} className="w-80 h-80 rounded-[4rem] mb-12 mx-auto shadow-[0_0_100px_rgba(0,0,0,0.8)] border-4 border-white/20 object-cover bg-black" />}
+      <h1 className="text-[10rem] font-black text-white tracking-tighter leading-none mb-10 drop-shadow-2xl">{pub.name}</h1>
       <div className="glass-panel px-20 py-8 rounded-full inline-block border-2 border-white/20">
-        <span className="text-5xl text-white/90 font-black uppercase tracking-[0.5em]">Benvenuti</span>
+        <span className="text-5xl text-white/90 font-black uppercase tracking-[0.5em]">Si comincia tra poco...</span>
       </div>
     </div>
   </div>
@@ -242,8 +243,7 @@ export default function PubDisplay() {
         setData(res.data);
         const q = res.data.active_quiz;
         if(q && (q.status === 'showing_results' || q.status === 'leaderboard')) {
-          const r = await api.getQuizResults(q.id);
-          setQuizResult(r.data);
+          setQuizResult((await api.getQuizResults(q.id)).data);
         } else { setQuizResult(null); }
       }
     } catch(e) { console.error(e); }
@@ -261,7 +261,7 @@ export default function PubDisplay() {
     return () => { clearInterval(int); supabase.removeChannel(ch); };
   }, [pubCode, load]);
 
-  if (!data) return <div className="w-screen h-screen bg-black flex items-center justify-center text-white font-black text-5xl animate-pulse">CARICAMENTO...</div>;
+  if (!data) return <div className="w-screen h-screen bg-black flex items-center justify-center text-white font-black text-5xl animate-pulse">CARICAMENTO NEONPUB...</div>;
 
   const { pub, current_performance: perf, queue, active_quiz: quiz, leaderboard, approved_messages } = data;
   const isQuiz = quiz && ['active', 'closed', 'showing_results'].includes(quiz.status);
