@@ -21,6 +21,9 @@ const getMediaType = (url, type) => {
   return 'unknown';
 };
 
+// EXPORT GLOBALE per controllo mute da PubDisplay
+window.quizPlayerRef = null;
+
 const QuizMediaFixed = ({ mediaUrl, mediaType, isResult }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [audioBlocked, setAudioBlocked] = useState(false);
@@ -45,6 +48,7 @@ const QuizMediaFixed = ({ mediaUrl, mediaType, isResult }) => {
         // Ignora errori durante destroy
       }
       playerRef.current = null;
+      window.quizPlayerRef = null;
     }
   }, []);
 
@@ -162,6 +166,9 @@ const QuizMediaFixed = ({ mediaUrl, mediaType, isResult }) => {
             onReady: (event) => {
               console.log('[QuizMedia] Player pronto');
               
+              // EXPORT per controllo mute globale
+              window.quizPlayerRef = playerRef.current;
+              
               // Forza volume e unmute
               event.target.setVolume(100);
               event.target.unMute();
@@ -227,11 +234,7 @@ const QuizMediaFixed = ({ mediaUrl, mediaType, isResult }) => {
       initPlayer();
     }
 
-    // Cleanup on unmount o cambio video
-    return () => {
-      // NON fare cleanup se il video è ancora lo stesso e sta funzionando
-      // Il cleanup avverrà solo quando cambia davvero il video
-    };
+    return () => {};
   }, [mediaUrl, isResult, detectedType, cleanupPlayer]);
 
   // Cleanup definitivo on unmount
@@ -253,44 +256,44 @@ const QuizMediaFixed = ({ mediaUrl, mediaType, isResult }) => {
     return (
       <div 
         ref={containerRef}
-        className="absolute inset-0 bg-black flex items-center justify-center"
+        className=\"absolute inset-0 bg-black flex items-center justify-center\"
       >
-        {/* Container YouTube */}
+        {/* Container YouTube - FULL SIZE */}
         <div 
-          id="quiz-fixed-player" 
-          className={`absolute inset-0 ${isAudioMode ? 'opacity-0' : 'opacity-100'}`}
+          id=\"quiz-fixed-player\" 
+          className={`absolute inset-0 w-full h-full ${isAudioMode ? 'opacity-0' : 'opacity-100'}`}
           style={{ pointerEvents: 'none' }}
         />
         
         {/* Loading spinner */}
         {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-10">
-            <Loader2 className="w-12 h-12 text-purple-500 animate-spin" />
+          <div className=\"absolute inset-0 flex items-center justify-center bg-black/80 z-10\">
+            <Loader2 className=\"w-16 h-16 text-fuchsia-500 animate-spin\" />
           </div>
         )}
         
         {/* Audio blocked banner */}
         {audioBlocked && !isLoading && (
           <div 
-            className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 
-                       bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 
-                       rounded-full cursor-pointer flex items-center gap-2
-                       transition-all duration-200 shadow-lg"
+            className=\"absolute bottom-8 left-1/2 -translate-x-1/2 z-20 
+                       bg-fuchsia-600 hover:bg-fuchsia-700 text-white px-8 py-4 
+                       rounded-full cursor-pointer flex items-center gap-3
+                       transition-all duration-200 shadow-2xl animate-pulse\"
             onClick={handleUnblockAudio}
           >
-            <Volume2 className="w-5 h-5" />
-            <span className="font-semibold">CLICCA QUI PER ATTIVARE L'AUDIO</span>
+            <Volume2 className=\"w-6 h-6\" />
+            <span className=\"font-bold text-lg\">CLICCA QUI PER ATTIVARE L'AUDIO</span>
           </div>
         )}
         
         {/* Audio mode overlay */}
         {isAudioMode && !isLoading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-purple-900 to-black z-5">
-            <div className="relative">
-              <div className="absolute inset-0 bg-purple-500/30 rounded-full blur-xl animate-pulse" />
-              <Music className="w-24 h-24 text-purple-400 relative z-10" />
+          <div className=\"absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-purple-900 to-black z-5\">
+            <div className=\"relative\">
+              <div className=\"absolute inset-0 bg-fuchsia-500/30 rounded-full blur-3xl animate-pulse\" style={{width: '200px', height: '200px', margin: '-50px'}} />
+              <Music className=\"w-32 h-32 text-fuchsia-400 relative z-10\" />
             </div>
-            <p className="mt-4 text-xl text-purple-300 font-medium">Ascolta la traccia</p>
+            <p className=\"mt-6 text-3xl text-fuchsia-300 font-bold\">Ascolta la traccia</p>
           </div>
         )}
       </div>
@@ -298,7 +301,7 @@ const QuizMediaFixed = ({ mediaUrl, mediaType, isResult }) => {
   }
 
   // Fallback per altri tipi
-  return <div className="absolute inset-0 bg-black" />;
+  return <div className=\"absolute inset-0 bg-black\" />;
 };
 
 export default QuizMediaFixed;
