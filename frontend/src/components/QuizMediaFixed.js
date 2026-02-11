@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback, memo } from 'react';
-import { Loader2, Music, Volume2, VideoOff } from 'lucide-react';
+import { Loader2, Music, Volume2 } from 'lucide-react';
 
 // Helper per estrarre ID YouTube
 const getYoutubeId = (url) => {
@@ -36,7 +36,9 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult }) => {
   const cleanupPlayer = useCallback(() => {
     if (playerRef.current) {
       try {
-        playerRef.current.destroy();
+        if (typeof playerRef.current.destroy === 'function') {
+          playerRef.current.destroy();
+        }
       } catch (e) {
         // Ignora errori di distruzione
       }
@@ -59,9 +61,7 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult }) => {
   }, []);
 
   useEffect(() => {
-    // SE SIAMO IN FASE RISULTATO:
-    // Non distruggiamo il player se è lo stesso video, lo nascondiamo solo via CSS nel genitore
-    // Ma se non c'è URL, usciamo.
+    // Se non c'è URL, usciamo
     if (!mediaUrl) return;
 
     if (detectedType !== 'youtube' || !videoId) {
@@ -72,9 +72,9 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult }) => {
     // LOGICA ANTI-RIAVVIO
     // Se l'ID è lo stesso e il player esiste, NON fare nulla.
     if (currentVideoIdRef.current === videoId && playerRef.current) {
-      // Assicuriamoci solo che stia suonando
-      if (playerRef.current.getPlayerState && playerRef.current.getPlayerState() !== 1) {
-          playerRef.current.playVideo();
+      // Assicuriamoci solo che stia suonando se non siamo nella schermata risultati
+      if (!isResult && playerRef.current.getPlayerState && playerRef.current.getPlayerState() !== 1) {
+          try { playerRef.current.playVideo(); } catch(e){}
       }
       return;
     }
@@ -93,11 +93,13 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult }) => {
         return;
       }
 
-      // Doppio check per evitare race conditions
       if (isInitializedRef.current) return;
       isInitializedRef.current = true;
 
       try {
+        // Verifica esistenza elemento DOM
+        if(!document.getElementById('quiz-fixed-player')) return;
+
         playerRef.current = new window.YT.Player('quiz-fixed-player', {
           videoId: videoId,
           playerVars: {
@@ -109,11 +111,11 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult }) => {
             modestbranding: 1,
             rel: 0,
             showinfo: 0,
-            mute: 0, // Tentativo autoplay con audio
+            mute: 0, 
             playsinline: 1,
             origin: window.location.origin,
             loop: 1,
-            playlist: videoId // Hack per loop
+            playlist: videoId 
           },
           events: {
             onReady: (event) => {
@@ -121,7 +123,6 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult }) => {
               event.target.unMute();
               event.target.playVideo();
               
-              // Verifica se l'audio è partito o è bloccato
               setTimeout(() => {
                 if (event.target.isMuted && event.target.isMuted()) {
                   setAudioBlocked(true);
@@ -159,11 +160,9 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult }) => {
     }
 
     return () => {
-      // NON distruggere al cleanup dell'effetto per evitare flash neri 
-      // se il componente viene rimontato velocemente.
-      // La distruzione avviene solo se cambia ID video all'inizio.
+      // Non distruggiamo al cleanup dell'effetto per evitare flash
     };
-  }, [mediaUrl, detectedType, videoId, cleanupPlayer]);
+  }, [mediaUrl, detectedType, videoId, cleanupPlayer, isResult]);
 
   // Se non c'è media, niente da renderizzare
   if (!mediaUrl) return null;
@@ -215,8 +214,7 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult }) => {
     </div>
   );
 }, (prevProps, nextProps) => {
-  // Funzione di comparazione personalizzata per React.memo
-  // Rerenderizza SOLO se cambia URL o isResult cambia stato in modo critico
+  // Rerenderizza SOLO se cambia URL o isResult
   return prevProps.mediaUrl === nextProps.mediaUrl && 
          prevProps.mediaType === nextProps.mediaType &&
          prevProps.isResult === nextProps.isResult; 

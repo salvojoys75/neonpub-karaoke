@@ -5,9 +5,10 @@ import { supabase } from '@/lib/supabase';
 import api from '@/lib/api';
 import { 
   Music, Users, Trophy, Mic2, MessageSquare, Crown, Star, Sparkles, 
-  Clock, CheckCircle2, TrendingUp, Radio
+  Radio
 } from 'lucide-react';
-import QuizMediaFixed from './QuizMediaFixed';
+// IMPORT CORRETTO: Punta alla cartella components usando l'alias @
+import QuizMediaFixed from '@/components/QuizMediaFixed';
 
 // --- COMPONENTI UI STILE TV ---
 
@@ -61,12 +62,8 @@ const MessageTicker = ({ message }) => {
 // --- SCHERMATA KARAOKE ---
 const KaraokeMode = ({ performance, isVoting, voteResult }) => (
   <div className="relative w-full h-full flex flex-col items-center justify-center overflow-hidden">
-    {/* Dynamic Background */}
     <div className="absolute inset-0 bg-gradient-to-br from-fuchsia-900 via-indigo-950 to-black animate-gradient-slow" />
     <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20" />
-    
-    {/* YouTube Player Wrapper (Hidden/Background) */}
-    {/* Note: In PubDisplay main logic we handle the player mounting, here we just show UI */}
     
     <div className="z-10 text-center w-full max-w-5xl px-4">
       {isVoting ? (
@@ -87,7 +84,6 @@ const KaraokeMode = ({ performance, isVoting, voteResult }) => (
         </div>
       ) : (
         <div className="flex flex-col items-center animate-in fade-in duration-1000">
-           {/* Now Playing UI */}
            <div className="w-64 h-64 bg-gradient-to-br from-gray-800 to-black rounded-2xl shadow-2xl mb-8 flex items-center justify-center border border-white/10 relative group overflow-hidden">
               <div className="absolute inset-0 bg-fuchsia-600/20 blur-xl group-hover:bg-fuchsia-600/30 transition-all duration-1000"></div>
               <Music className="w-32 h-32 text-white/80 group-hover:scale-110 transition-transform duration-700" />
@@ -110,28 +106,21 @@ const KaraokeMode = ({ performance, isVoting, voteResult }) => (
   </div>
 );
 
-// --- SCHERMATA QUIZ (The Core Improvement) ---
+// --- SCHERMATA QUIZ ---
 const QuizMode = ({ quiz, results }) => {
   const isResult = quiz.status === 'showing_results' || quiz.status === 'leaderboard';
   
   return (
     <div className="relative w-full h-full">
-      {/* 
-         CRITICAL FIX: 
-         QuizMediaFixed is positioned absolutely in the back. 
-         It does NOT unmount when switching from Question -> Results 
-         because it is rendered inside this container persistently.
-      */}
+      {/* BACKGROUND MEDIA LAYER */}
       <QuizMediaFixed 
         mediaUrl={quiz.media_url} 
         mediaType={quiz.media_type} 
-        isResult={isResult} // This prop helps dim or hide visuals if needed, but component stays mounted
+        isResult={isResult}
       />
 
-      {/* QUIZ UI OVERLAY */}
+      {/* FOREGROUND UI LAYER */}
       <div className="absolute inset-0 z-20 flex flex-col p-8 md:p-16">
-        
-        {/* Header Question Info */}
         {!isResult && (
           <div className="flex justify-between items-start animate-in slide-in-from-top duration-500">
              <div className="bg-black/60 backdrop-blur-md px-6 py-2 rounded-full border border-fuchsia-500/50">
@@ -145,18 +134,13 @@ const QuizMode = ({ quiz, results }) => {
           </div>
         )}
 
-        {/* Content Area */}
         <div className="flex-1 flex flex-col justify-end pb-20">
-           
            {isResult && results ? (
-             /* RESULT VIEW */
              <div className="self-center w-full max-w-4xl text-center animate-in zoom-in duration-500">
                 <h2 className="text-5xl font-black text-white mb-8 drop-shadow-lg uppercase italic">La risposta giusta è:</h2>
-                
                 <div className="bg-green-600/90 backdrop-blur-xl border-4 border-green-400 p-8 rounded-3xl shadow-[0_0_50px_rgba(34,197,94,0.4)] mb-8 transform scale-110">
                    <p className="text-5xl font-bold text-white">{results.correct_option}</p>
                 </div>
-
                 <div className="grid grid-cols-2 gap-4 max-w-2xl mx-auto">
                    <div className="bg-black/50 backdrop-blur rounded-xl p-4 border border-white/10">
                       <div className="text-4xl font-black text-green-400">{results.correct_count}</div>
@@ -169,17 +153,13 @@ const QuizMode = ({ quiz, results }) => {
                 </div>
              </div>
            ) : (
-             /* QUESTION VIEW */
              <div className="w-full max-w-5xl mx-auto animate-in slide-in-from-bottom duration-700">
-                {/* Question Text */}
                 <div className="bg-black/70 backdrop-blur-xl border border-white/10 p-8 rounded-3xl shadow-2xl mb-6 relative overflow-hidden">
                    <div className="absolute top-0 left-0 w-2 h-full bg-fuchsia-500" />
                    <h2 className="text-4xl md:text-5xl font-bold text-white leading-tight drop-shadow-md">
                      {quiz.question}
                    </h2>
                 </div>
-
-                {/* Options Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {quiz.options?.map((opt, i) => (
                     <div key={i} className="bg-white/10 backdrop-blur-md border border-white/10 hover:bg-white/20 transition-colors p-6 rounded-xl flex items-center gap-4 group">
@@ -234,8 +214,6 @@ const PubDisplay = () => {
   const { pubCode } = useParams();
   const [data, setData] = useState(null);
   const [quizResults, setQuizResults] = useState(null);
-  
-  // Refs per evitare loop e re-fetch inutili
   const lastQuizIdRef = useRef(null);
 
   const loadData = useCallback(async () => {
@@ -243,8 +221,6 @@ const PubDisplay = () => {
       const res = await api.getDisplayData(pubCode);
       if (res.data) {
         setData(res.data);
-        
-        // Logica Risultati Quiz
         const q = res.data.active_quiz;
         if (q && (q.status === 'showing_results' || q.status === 'leaderboard')) {
             if (lastQuizIdRef.current !== q.id || !quizResults) {
@@ -253,7 +229,7 @@ const PubDisplay = () => {
                 lastQuizIdRef.current = q.id;
             }
         } else if (q && q.status === 'active') {
-            setQuizResults(null); // Reset per nuova domanda
+            setQuizResults(null);
         }
       }
     } catch (e) { console.error(e); }
@@ -261,36 +237,29 @@ const PubDisplay = () => {
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 3000); // Polling di sicurezza
-    
-    // Setup Realtime
+    const interval = setInterval(loadData, 3000);
     const ch = supabase.channel('display_updates')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'performances' }, loadData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes' }, loadData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, loadData)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, loadData)
       .subscribe();
-
     return () => { clearInterval(interval); supabase.removeChannel(ch); };
   }, [loadData]);
 
   if (!data) return <div className="h-screen bg-black flex items-center justify-center text-white animate-pulse">CARICAMENTO SEGNALE...</div>;
 
   const { pub, current_performance, active_quiz, leaderboard, latest_message } = data;
-  
-  // STATO LOGICO
   const showLeaderboard = active_quiz?.status === 'leaderboard';
   const showQuiz = active_quiz && ['active', 'closed', 'showing_results'].includes(active_quiz.status);
   const showKaraoke = current_performance && !showQuiz && !showLeaderboard;
 
   return (
     <div className="h-screen w-screen bg-black overflow-hidden font-sans select-none relative">
-       {/* GLOBAL OVERLAYS */}
        <LogoDisplay url={pub?.logo_url} name={pub?.name} />
        <JoinCard code={pubCode} />
        <MessageTicker message={latest_message} />
 
-       {/* MAIN CONTENT SWITCHER */}
        <div className="absolute inset-0 z-0">
           {showLeaderboard ? (
              <LeaderboardMode leaderboard={leaderboard} />
@@ -303,11 +272,10 @@ const PubDisplay = () => {
                 voteResult={current_performance.status === 'ended' ? current_performance.average_score : null}
              />
           ) : (
-             // IDLE SCREEN
              <div className="h-full flex flex-col items-center justify-center relative">
                 <div className="absolute inset-0 bg-gradient-to-t from-fuchsia-900/40 via-black to-black" />
                 <div className="z-10 text-center animate-in fade-in duration-1000">
-                    <img src={pub?.logo_url || "https://placehold.co/400x400/1a1a1a/FFF?text=NEON+PUB"} className="w-48 h-48 mx-auto rounded-full mb-8 shadow-2xl border-4 border-fuchsia-600 object-cover" />
+                    <img src={pub?.logo_url || "https://placehold.co/400x400/1a1a1a/FFF?text=NEON+PUB"} alt="Logo" className="w-48 h-48 mx-auto rounded-full mb-8 shadow-2xl border-4 border-fuchsia-600 object-cover" />
                     <h1 className="text-7xl font-black text-white mb-4 tracking-tighter uppercase">{pub?.name}</h1>
                     <p className="text-2xl text-fuchsia-400 font-bold uppercase tracking-[0.5em] animate-pulse">In attesa dell'evento...</p>
                 </div>
