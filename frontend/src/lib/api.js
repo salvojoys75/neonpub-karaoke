@@ -456,7 +456,7 @@ export const restartPerformance = async (performanceId) => {
 
 export const toggleMute = async (isMuted) => {
     const pubCode = localStorage.getItem('neonpub_pub_code');
-    const channel = supabase.channel(`display_control_${pubCode}`);
+    const channel = supabase.channel('tv_ctrl'); // Match PubDisplay listener
     await channel.send({
         type: 'broadcast',
         event: 'control',

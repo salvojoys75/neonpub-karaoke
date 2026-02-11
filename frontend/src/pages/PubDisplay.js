@@ -110,7 +110,7 @@ const TopBar = ({ pubName, logoUrl, onlineCount, msg, isMuted }) => (
   </div>
 );
 
-const Sidebar = ({ pubCode, queue }) => (
+const Sidebar = ({ pubCode, queue, leaderboard }) => (
   <div className="absolute top-28 right-6 bottom-6 w-[350px] z-[90] flex flex-col gap-6">
       {/* QR CODE BOX */}
       <div className="glass-panel p-6 rounded-3xl flex flex-col items-center justify-center relative overflow-hidden">
@@ -123,7 +123,7 @@ const Sidebar = ({ pubCode, queue }) => (
       </div>
       
       {/* CODA */}
-      <div className="glass-panel rounded-3xl flex-1 flex flex-col overflow-hidden relative">
+      <div className="glass-panel rounded-3xl flex flex-col overflow-hidden relative" style={{maxHeight: '45%'}}>
           <div className="p-5 border-b border-white/10 bg-black/40 backdrop-blur-md sticky top-0 z-10">
               <div className="flex items-center gap-2 text-fuchsia-400 font-black uppercase tracking-widest text-sm">
                   <Clock className="w-4 h-4"/> Prossimi Cantanti
@@ -136,14 +136,54 @@ const Sidebar = ({ pubCode, queue }) => (
                       Coda vuota...
                   </div>
               ) : (
-                  queue.map((req, i) => (
-                      <div key={i} className="bg-white/5 p-3 rounded-2xl border-l-4 border-fuchsia-600 flex items-center gap-4 transform transition hover:scale-105 duration-300">
+                  queue.slice(0, 5).map((req, i) => (
+                      <div key={i} className="bg-white/5 p-3 rounded-2xl border-l-4 border-fuchsia-600 flex items-center gap-4">
                           <div className="font-mono text-white/30 text-xl font-bold w-6">#{i+1}</div>
                           <img src={req.user_avatar} className="w-10 h-10 rounded-full bg-zinc-800 object-cover border border-white/10" alt="avatar" />
                           <div className="overflow-hidden">
                               <div className="text-white font-bold text-sm truncate">{req.user_nickname}</div>
                               <div className="text-white/50 text-xs truncate font-medium">{req.title}</div>
                           </div>
+                      </div>
+                  ))
+              )}
+          </div>
+      </div>
+
+      {/* CLASSIFICA */}
+      <div className="glass-panel rounded-3xl flex flex-col overflow-hidden relative flex-1">
+          <div className="p-5 border-b border-white/10 bg-black/40 backdrop-blur-md sticky top-0 z-10">
+              <div className="flex items-center gap-2 text-yellow-400 font-black uppercase tracking-widest text-sm">
+                  <Trophy className="w-4 h-4"/> Classifica Quiz
+              </div>
+          </div>
+          <div className="flex-1 p-4 space-y-2 overflow-y-auto custom-scrollbar">
+              {!leaderboard || leaderboard.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-white/20 italic text-sm">
+                      <Trophy className="w-10 h-10 mb-4 opacity-30"/>
+                      Nessun punteggio
+                  </div>
+              ) : (
+                  leaderboard.slice(0, 10).map((player, i) => (
+                      <div key={i} className={`p-2.5 rounded-xl flex items-center gap-3 ${
+                          i === 0 ? 'bg-yellow-500/20 border border-yellow-500/30' :
+                          i === 1 ? 'bg-zinc-400/10 border border-zinc-400/20' :
+                          i === 2 ? 'bg-amber-700/10 border border-amber-700/20' :
+                          'bg-white/5'
+                      }`}>
+                          <div className={`font-mono font-bold w-6 text-center ${
+                              i === 0 ? 'text-yellow-400 text-lg' :
+                              i === 1 ? 'text-zinc-300' :
+                              i === 2 ? 'text-amber-600' :
+                              'text-white/40 text-sm'
+                          }`}>
+                              {i+1}
+                          </div>
+                          <img src={player.avatar} className="w-8 h-8 rounded-full bg-zinc-800 object-cover border border-white/10" alt="avatar" />
+                          <div className="flex-1 truncate">
+                              <div className="text-white font-bold text-sm truncate">{player.nickname}</div>
+                          </div>
+                          <div className="font-mono text-cyan-400 font-bold text-sm">{player.score || 0}</div>
                       </div>
                   ))
               )}
@@ -168,24 +208,24 @@ const KaraokeMode = ({ perf, isMuted }) => {
                 />
             </div>
             
-            {/* LOWER THIRD (Banner Cantante) */}
-            <div className="absolute bottom-12 left-12 right-[420px] z-[80] anim-entry">
-                <div className="glass-panel p-6 rounded-[2rem] border-l-8 border-fuchsia-500 relative overflow-hidden flex items-end gap-6 shadow-[0_0_50px_rgba(0,0,0,0.8)]">
+            {/* LOWER THIRD (Banner Cantante) - RIDOTTO */}
+            <div className="absolute bottom-8 left-8 right-[420px] z-[80] anim-entry">
+                <div className="glass-panel p-4 rounded-xl border-l-8 border-fuchsia-500 relative overflow-hidden flex items-end gap-4 shadow-[0_0_50px_rgba(0,0,0,0.8)]">
                     
-                    {/* Avatar Grande */}
+                    {/* Avatar Ridotto */}
                     <div className="relative">
                         <div className="absolute inset-0 bg-fuchsia-500 blur-xl opacity-50 rounded-full"></div>
-                        <img src={perf.user_avatar} className="w-32 h-32 rounded-full border-4 border-white/20 object-cover relative z-10 bg-zinc-900 shadow-2xl" alt="Singer" />
-                        <div className="absolute -bottom-2 -right-2 bg-red-600 text-white text-[10px] font-bold px-2 py-1 rounded-full z-20 border border-white/20 animate-bounce">ON STAGE</div>
+                        <img src={perf.user_avatar} className="w-16 h-16 rounded-full border-2 border-white/20 object-cover relative z-10 bg-zinc-900 shadow-2xl" alt="Singer" />
+                        <div className="absolute -bottom-1 -right-1 bg-red-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full z-20 border border-white/20">LIVE</div>
                     </div>
 
-                    <div className="flex-1 pb-2">
-                        <div className="flex items-center gap-3 mb-2">
-                            <Mic2 className="w-5 h-5 text-fuchsia-400" />
-                            <span className="text-2xl font-bold text-white">{perf.user_nickname}</span>
+                    <div className="flex-1 pb-1">
+                        <div className="flex items-center gap-2 mb-1">
+                            <Mic2 className="w-4 h-4 text-fuchsia-400" />
+                            <span className="text-lg font-bold text-white">{perf.user_nickname}</span>
                         </div>
-                        <h1 className="text-6xl font-black text-white leading-none line-clamp-1 text-glow mb-1">{perf.song_title}</h1>
-                        <h2 className="text-3xl text-white/60 font-light uppercase tracking-wide">{perf.song_artist}</h2>
+                        <h1 className="text-3xl font-black text-white leading-none line-clamp-1 text-glow mb-0.5">{perf.song_title}</h1>
+                        <h2 className="text-xl text-white/60 font-light uppercase tracking-wide">{perf.song_artist}</h2>
                     </div>
                 </div>
             </div>
@@ -392,6 +432,24 @@ export default function PubDisplay() {
     const isVoting = !isQuiz && perf && perf.status === 'voting';
     const isScore = !isQuiz && perf && perf.status === 'ended';
     
+    // Auto-hide score after 8 seconds
+    useEffect(() => {
+        if (isScore && perf) {
+            const timer = setTimeout(async () => {
+                // Mark performance as completed so it disappears
+                try {
+                    await supabase.from('performances')
+                        .update({ status: 'completed' })
+                        .eq('id', perf.id);
+                    load(); // Refresh to show idle screen
+                } catch (e) {
+                    console.error('Score auto-hide error:', e);
+                }
+            }, 8000); // 8 seconds
+            return () => clearTimeout(timer);
+        }
+    }, [isScore, perf?.id]);
+    
     let Content = null;
     if (isQuiz) Content = <QuizMode quiz={quiz} result={quizResult} />;
     else if (isVoting) Content = <VotingMode perf={perf} />;
@@ -414,7 +472,7 @@ export default function PubDisplay() {
                 {Content}
             </div>
             
-            <Sidebar pubCode={pubCode} queue={queue} />
+            <Sidebar pubCode={pubCode} queue={queue} leaderboard={leaderboard} />
         </div>
     );
 }

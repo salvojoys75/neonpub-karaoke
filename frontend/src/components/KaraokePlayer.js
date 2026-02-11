@@ -168,14 +168,9 @@ const KaraokePlayer = ({ url, status, volume = 100, isMuted, startedAt }) => {
         }
       }
 
-      // B. GESTIONE RESTART (Riavvolgi a inizio)
-      if (startedAt && lastStartedAtRef.current !== startedAt) {
-        lastStartedAtRef.current = startedAt;
-        playerRef.current.seekTo(0, true); // seekTo(seconds, allowSeekAhead)
-        if (status === 'live') {
-          playerRef.current.playVideo();
-        }
-      }
+      // B. GESTIONE RESTART
+      // REMOVED: startedAt check causes unwanted restart on pause/resume
+      // Video restart is handled by videoId change in first effect
 
       // C. GESTIONE MUTE/VOLUME
       if (isMuted) {
