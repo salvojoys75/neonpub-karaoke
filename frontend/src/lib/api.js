@@ -477,14 +477,15 @@ export const sendReaction = async (data) => {
 }
 
 export const sendMessage = async (data) => {
-  // MODIFICA: Controlla PRIMA se è un messaggio da Admin (via codice operatore)
+  // FIX: Usa status 'approved' ma senza participant_id per la regia
+  // Questo aggira il vincolo DB 'admin_overlay' e permette di filtrarli dopo
   const pubCode = localStorage.getItem('neonpub_pub_code');
   if (pubCode) {
       const { data: event } = await supabase.from('events').select('id').eq('code', pubCode).single();
       if (event) {
            const text = typeof data === 'string' ? data : (data.text || data.message);
            const { data: message, error } = await supabase.from('messages').insert({
-                event_id: event.id, participant_id: null, text: text, status: 'admin_overlay'
+                event_id: event.id, participant_id: null, text: text, status: 'approved'
            }).select().single();
            if (error) throw error;
            return { data: message };
@@ -635,17 +636,19 @@ export const getDisplayData = async (pubCode) => {
       return { data: null };
   }
 
+  // FIX: Separate queries per distinguere messaggi Admin (null participant) da Utenti
   const [perf, queue, lb, activeQuiz, adminMsg, approvedMsgs] = await Promise.all([
     supabase.from('performances').select('*, participants(nickname)').eq('event_id', event.id).in('status', ['live','voting','paused','ended']).order('started_at', {ascending: false}).limit(1).maybeSingle(),
     supabase.from('song_requests').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'queued').limit(10), 
     supabase.from('participants').select('nickname, score').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
     supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
-    supabase.from('messages').select('*').eq('event_id', event.id).eq('status', 'admin_overlay').order('created_at', {ascending: false}).limit(1).maybeSingle(),
-    supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'approved').order('created_at', {ascending: false}).limit(10)
+    // Messaggio REGIA: approved AND participant_id IS NULL
+    supabase.from('messages').select('*').eq('event_id', event.id).is('participant_id', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle(),
+    // Messaggi UTENTI: approved AND participant_id IS NOT NULL
+    supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).not('participant_id', 'is', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(10)
   ])
 
   let currentPerformance = perf.data ? {...perf.data, user_nickname: perf.data.participants?.nickname} : null;
-  // MODIFICA: Se è finita da più di 15 secondi, torna a Idle
   if (currentPerformance && currentPerformance.status === 'ended') {
       const endedAt = new Date(currentPerformance.ended_at);
       const now = new Date();

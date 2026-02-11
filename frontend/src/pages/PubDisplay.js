@@ -160,14 +160,14 @@ const Sidebar = ({ pubCode, queue, leaderboard }) => (
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin scrollbar-thumb-fuchsia-600 scrollbar-track-transparent">
               {queue && queue.length > 0 ? (
-                  queue.map((s, i) => (
+                  queue.slice(0, 1).map((s, i) => (
                       <div key={s.id} className="bg-white/5 backdrop-blur-sm p-4 rounded-2xl border border-white/10 hover:bg-white/10 transition-all flex items-center gap-4">
                           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-fuchsia-600 to-purple-600 flex items-center justify-center text-white font-black text-lg shadow-lg shrink-0">
                               {i + 1}
                           </div>
                           <div className="flex-1 min-w-0">
                               <div className="text-white font-bold text-lg truncate">{s.user_nickname}</div>
-                              <div className="text-white/60 text-sm truncate">{s.song_title || 'Canzone senza titolo'}</div>
+                              <div className="text-white/60 text-sm truncate">{s.title || s.song_title || 'Canzone senza titolo'}</div>
                           </div>
                           <Music className="w-5 h-5 text-fuchsia-400 shrink-0" />
                       </div>
@@ -420,11 +420,9 @@ export default function PubDisplay() {
         try {
             const res = await api.getDisplayData(pubCode);
             if(res.data) {
-                // MODIFICA: Logica unificata per evitare flickering
                 let finalData = res.data;
                 const q = finalData.active_quiz;
 
-                // 1. Gestione Risultati Quiz
                 if(q && q.status === 'showing_results') {
                     const r = await api.getQuizResults(q.id);
                     setQuizResult(r.data);
@@ -432,10 +430,7 @@ export default function PubDisplay() {
                     setQuizResult(null);
                 }
 
-                // 2. Gestione Classifica Quiz
                 if(q && q.status === 'leaderboard') {
-                    // Usa la classifica generale già scaricata da getDisplayData per evitare chiamate async doppie e scatti
-                    // Mappa la struttura per il componente QuizMode
                     finalData = {
                         ...finalData,
                         active_quiz: {
@@ -445,7 +440,6 @@ export default function PubDisplay() {
                     };
                 }
                 
-                // 3. Unico Update di Stato
                 setData(finalData);
             }
         } catch(e) { console.error(e); }
