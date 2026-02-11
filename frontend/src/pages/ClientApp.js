@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { Home, Music, Trophy, User, Star, MessageSquare, RefreshCw, Mic2, Check, Lock, Zap, Camera, X } from "lucide-react";
+import { Home, Music, Trophy, Camera, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase"; 
 import api from "@/lib/api";
@@ -49,8 +49,6 @@ export default function ClientApp() {
   const [songInput, setSongInput] = useState({ title: "", artist: "" });
   const [showVote, setShowVote] = useState(false);
   const [voteVal, setVoteVal] = useState(0);
-  const [showMsg, setShowMsg] = useState(false);
-  const [msgTxt, setMsgTxt] = useState("");
 
   const pollRef = useRef(null);
 
@@ -63,9 +61,8 @@ export default function ClientApp() {
       try {
           let avatarUrl = selectedAvatar;
           if (customFile) {
-              avatarUrl = await api.uploadLogo(customFile); // Usa la funzione di upload esistente
+              avatarUrl = await api.uploadLogo(customFile);
           }
-          
           await login(pubCode, nickname, avatarUrl);
       } catch (err) {
           toast.error(err.message);
@@ -77,8 +74,16 @@ export default function ClientApp() {
       const file = e.target.files[0];
       if (file) {
           setCustomFile(file);
-          setSelectedAvatar(URL.createObjectURL(file)); // Preview
+          setSelectedAvatar(URL.createObjectURL(file)); 
       }
+  };
+
+  const forceCloseQuiz = () => {
+      setShowQuizModal(false);
+      setActiveQuiz(null);
+      setQuizResult(null);
+      setQuizAnswer(null);
+      setPointsEarned(0);
   };
 
   // --- DATA LOADING ---
@@ -86,28 +91,32 @@ export default function ClientApp() {
     if(!isAuthenticated) return;
     try {
         const [q, my, perf, lb, quiz] = await Promise.all([
-            api.getSongQueue(), api.getMyRequests(), api.getCurrentPerformance(), 
-            api.getLeaderboard(), api.getActiveQuiz()
+            api.getSongQueue(), 
+            api.getMyRequests(), 
+            api.getCurrentPerformance(), 
+            api.getLeaderboard(), 
+            api.getActiveQuiz()
         ]);
-        setQueue(q.data); setMyRequests(my.data); setLeaderboard(lb.data);
+        
+        setQueue(q.data); 
+        setMyRequests(my.data); 
+        setLeaderboard(lb.data);
 
         // Performance Check
         const newPerf = perf.data;
         setCurrentPerf(prev => {
-    // Se inizia il voto
-    if (newPerf?.status === 'voting' && prev?.status !== 'voting' && newPerf.participant_id !== user.id) {
-        setShowVote(true);
-    }
-    return newPerf;
-});
+            // Se inizia il voto
+            if (newPerf?.status === 'voting' && prev?.status !== 'voting' && newPerf.participant_id !== user.id) {
+                setShowVote(true);
+            }
+            return newPerf;
+        });
 
-        // Quiz Check (CRITICO: Auto-close se non c'è quiz o se parte karaoke)
+        // Quiz Check
         const sQuiz = quiz.data;
         if (!sQuiz) {
-            // Se non c'è quiz attivo e il modale è aperto -> CHIUDI
             if (showQuizModal) forceCloseQuiz();
         } else {
-            // Gestione stati quiz
             if (sQuiz.status === 'active' || sQuiz.status === 'closed') {
                 setActiveQuiz(prev => {
                     if (!prev || prev.id !== sQuiz.id) {
@@ -126,16 +135,14 @@ export default function ClientApp() {
                 forceCloseQuiz();
             }
         }
-    } catch (e) { console.error(e); }
-  }, [isAuthenticated, showQuizModal, quizResult]);
-
-  const forceCloseQuiz = () => {
-      setShowQuizModal(false);
-      setActiveQuiz(null);
-      setQuizResult(null);
-      setQuizAnswer(null);
-      setPointsEarned(0);
-  };
+    } catch (e) { 
+        console.error(e); 
+        // FIX CRITICO: Se il token è scaduto, butta fuori l'utente per evitare loop
+        if(e.message === 'Not authenticated' || e.message.includes('token')) {
+            logout();
+        }
+    }
+  }, [isAuthenticated, showQuizModal, quizResult, user, logout]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -144,7 +151,6 @@ export default function ClientApp() {
         
         const ch = supabase.channel('client_room')
             .on('postgres_changes', {event: '*', schema: 'public', table: 'performances'}, (p) => {
-                // Se parte una performance LIVE, uccidi il quiz
                 if (p.new.status === 'live') forceCloseQuiz();
                 loadData();
             })
@@ -219,14 +225,14 @@ export default function ClientApp() {
   // --- RENDER APP ---
   return (
     <div className="min-h-screen bg-zinc-950 pb-24 text-white font-sans">
-      {/* HEADER */}
+      {/* HEADER CORRETTO */}
       <header className="sticky top-0 bg-zinc-950/90 backdrop-blur border-b border-white/10 p-4 flex justify-between items-center z-40">
           <div className="flex items-center gap-3">
               <img src={user.avatar_url} className="w-8 h-8 rounded-full border border-fuchsia-500 object-cover"/>
-<div>
-    <h1 className="font-bold text-sm leading-none">{user.pub_name}</h1>
-    <p className="text-xs text-zinc-500">{user.nickname}</p>
-</div>
+              <div>
+                  <h1 className="font-bold text-sm leading-none">{user.pub_name}</h1>
+                  <p className="text-xs text-zinc-500">{user.nickname}</p>
+              </div>
           </div>
           <Button variant="ghost" size="sm" onClick={logout} className="text-zinc-500 text-xs">Esci</Button>
       </header>
@@ -250,7 +256,7 @@ export default function ClientApp() {
                                       {EMOJIS.map(e => <button key={e} onClick={()=>api.sendReaction({emoji:e})} className="bg-white/5 rounded-lg p-2 text-xl active:scale-90">{e}</button>)}
                                   </div>
                               )}
-                              {currentPerf.status === 'voting' && !hasVoted && (
+                              {currentPerf.status === 'voting' && (
                                   <Button onClick={()=>setShowVote(true)} className="w-full bg-yellow-500 text-black font-bold animate-pulse">VOTA ORA</Button>
                               )}
                           </div>
@@ -305,8 +311,11 @@ export default function ClientApp() {
 
       {/* REQUEST MODAL */}
       <Dialog open={showReq} onOpenChange={setShowReq}>
-          <DialogContent className="bg-zinc-900 border-zinc-800 w-[95%] rounded-3xl">
-              <DialogHeader><DialogTitle>Richiedi Canzone</DialogTitle></DialogHeader>
+          <DialogContent className="bg-zinc-900 border-zinc-800 w-[95%] rounded-3xl" aria-describedby={undefined}>
+              <DialogHeader>
+                  <DialogTitle>Richiedi Canzone</DialogTitle>
+                  <DialogDescription className="hidden">Inserisci dettagli canzone</DialogDescription>
+              </DialogHeader>
               <div className="space-y-3 pt-4">
                   <Input placeholder="Titolo" value={songInput.title} onChange={e=>setSongInput({...songInput, title:e.target.value})} className="bg-black h-12"/>
                   <Input placeholder="Artista" value={songInput.artist} onChange={e=>setSongInput({...songInput, artist:e.target.value})} className="bg-black h-12"/>
@@ -317,10 +326,13 @@ export default function ClientApp() {
 
       {/* VOTE MODAL */}
       <Dialog open={showVote} onOpenChange={setShowVote}>
-          <DialogContent className="bg-zinc-900 border-zinc-800 w-[95%] rounded-3xl text-center">
-              <DialogHeader><DialogTitle>Vota {currentPerf?.user_nickname}</DialogTitle></DialogHeader>
+          <DialogContent className="bg-zinc-900 border-zinc-800 w-[95%] rounded-3xl text-center" aria-describedby={undefined}>
+              <DialogHeader>
+                  <DialogTitle>Vota {currentPerf?.user_nickname}</DialogTitle>
+                  <DialogDescription className="hidden">Vota l'esibizione</DialogDescription>
+              </DialogHeader>
               <div className="flex justify-center gap-2 py-6">
-                  {[1,2,3,4,5].map(s => <Star key={s} onClick={()=>setVoteVal(s)} className={`w-10 h-10 ${voteVal>=s?'text-yellow-500 fill-yellow-500':'text-zinc-700'}`}/>)}
+                  {[1,2,3,4,5].map(s => <button key={s} onClick={()=>setVoteVal(s)} className={`text-4xl transition-transform active:scale-90 ${voteVal>=s?'grayscale-0':'grayscale opacity-30'}`}>⭐</button>)}
               </div>
               <Button onClick={sendVote} className="w-full bg-yellow-500 text-black font-bold h-12">CONFERMA</Button>
           </DialogContent>
@@ -328,7 +340,8 @@ export default function ClientApp() {
 
       {/* QUIZ MODAL */}
       <Dialog open={showQuizModal} onOpenChange={o => !o && forceCloseQuiz()}>
-          <DialogContent className="bg-[#0f0f11] border-fuchsia-500/30 w-[95%] rounded-3xl p-0 overflow-hidden shadow-2xl">
+          <DialogContent className="bg-[#0f0f11] border-fuchsia-500/30 w-[95%] rounded-3xl p-0 overflow-hidden shadow-2xl" aria-describedby={undefined}>
+              <DialogHeader className="sr-only"><DialogTitle>Quiz</DialogTitle></DialogHeader>
               <div className="bg-gradient-to-r from-fuchsia-900 to-purple-900 p-6 text-center">
                   <h2 className="text-xl font-black text-white italic tracking-wider">
                       {activeQuiz?.status === 'closed' ? "TEMPO SCADUTO" : quizResult ? "RISULTATO" : "QUIZ TIME!"}
