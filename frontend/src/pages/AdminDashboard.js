@@ -4,8 +4,9 @@ import { toast } from "sonner";
 import { 
   Music, Play, Check, X, MessageSquare, LogOut, 
   Pause, RotateCcw, Plus, ListMusic, BrainCircuit, 
-  Send, VolumeX, Volume2, Settings, Save, Power, Download, Trash2, Coins, Tv, UserPlus, Ban
+  VolumeX, Volume2, Settings, Save, Power, Download, Trash2, Coins, Tv, RefreshCw
 } from "lucide-react";
+// Assicurati che questi percorsi puntino ai tuoi componenti UI esistenti
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,30 +14,33 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/context/AuthContext";
-import api, { createPub } from "@/lib/api";
-import { supabase } from "@/lib/supabase";
+import api from "@/lib/api";
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
-  const { isAuthenticated, logout } = useAuth();
+  // useAuth ritorna user (da Supabase) quando sei loggato
+  const { user, isAuthenticated, logout } = useAuth();
   
   // --- STATES ---
-  const [viewState, setViewState] = useState("loading"); // loading, setup, dashboard, super_admin
-  const [profile, setProfile] = useState(null);
+  const [viewState, setViewState] = useState("loading"); // loading, setup, dashboard
   const [pubCode, setPubCode] = useState(localStorage.getItem("neonpub_pub_code"));
+  const [currentEvent, setCurrentEvent] = useState(null); // Contiene l'intero oggetto evento (id, name, code)
   
+  // Setup / History
+  const [pastEvents, setPastEvents] = useState([]);
+  const [newEventName, setNewEventName] = useState("");
+  
+  // Dashboard Core
   const [activeTab, setActiveTab] = useState("karaoke");
   const [queue, setQueue] = useState([]);
   const [currentPerf, setCurrentPerf] = useState(null);
   const [activeQuiz, setActiveQuiz] = useState(null);
-  const [quizCatalog, setQuizCatalog] = useState([]);
+  const [quizCatalog, setQuizCatalog] = useState([]); // Popola se hai un catalogo
   const [pendingMsgs, setPendingMsgs] = useState([]);
   const [isMuted, setIsMuted] = useState(false);
-  
-  // Super Admin
-  const [usersList, setUsersList] = useState([]);
-  const [showCreateOp, setShowCreateOp] = useState(false);
-  const [newOp, setNewOp] = useState({email:"", pass:"", name:"", credits:1});
+  const [messageTxt, setMessageTxt] = useState("");
+  const [settings, setSettings] = useState({ name: "", logo: "" });
+  const [uploading, setUploading] = useState(false);
 
   // Modals
   const [showYoutube, setShowYoutube] = useState(false);
@@ -44,19 +48,104 @@ export default function AdminDashboard() {
   const [ytResults, setYtResults] = useState([]);
   const [selectedReq, setSelectedReq] = useState(null);
   const [selectedVideoUrl, setSelectedVideoUrl] = useState("");
-  
   const [showCustomQuiz, setShowCustomQuiz] = useState(false);
   const [newQuiz, setNewQuiz] = useState({ q: "", opts: ["","","",""], correct: 0, cat: "Generale" });
-  
-  const [showImportQuiz, setShowImportQuiz] = useState(false);
-  const [importJson, setImportJson] = useState("");
-  
-  const [settings, setSettings] = useState({ name: "", logo: "" });
-  const [uploading, setUploading] = useState(false);
-  const [messageTxt, setMessageTxt] = useState("");
-  const [newEventName, setNewEventName] = useState("");
 
-  // --- INIT & LOGOUT ---
+  // --- INIT LOGIC ---
+  
+  // 1. Controllo Auth
+  useEffect(() => {
+    if (!isAuthenticated && !localStorage.getItem('sb-access-token')) {
+       // Se non autenticato, AuthContext gestirà il redirect o mostrerà stato vuoto
+       // Qui assumiamo che se isAuthenticated è false dopo il caricamento, l'utente debba loggarsi
+       return;
+    }
+
+    const checkEvent = async () => {
+      if (pubCode) {
+          const res = await api.getPub(pubCode);
+          if (res.data) {
+              setCurrentEvent(res.data);
+              setSettings({ name: res.data.name, logo: res.data.logo_url });
+              setViewState("dashboard");
+          } else {
+              setPubCode(null);
+              localStorage.removeItem("neonpub_pub_code");
+              setViewState("setup");
+          }
+      } else {
+          setViewState("setup");
+      }
+    };
+    checkEvent();
+  }, [isAuthenticated, pubCode]);
+
+  // 2. Caricamento Lista Eventi Passati (Solo in setup)
+  useEffect(() => {
+      if (viewState === 'setup' && isAuthenticated) {
+          const loadHistory = async () => {
+              try {
+                  const res = await api.getOwnerEvents();
+                  setPastEvents(res.data || []);
+              } catch (e) {
+                  console.error("Errore history", e);
+              }
+          };
+          loadHistory();
+      }
+  }, [viewState, isAuthenticated]);
+
+  // 3. Polling Dati (Solo in dashboard)
+  useEffect(() => {
+    if (viewState !== 'dashboard' || !currentEvent) return;
+    
+    const loadData = async () => {
+        try {
+            const eventId = currentEvent.id;
+            const [qRes, perfRes, quizRes, msgRes] = await Promise.all([
+                api.getAdminQueue(eventId),
+                api.getAdminCurrentPerformance(eventId),
+                api.getActiveQuiz(eventId),
+                api.getAdminPendingMessages(eventId)
+            ]);
+            setQueue(qRes.data);
+            setCurrentPerf(perfRes.data);
+            setActiveQuiz(quizRes.data);
+            setPendingMsgs(msgRes.data);
+        } catch (e) { console.error("Polling error", e); }
+    };
+    
+    loadData();
+    const interval = setInterval(loadData, 3000);
+    return () => clearInterval(interval);
+  }, [viewState, currentEvent]);
+
+
+  // --- ACTIONS ---
+
+  const handleStartEvent = async () => {
+    if(!newEventName) return toast.error("Inserisci nome evento");
+    try {
+        const res = await api.createPub({name: newEventName});
+        const evt = res.data;
+        localStorage.setItem("neonpub_pub_code", evt.code);
+        setPubCode(evt.code);
+        setCurrentEvent(evt);
+        setSettings({ name: evt.name, logo: null });
+        setViewState("dashboard");
+        toast.success("Evento Iniziato!");
+    } catch(e) { toast.error(e.message); }
+  };
+
+  const handleResumeEvent = (evt) => {
+      localStorage.setItem("neonpub_pub_code", evt.code);
+      setPubCode(evt.code);
+      setCurrentEvent(evt);
+      setSettings({ name: evt.name, logo: evt.logo_url });
+      setViewState("dashboard");
+      toast.success("Evento ripreso");
+  };
+
   const handleLogout = () => {
       localStorage.removeItem("neonpub_pub_code");
       setPubCode(null);
@@ -64,79 +153,15 @@ export default function AdminDashboard() {
       navigate("/");
   };
 
-  useEffect(() => {
-    const checkUser = async () => {
-      if(!isAuthenticated) return;
-      const { data: { user } } = await supabase.auth.getUser();
-      if(!user) return;
-      
-      const { data: prof } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-      setProfile(prof);
-
-      if (prof?.role === 'super_admin') {
-          setViewState("super_admin");
-          loadSuperAdmin();
-      } else {
-          if (pubCode) {
-              const res = await api.getPub(pubCode);
-              if (res.data && !res.expired) {
-                  setViewState("dashboard");
-                  setSettings({ name: res.data.name, logo: res.data.logo_url });
-              } else {
-                  setPubCode(null);
-                  localStorage.removeItem("neonpub_pub_code");
-                  setViewState("setup");
-              }
-          } else {
-              setViewState("setup");
-          }
-      }
-    };
-    checkUser();
-  }, [isAuthenticated]);
-
-  // --- DATA POLLING ---
-  useEffect(() => {
-    if (viewState !== 'dashboard' || !pubCode) return;
-    const load = async () => {
-        try {
-            const [qRes, perfRes, quizRes, catRes, msgRes] = await Promise.all([
-                api.getAdminQueue(),
-                api.getAdminCurrentPerformance(),
-                api.getActiveQuiz(),
-                api.getQuizCatalog(),
-                api.getAdminPendingMessages()
-            ]);
-            setQueue(qRes.data);
-            setCurrentPerf(perfRes.data);
-            setActiveQuiz(quizRes.data);
-            setQuizCatalog(catRes.data);
-            setPendingMsgs(msgRes.data);
-        } catch (e) { console.error("Polling error", e); }
-    };
-    load();
-    const interval = setInterval(load, 3000);
-    return () => clearInterval(interval);
-  }, [viewState, pubCode]);
-
-  // --- OPERATOR ACTIONS ---
-  const handleStartEvent = async () => {
-    if(!newEventName) return toast.error("Inserisci nome evento");
-    try {
-        const res = await createPub({name: newEventName});
-        localStorage.setItem("neonpub_pub_code", res.data.code);
-        setPubCode(res.data.code);
-        setSettings({ name: res.data.name, logo: null });
-        setViewState("dashboard");
-        toast.success("Evento Iniziato!");
-    } catch(e) { toast.error(e.message); }
-  };
-
+  // --- KARAOKE ACTIONS ---
+  
   const searchYT = async () => {
       if(!ytQuery) return;
-      const apiKey = process.env.REACT_APP_YOUTUBE_API_KEY; 
+      // Inserisci qui la tua API KEY reale se vuoi che funzioni la ricerca, 
+      // altrimenti usa l'input manuale URL nel modale
+      const apiKey = import.meta.env.VITE_YOUTUBE_API_KEY || ""; 
       if (!apiKey) {
-          toast.info("Ricerca disabilitata (No API Key). Inserisci URL manuale.");
+          toast.info("API Key non configurata. Inserisci URL manuale.");
           return;
       }
       try {
@@ -164,36 +189,22 @@ export default function AdminDashboard() {
       toast.success("Comando inviato");
   };
 
-  const launchQuiz = async (item) => {
-      if(!confirm(`Lanciare: ${item.question}?`)) return;
-      try { await api.startQuiz(item); toast.success("Quiz Attivo!"); } 
-      catch(e) { toast.error(e.message); }
-  };
-
+  // --- QUIZ ACTIONS ---
+  
   const createAndLaunchCustomQuiz = async () => {
+      if (!currentEvent) return;
       try {
           await api.startQuiz({
-              category: newQuiz.cat, question: newQuiz.q, options: newQuiz.opts, correct_index: newQuiz.correct, points: 10
+              event_id: currentEvent.id,
+              category: newQuiz.cat, 
+              question: newQuiz.q, 
+              options: newQuiz.opts, 
+              correct_index: newQuiz.correct, 
+              points: 10
           });
           setShowCustomQuiz(false);
           toast.success("Quiz Custom In Onda!");
       } catch(e) { toast.error(e.message); }
-  };
-
-  const handleImport = async () => {
-      try {
-          const res = await api.importQuizCatalog(importJson);
-          toast.success(`Importate ${res.count} domande!`);
-          setShowImportQuiz(false);
-          setImportJson("");
-      } catch(e) { toast.error(e.message); }
-  };
-
-  const deleteQuestion = async (e, id) => {
-      e.stopPropagation();
-      if(!confirm("Eliminare?")) return;
-      await api.deleteQuizQuestion(id);
-      toast.success("Eliminata");
   };
 
   const ctrlQuiz = async (action) => {
@@ -201,9 +212,14 @@ export default function AdminDashboard() {
       await api.ctrlQuiz(activeQuiz.id, action);
   };
 
+  // --- SETTINGS & MESSAGES ---
+
   const saveSettings = async () => {
-      try { await api.updateEventSettings({ name: settings.name, logo_url: settings.logo }); toast.success("Salvato"); } 
-      catch(e) { toast.error(e.message); }
+      if (!currentEvent) return;
+      try { 
+          await api.updateEventSettings(currentEvent.id, { name: settings.name, logo_url: settings.logo }); 
+          toast.success("Salvato"); 
+      } catch(e) { toast.error(e.message); }
   };
 
   const onLogoUpload = async (e) => {
@@ -218,107 +234,68 @@ export default function AdminDashboard() {
   };
 
   const sendMsg = async () => {
-      if(!messageTxt) return;
-      await api.sendMessage(messageTxt);
+      if(!messageTxt || !currentEvent) return;
+      await api.sendMessage(currentEvent.id, messageTxt);
       setMessageTxt("");
       toast.success("Inviato");
-  };
-
-  // --- SUPER ADMIN LOGIC ---
-  const loadSuperAdmin = async () => { const res = await api.getAllProfiles(); setUsersList(res.data || []); };
-  const addCredits = async (id, amt) => { await api.updateProfileCredits(id, amt); toast.success("Crediti aggiornati"); loadSuperAdmin(); };
-  const toggleUser = async (id, status) => { await api.toggleUserStatus(id, !status); toast.success("Stato aggiornato"); loadSuperAdmin(); };
-  
-  const createOperator = async () => {
-      // Mock creation for UI - Real auth needs backend
-      toast.info("Funzione Demo: Crea l'utente su Supabase Auth manualmente.");
-      setShowCreateOp(false);
   };
 
   // --- VIEWS ---
 
   if (viewState === "loading") return <div className="h-screen bg-black text-white flex items-center justify-center">Caricamento...</div>;
 
-  if (viewState === "super_admin") return (
-      <div className="p-8 bg-zinc-950 min-h-screen text-white">
-          <header className="flex justify-between items-center mb-8">
-              <h1 className="text-3xl font-bold text-fuchsia-500">SUPER ADMIN</h1>
-              <div className="flex gap-2">
-                  <Button onClick={()=>setShowCreateOp(true)} className="bg-green-600"><UserPlus className="w-4 h-4 mr-2"/> Nuovo Operatore</Button>
-                  <Button onClick={handleLogout} variant="outline"><LogOut className="w-4 h-4 mr-2"/> Logout</Button>
-              </div>
-          </header>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {usersList.map(u => (
-                  <Card key={u.id} className="bg-zinc-900 border-zinc-800">
-                      <CardHeader><CardTitle className="text-white text-sm">{u.email}</CardTitle></CardHeader>
-                      <CardContent>
-                          <div className="flex justify-between mb-4">
-                              <span>Crediti: <span className="text-yellow-500 font-bold">{u.credits}</span></span>
-                              <span className={u.is_active ? "text-green-500" : "text-red-500"}>{u.is_active ? "Attivo" : "Ban"}</span>
-                          </div>
-                          <div className="flex gap-2 mb-2">
-                              <Button size="sm" onClick={()=>addCredits(u.id, u.credits+1)}>+1</Button>
-                              <Button size="sm" onClick={()=>addCredits(u.id, u.credits+5)}>+5</Button>
-                          </div>
-                          <Button variant="destructive" size="sm" className="w-full" onClick={()=>toggleUser(u.id, u.is_active)}>
-                              {u.is_active ? <Ban className="w-4 h-4 mr-2"/> : <Check className="w-4 h-4 mr-2"/>}
-                              {u.is_active ? "Disabilita" : "Riattiva"}
-                          </Button>
-                      </CardContent>
-                  </Card>
-              ))}
-          </div>
-
-          <Dialog open={showCreateOp} onOpenChange={setShowCreateOp}>
-              <DialogContent className="bg-zinc-900 border-zinc-800">
-                  <DialogHeader><DialogTitle>Nuovo Operatore</DialogTitle></DialogHeader>
-                  <div className="space-y-3">
-                      <Input placeholder="Email" value={newOp.email} onChange={e=>setNewOp({...newOp, email:e.target.value})} className="bg-black"/>
-                      <Input placeholder="Password" value={newOp.pass} onChange={e=>setNewOp({...newOp, pass:e.target.value})} className="bg-black"/>
-                      <Input placeholder="Crediti Iniziali (es. 1)" type="number" value={newOp.credits} onChange={e=>setNewOp({...newOp, credits:e.target.value})} className="bg-black"/>
-                      <Button onClick={createOperator} className="w-full bg-green-600">Crea (Simulazione)</Button>
-                  </div>
-              </DialogContent>
-          </Dialog>
-      </div>
-  );
-
   if (viewState === "setup") return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
-          <Card className="w-full max-w-md bg-zinc-900 border-zinc-800">
-              <CardHeader><CardTitle className="text-center text-white text-2xl">NEONPUB SETUP</CardTitle></CardHeader>
+      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4">
+          <Card className="w-full max-w-md bg-zinc-900 border-zinc-800 mb-4">
+              <CardHeader><CardTitle className="text-center text-white text-2xl">NEONPUB CONTROL</CardTitle></CardHeader>
               <CardContent className="space-y-6">
-                  <div className="text-center p-4 bg-zinc-800 rounded">
-                      <div className="text-sm text-zinc-400">Crediti Disponibili</div>
-                      <div className="text-4xl font-bold text-yellow-500">{profile?.credits || 0}</div>
-                  </div>
                   <div className="space-y-2">
-                      <Input placeholder="Nome Evento" value={newEventName} onChange={e=>setNewEventName(e.target.value)} className="bg-black text-white border-zinc-700"/>
-                      <Button onClick={handleStartEvent} className="w-full bg-fuchsia-600 hover:bg-fuchsia-700 h-12 text-lg font-bold">CREA EVENTO (-1 Credit)</Button>
+                      <Input placeholder="Nome Evento (es. Karaoke Night)" value={newEventName} onChange={e=>setNewEventName(e.target.value)} className="bg-black text-white border-zinc-700"/>
+                      <Button onClick={handleStartEvent} className="w-full bg-fuchsia-600 hover:bg-fuchsia-700 h-12 text-lg font-bold">CREA EVENTO</Button>
                   </div>
-                  <Button variant="ghost" onClick={handleLogout} className="w-full text-zinc-500">Esci</Button>
               </CardContent>
           </Card>
+
+          {/* LISTA EVENTI PASSATI - LA FUNZIONALITA' MANCANTE */}
+          {pastEvents.length > 0 && (
+              <Card className="w-full max-w-md bg-zinc-900 border-zinc-800">
+                  <CardHeader><CardTitle className="text-zinc-500 text-sm uppercase">Riprendi Evento</CardTitle></CardHeader>
+                  <CardContent className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
+                      {pastEvents.map(evt => (
+                          <div key={evt.id} onClick={() => handleResumeEvent(evt)} className="flex items-center justify-between p-3 bg-zinc-800 rounded border border-zinc-700 hover:border-zinc-500 cursor-pointer transition">
+                              <div>
+                                  <div className="font-bold text-white text-sm">{evt.name}</div>
+                                  <div className="text-xs text-zinc-500 font-mono">CODE: {evt.code}</div>
+                              </div>
+                              <Play className="w-4 h-4 text-green-500"/>
+                          </div>
+                      ))}
+                  </CardContent>
+              </Card>
+          )}
+
+          <Button variant="ghost" onClick={handleLogout} className="mt-4 text-zinc-500">Logout</Button>
       </div>
   );
 
   return (
     <div className="h-screen bg-zinc-950 text-white flex flex-col overflow-hidden">
+      {/* HEADER */}
       <header className="h-16 border-b border-zinc-800 bg-black flex items-center justify-between px-4 shrink-0">
           <div className="flex items-center gap-4">
               <div className="bg-fuchsia-900/30 text-fuchsia-400 px-3 py-1 rounded font-mono font-bold border border-fuchsia-500/30 text-lg">{pubCode}</div>
               <div className="flex flex-col"><span className="font-bold tracking-wider text-sm">REGIA LIVE</span><span className="text-[10px] text-zinc-500">{settings.name}</span></div>
           </div>
           <div className="flex items-center gap-2">
-              <div className="bg-zinc-800 px-3 py-1 rounded flex items-center gap-2"><Coins className="w-4 h-4 text-yellow-500"/><span className="text-sm font-bold">{profile?.credits}</span></div>
               <Button variant="outline" size="sm" onClick={()=>window.open(`/display/${pubCode}`, 'NeonDisplay', 'width=1280,height=720')} className="border-cyan-700 text-cyan-400 bg-cyan-950/30"><Tv className="w-4 h-4 mr-2"/> DISPLAY</Button>
               <Button variant="ghost" size="icon" onClick={() => { setIsMuted(!isMuted); api.toggleMute(!isMuted); }}>{isMuted ? <VolumeX className="text-red-500"/> : <Volume2 className="text-green-500"/>}</Button>
-              <Button variant="destructive" size="sm" onClick={() => { if(confirm("Chiudere sessione?")) { localStorage.removeItem("neonpub_pub_code"); setPubCode(null); setViewState("setup"); } }}><Power className="w-4 h-4"/></Button>
+              <Button variant="destructive" size="sm" onClick={() => { localStorage.removeItem("neonpub_pub_code"); setPubCode(null); setViewState("setup"); }}><Power className="w-4 h-4"/></Button>
           </div>
       </header>
 
+      {/* BODY */}
       <div className="flex-1 grid grid-cols-12 overflow-hidden">
+          {/* SIDEBAR TABS */}
           <aside className="col-span-3 border-r border-zinc-800 bg-zinc-900/50 flex flex-col overflow-hidden">
               <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col h-full">
                   <div className="p-2 border-b border-zinc-800 bg-zinc-950">
@@ -333,6 +310,7 @@ export default function AdminDashboard() {
                   <div className="flex-1 overflow-y-auto p-3 custom-scrollbar">
                       {activeTab === 'karaoke' && (
                           <div className="space-y-4">
+                              {/* Pending Requests */}
                               {queue.some(q=>q.status==='pending') && (
                                   <div className="space-y-2">
                                       <h3 className="text-xs font-bold text-yellow-500 uppercase flex items-center gap-2"><Music className="w-3 h-3"/> Da Approvare</h3>
@@ -348,6 +326,7 @@ export default function AdminDashboard() {
                                   </div>
                               )}
                               
+                              {/* Active Queue */}
                               <div className="space-y-2">
                                   <h3 className="text-xs font-bold text-fuchsia-500 uppercase flex items-center gap-2"><ListMusic className="w-3 h-3"/> Scaletta</h3>
                                   {queue.filter(q=>q.status==='queued').map((req, i) => (
@@ -371,18 +350,8 @@ export default function AdminDashboard() {
 
                       {activeTab === 'quiz' && (
                           <div className="space-y-3">
-                              <div className="grid grid-cols-2 gap-2">
-                                  <Button size="sm" variant="outline" className="text-xs border-zinc-700" onClick={()=>setShowCustomQuiz(true)}><Plus className="w-3 h-3 mr-1"/> Manuale</Button>
-                                  <Button size="sm" variant="outline" className="text-xs border-zinc-700" onClick={()=>setShowImportQuiz(true)}><Download className="w-3 h-3 mr-1"/> Import JSON</Button>
-                              </div>
-                              <h3 className="text-xs font-bold text-zinc-500 uppercase mt-2">Catalogo</h3>
-                              {quizCatalog.map(q => (
-                                  <div key={q.id} className="bg-zinc-800 p-3 rounded cursor-pointer hover:bg-zinc-700 border-l-2 border-transparent hover:border-blue-500 group relative" onClick={()=>launchQuiz(q)}>
-                                      <div className="text-[10px] text-blue-400 uppercase font-bold mb-1">{q.category}</div>
-                                      <div className="text-sm font-medium line-clamp-2">{q.question}</div>
-                                      <Button size="icon" className="absolute top-1 right-1 h-6 w-6 bg-red-900/0 text-red-500 hover:bg-red-900 opacity-0 group-hover:opacity-100" onClick={(e)=>deleteQuestion(e, q.id)}><Trash2 className="w-3 h-3"/></Button>
-                                  </div>
-                              ))}
+                              <Button size="sm" variant="outline" className="w-full text-xs border-zinc-700" onClick={()=>setShowCustomQuiz(true)}><Plus className="w-3 h-3 mr-1"/> Nuovo Quiz Manuale</Button>
+                              <div className="text-center text-zinc-500 text-xs mt-4">Nessun catalogo caricato</div>
                           </div>
                       )}
 
@@ -390,8 +359,8 @@ export default function AdminDashboard() {
                           <div className="space-y-4">
                               <div className="p-3 bg-zinc-800 rounded">
                                   <h3 className="text-xs font-bold text-zinc-500 uppercase mb-2">Invia Avviso</h3>
-                                  <Textarea placeholder="..." value={messageTxt} onChange={e=>setMessageTxt(e.target.value)} className="bg-black border-zinc-700 mb-2 text-sm"/>
-                                  <Button onClick={sendMsg} className="w-full bg-cyan-600 h-8 text-xs font-bold">INVIA</Button>
+                                  <Textarea placeholder="Es. Happy Hour tra 10 min!" value={messageTxt} onChange={e=>setMessageTxt(e.target.value)} className="bg-black border-zinc-700 mb-2 text-sm"/>
+                                  <Button onClick={sendMsg} className="w-full bg-cyan-600 h-8 text-xs font-bold">INVIA A SCHERMO</Button>
                               </div>
                               <h3 className="text-xs font-bold text-zinc-500 uppercase">Messaggi Utenti</h3>
                               {pendingMsgs.map(m => (
@@ -410,14 +379,15 @@ export default function AdminDashboard() {
                       {activeTab === 'settings' && (
                           <div className="space-y-4">
                               <div className="space-y-2"><label className="text-xs text-zinc-500">Nome Locale</label><Input value={settings.name} onChange={e=>setSettings(s=>({...s, name: e.target.value}))} className="bg-zinc-800 border-zinc-700"/></div>
-                              <div className="space-y-2"><label className="text-xs text-zinc-500">Logo</label><div className="flex gap-2"><Input type="file" onChange={onLogoUpload} className="text-xs bg-zinc-800" disabled={uploading}/>{uploading && <span className="text-xs animate-pulse text-yellow-500">...</span>}</div></div>
-                              <Button onClick={saveSettings} className="w-full bg-zinc-700"><Save className="w-4 h-4 mr-2"/> Salva</Button>
+                              <div className="space-y-2"><label className="text-xs text-zinc-500">Logo URL</label><div className="flex gap-2"><Input type="file" onChange={onLogoUpload} className="text-xs bg-zinc-800" disabled={uploading}/></div></div>
+                              <Button onClick={saveSettings} className="w-full bg-zinc-700"><Save className="w-4 h-4 mr-2"/> Salva Impostazioni</Button>
                           </div>
                       )}
                   </div>
               </Tabs>
           </aside>
 
+          {/* MAIN PLAYER AREA */}
           <main className="col-span-9 bg-black p-8 flex flex-col items-center justify-center relative overflow-hidden">
              <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 pointer-events-none"></div>
              
@@ -436,16 +406,15 @@ export default function AdminDashboard() {
                                  {currentPerf.status !== 'voting' && (
                                      <>
                                          {currentPerf.status === 'live' ? <Button size="lg" variant="outline" className="h-20 w-20 rounded-full border-2 border-white/10" onClick={()=>ctrlPlayer('pause')}><Pause className="w-8 h-8"/></Button> : <Button size="lg" className="h-20 w-20 rounded-full bg-green-600" onClick={()=>ctrlPlayer('resume')}><Play className="w-8 h-8 ml-1"/></Button>}
-                                         <Button size="lg" variant="secondary" className="h-20 w-20 rounded-full bg-zinc-800" onClick={()=>ctrlPlayer('restart')}><RotateCcw className="w-6 h-6"/></Button>
                                          <Button size="lg" className="h-20 px-10 bg-yellow-500 text-black font-bold text-lg" onClick={()=>ctrlPlayer('voting')}>STOP & VOTA</Button>
                                          <Button size="lg" variant="destructive" className="h-20 px-6 font-bold" onClick={()=>ctrlPlayer('end')}>NEXT</Button>
                                      </>
                                  )}
-                                 {currentPerf.status === 'voting' && (<div className="text-center animate-pulse"><div className="text-yellow-500 font-bold mb-2 uppercase tracking-widest">Televoto in Corso</div><Button size="lg" variant="destructive" className="h-16 px-12 text-xl font-bold" onClick={()=>ctrlPlayer('end')}>CHIUDI & MOSTRA PUNTEGGIO</Button></div>)}
+                                 {currentPerf.status === 'voting' && (<div className="text-center animate-pulse"><div className="text-yellow-500 font-bold mb-2 uppercase tracking-widest">Televoto in Corso</div><Button size="lg" variant="destructive" className="h-16 px-12 text-xl font-bold" onClick={()=>ctrlPlayer('end')}>CHIUDI & MOSTRA RISULTATI</Button></div>)}
                              </CardContent>
                          </Card>
                      ) : (
-                         <div className="text-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-3xl p-12"><Music className="w-32 h-32 mx-auto mb-6 opacity-20"/><h2 className="text-3xl font-bold text-zinc-500">NESSUNA ESIBIZIONE</h2></div>
+                         <div className="text-center text-zinc-600 border-2 border-dashed border-zinc-800 rounded-3xl p-12"><Music className="w-32 h-32 mx-auto mb-6 opacity-20"/><h2 className="text-3xl font-bold text-zinc-500">NESSUNA ESIBIZIONE IN CORSO</h2></div>
                      )}
                  </div>
              )}
@@ -453,16 +422,42 @@ export default function AdminDashboard() {
              {activeTab === 'quiz' && activeQuiz && (
                  <Card className="w-full max-w-2xl bg-zinc-900 border-blue-500/30 z-10 shadow-2xl">
                      <div className="h-2 bg-gradient-to-r from-blue-600 to-cyan-600"></div>
-                     <CardHeader className="bg-blue-900/10 border-b border-blue-500/10"><div className="flex justify-between items-center"><div className="flex items-center gap-2"><BrainCircuit className="w-5 h-5 text-blue-400"/><span className="font-bold text-blue-100">QUIZ IN CORSO</span></div><span className="text-xs bg-blue-500 text-white px-2 py-1 rounded font-bold uppercase tracking-widest">{activeQuiz.status}</span></div></CardHeader>
-                     <CardContent className="pt-8 pb-8 space-y-8"><h2 className="text-3xl font-bold text-white text-center leading-tight">{activeQuiz.question}</h2><div className="grid grid-cols-2 gap-4"><Button className="h-14 text-lg bg-red-600 hover:bg-red-500 font-bold" onClick={()=>ctrlQuiz('close_vote')}>1. STOP TELEVOTO</Button><Button className="h-14 text-lg bg-green-600 hover:bg-green-500 font-bold" onClick={()=>ctrlQuiz('show_results')}>2. MOSTRA RISULTATI</Button><Button className="h-14 text-lg bg-yellow-500 hover:bg-yellow-400 text-black font-bold col-span-2" onClick={()=>ctrlQuiz('end')}>3. CHIUDI QUIZ & TORNA AL KARAOKE</Button></div></CardContent>
+                     <CardHeader className="bg-blue-900/10 border-b border-blue-500/10"><div className="flex justify-between items-center"><div className="flex items-center gap-2"><BrainCircuit className="w-5 h-5 text-blue-400"/><span className="font-bold text-blue-100">QUIZ LIVE</span></div><span className="text-xs bg-blue-500 text-white px-2 py-1 rounded font-bold uppercase tracking-widest">{activeQuiz.status}</span></div></CardHeader>
+                     <CardContent className="pt-8 pb-8 space-y-8"><h2 className="text-3xl font-bold text-white text-center leading-tight">{activeQuiz.question}</h2><div className="grid grid-cols-2 gap-4"><Button className="h-14 text-lg bg-red-600 hover:bg-red-500 font-bold" onClick={()=>ctrlQuiz('close_vote')}>1. STOP VOTI</Button><Button className="h-14 text-lg bg-green-600 hover:bg-green-500 font-bold" onClick={()=>ctrlQuiz('show_results')}>2. MOSTRA RISULTATI</Button><Button className="h-14 text-lg bg-yellow-500 hover:bg-yellow-400 text-black font-bold col-span-2" onClick={()=>ctrlQuiz('end')}>3. CHIUDI QUIZ</Button></div></CardContent>
                  </Card>
              )}
           </main>
       </div>
 
-      <Dialog open={showYoutube} onOpenChange={setShowYoutube}><DialogContent className="bg-zinc-900 border-zinc-800 max-w-4xl"><DialogHeader><DialogTitle>Scegli Video</DialogTitle></DialogHeader><div className="flex gap-2 my-4"><Input value={ytQuery} onChange={e=>setYtQuery(e.target.value)} placeholder="Cerca..." className="bg-black border-zinc-700 h-12" onKeyDown={e=>e.key==='Enter'&&searchYT()}/><Button onClick={searchYT} className="w-32 bg-zinc-700 h-12">Cerca</Button></div><div className="grid grid-cols-2 gap-4 max-h-[300px] overflow-y-auto custom-scrollbar">{ytResults.map(vid => (<div key={vid.id.videoId} className="flex gap-3 p-3 bg-zinc-800 rounded cursor-pointer hover:bg-zinc-700 transition" onClick={()=>setSelectedVideoUrl(`https://www.youtube.com/watch?v=${vid.id.videoId}`)}><img src={vid.snippet.thumbnails.default.url} className="w-32 h-20 object-cover rounded"/><div className="overflow-hidden flex-1"><div className="font-bold text-sm truncate text-white mb-1">{vid.snippet.title}</div></div></div>))}</div><div className="mt-6 pt-4 border-t border-zinc-800"><div className="flex gap-2"><Input value={selectedVideoUrl} onChange={e=>setSelectedVideoUrl(e.target.value)} className="bg-black font-mono text-fuchsia-400 h-12"/><Button className="bg-green-600 w-48 font-bold h-12" onClick={launchKaraoke} disabled={!selectedVideoUrl}>MANDA IN ONDA</Button></div></div></DialogContent></Dialog>
-      <Dialog open={showCustomQuiz} onOpenChange={setShowCustomQuiz}><DialogContent className="bg-zinc-900 border-zinc-800"><DialogHeader><DialogTitle>Crea Quiz</DialogTitle></DialogHeader><div className="space-y-3"><Input placeholder="Domanda" value={newQuiz.q} onChange={e=>setNewQuiz({...newQuiz, q:e.target.value})} className="bg-black"/>{newQuiz.opts.map((o,i) => (<div key={i} className="flex gap-2"><Input placeholder={`Opzione ${i+1}`} value={o} onChange={e=>{const n=[...newQuiz.opts];n[i]=e.target.value;setNewQuiz({...newQuiz, opts:n})}} className="bg-black"/><Button size="icon" variant={newQuiz.correct===i?'default':'outline'} onClick={()=>setNewQuiz({...newQuiz, correct:i})} className={newQuiz.correct===i?'bg-green-600':''}><Check className="w-4 h-4"/></Button></div>))}<Button onClick={createAndLaunchCustomQuiz} className="w-full bg-blue-600 font-bold">LANCIA</Button></div></DialogContent></Dialog>
-      <Dialog open={showImportQuiz} onOpenChange={setShowImportQuiz}><DialogContent className="bg-zinc-900 border-zinc-800"><DialogHeader><DialogTitle>Importa JSON</DialogTitle></DialogHeader><Textarea placeholder='JSON...' value={importJson} onChange={e=>setImportJson(e.target.value)} className="h-64 bg-black font-mono text-xs"/><Button onClick={handleImport} className="w-full bg-fuchsia-600">IMPORTA</Button></DialogContent></Dialog>
+      {/* DIALOGS */}
+      <Dialog open={showYoutube} onOpenChange={setShowYoutube}>
+        <DialogContent className="bg-zinc-900 border-zinc-800 max-w-4xl">
+            <DialogHeader><DialogTitle>Scegli Video per {selectedReq?.title}</DialogTitle></DialogHeader>
+            <div className="flex gap-2 my-4"><Input value={ytQuery} onChange={e=>setYtQuery(e.target.value)} placeholder="Cerca su YouTube..." className="bg-black border-zinc-700 h-12"/><Button onClick={searchYT} className="w-32 bg-zinc-700 h-12">Cerca</Button></div>
+            <div className="grid grid-cols-2 gap-4 max-h-[300px] overflow-y-auto custom-scrollbar">
+                {ytResults.map(vid => (
+                    <div key={vid.id.videoId} className="flex gap-3 p-3 bg-zinc-800 rounded cursor-pointer hover:bg-zinc-700 transition" onClick={()=>setSelectedVideoUrl(`https://www.youtube.com/watch?v=${vid.id.videoId}`)}>
+                        <img src={vid.snippet.thumbnails.default.url} className="w-32 h-20 object-cover rounded" alt="thumb"/>
+                        <div className="overflow-hidden flex-1"><div className="font-bold text-sm truncate text-white mb-1">{vid.snippet.title}</div></div>
+                    </div>
+                ))}
+            </div>
+            <div className="mt-6 pt-4 border-t border-zinc-800">
+                <div className="flex gap-2"><Input value={selectedVideoUrl} onChange={e=>setSelectedVideoUrl(e.target.value)} placeholder="Incolla URL YouTube qui se non cerchi" className="bg-black font-mono text-fuchsia-400 h-12"/><Button className="bg-green-600 w-48 font-bold h-12" onClick={launchKaraoke} disabled={!selectedVideoUrl}>MANDA IN ONDA</Button></div>
+            </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showCustomQuiz} onOpenChange={setShowCustomQuiz}>
+        <DialogContent className="bg-zinc-900 border-zinc-800">
+            <DialogHeader><DialogTitle>Crea Quiz Manuale</DialogTitle></DialogHeader>
+            <div className="space-y-3">
+                <Input placeholder="Domanda" value={newQuiz.q} onChange={e=>setNewQuiz({...newQuiz, q:e.target.value})} className="bg-black"/>
+                {newQuiz.opts.map((o,i) => (<div key={i} className="flex gap-2"><Input placeholder={`Opzione ${i+1}`} value={o} onChange={e=>{const n=[...newQuiz.opts];n[i]=e.target.value;setNewQuiz({...newQuiz, opts:n})}} className="bg-black"/><Button size="icon" variant={newQuiz.correct===i?'default':'outline'} onClick={()=>setNewQuiz({...newQuiz, correct:i})} className={newQuiz.correct===i?'bg-green-600':''}><Check className="w-4 h-4"/></Button></div>))}
+                <Button onClick={createAndLaunchCustomQuiz} className="w-full bg-blue-600 font-bold">LANCIA SUBITO</Button>
+            </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
