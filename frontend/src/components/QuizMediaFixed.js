@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Loader2, Music, Volume2 } from 'lucide-react';
+import React, { useEffect, useRef, useState, useCallback, memo } from 'react';
+import { Loader2, Music, Volume2, VideoOff } from 'lucide-react';
 
 // Helper per estrarre ID YouTube
 const getYoutubeId = (url) => {
@@ -15,42 +15,38 @@ const getMediaType = (url, type) => {
   if (type === 'video' || (url && (url.includes('youtube.com') || url.includes('youtu.be')))) {
     return 'youtube';
   }
-  if (url && (url.endsWith('.mp3') || url.endsWith('.wav') || url.endsWith('.ogg'))) {
-    return 'audio_file';
-  }
   return 'unknown';
 };
 
-const QuizMediaFixed = ({ mediaUrl, mediaType, isResult }) => {
+const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [audioBlocked, setAudioBlocked] = useState(false);
-  const playerRef = useRef(null);
-  const containerRef = useRef(null);
   
-  // CRITICO: Refs per prevenire reinizializzazioni
+  // Refs per gestire lo stato senza re-render
+  const playerRef = useRef(null);
   const currentVideoIdRef = useRef(null);
   const isInitializedRef = useRef(false);
   const isPlayingRef = useRef(false);
-  const initAttemptRef = useRef(0);
 
   const detectedType = getMediaType(mediaUrl, mediaType);
   const isAudioMode = mediaType === 'audio';
+  const videoId = getYoutubeId(mediaUrl);
 
-  // Cleanup function stabile
+  // Cleanup function
   const cleanupPlayer = useCallback(() => {
     if (playerRef.current) {
       try {
         playerRef.current.destroy();
       } catch (e) {
-        // Ignora errori durante destroy
+        // Ignora errori di distruzione
       }
       playerRef.current = null;
     }
   }, []);
 
-  // Handler click per sbloccare audio
+  // Sblocco Audio manuale (policy browser)
   const handleUnblockAudio = useCallback(() => {
-    if (playerRef.current) {
+    if (playerRef.current && typeof playerRef.current.unMute === 'function') {
       try {
         playerRef.current.unMute();
         playerRef.current.setVolume(100);
@@ -63,84 +59,43 @@ const QuizMediaFixed = ({ mediaUrl, mediaType, isResult }) => {
   }, []);
 
   useEffect(() => {
-    // Se è risultato, non mostrare nulla
-    if (isResult) {
-      cleanupPlayer();
-      return;
-    }
+    // SE SIAMO IN FASE RISULTATO:
+    // Non distruggiamo il player se è lo stesso video, lo nascondiamo solo via CSS nel genitore
+    // Ma se non c'è URL, usciamo.
+    if (!mediaUrl) return;
 
-    // Se non è YouTube, esci
-    if (detectedType !== 'youtube') {
+    if (detectedType !== 'youtube' || !videoId) {
       setIsLoading(false);
       return;
     }
 
-    const videoId = getYoutubeId(mediaUrl);
-    
-    // Se non c'è videoId, esci
-    if (!videoId) {
-      setIsLoading(false);
+    // LOGICA ANTI-RIAVVIO
+    // Se l'ID è lo stesso e il player esiste, NON fare nulla.
+    if (currentVideoIdRef.current === videoId && playerRef.current) {
+      // Assicuriamoci solo che stia suonando
+      if (playerRef.current.getPlayerState && playerRef.current.getPlayerState() !== 1) {
+          playerRef.current.playVideo();
+      }
       return;
     }
 
-    // CRITICO: Se è lo stesso video e il player sta già funzionando, NON reinizializzare
-    if (currentVideoIdRef.current === videoId && isPlayingRef.current && playerRef.current) {
-      console.log('[QuizMedia] Stesso video già in riproduzione, skip reinit');
-      return;
-    }
+    // NUOVO VIDEO: Reset controllato
+    currentVideoIdRef.current = videoId;
+    isInitializedRef.current = false;
+    isPlayingRef.current = false;
+    setIsLoading(true);
+    cleanupPlayer();
 
-    // Se è un nuovo video, resetta i flag
-    if (currentVideoIdRef.current !== videoId) {
-      console.log('[QuizMedia] Nuovo video rilevato:', videoId);
-      currentVideoIdRef.current = videoId;
-      isInitializedRef.current = false;
-      isPlayingRef.current = false;
-      initAttemptRef.current = 0;
-      cleanupPlayer();
-    }
-
-    // Se già inizializzato per questo video, esci
-    if (isInitializedRef.current) {
-      console.log('[QuizMedia] Già inizializzato per questo video');
-      return;
-    }
-
-    // Marca come inizializzato PRIMA di procedere per evitare race conditions
-    isInitializedRef.current = true;
-    initAttemptRef.current++;
-    const currentAttempt = initAttemptRef.current;
-
-    console.log('[QuizMedia] Inizializzazione player per:', videoId, 'tentativo:', currentAttempt);
-
+    // Inizializzazione API YouTube
     const initPlayer = () => {
-      // Verifica che siamo ancora sul tentativo corrente
-      if (currentAttempt !== initAttemptRef.current) {
-        console.log('[QuizMedia] Tentativo obsoleto, skip');
-        return;
-      }
-
-      // Verifica che il container esista
-      const container = document.getElementById('quiz-fixed-player');
-      if (!container) {
-        console.warn('[QuizMedia] Container non trovato, retry in 100ms');
-        setTimeout(initPlayer, 100);
-        return;
-      }
-
-      // Verifica API YouTube
       if (!window.YT || !window.YT.Player) {
-        console.warn('[QuizMedia] YT API non pronta, retry in 100ms');
         setTimeout(initPlayer, 100);
         return;
       }
 
-      // Cleanup precedente player se esiste
-      if (playerRef.current) {
-        try {
-          playerRef.current.destroy();
-        } catch (e) {}
-        playerRef.current = null;
-      }
+      // Doppio check per evitare race conditions
+      if (isInitializedRef.current) return;
+      isInitializedRef.current = true;
 
       try {
         playerRef.current = new window.YT.Player('quiz-fixed-player', {
@@ -154,151 +109,117 @@ const QuizMediaFixed = ({ mediaUrl, mediaType, isResult }) => {
             modestbranding: 1,
             rel: 0,
             showinfo: 0,
-            mute: 0,
+            mute: 0, // Tentativo autoplay con audio
             playsinline: 1,
-            origin: window.location.origin
+            origin: window.location.origin,
+            loop: 1,
+            playlist: videoId // Hack per loop
           },
           events: {
             onReady: (event) => {
-              console.log('[QuizMedia] Player pronto');
-              
-              // Forza volume e unmute
               event.target.setVolume(100);
               event.target.unMute();
+              event.target.playVideo();
               
-              // Controlla se audio è bloccato dal browser
+              // Verifica se l'audio è partito o è bloccato
               setTimeout(() => {
-                if (event.target.isMuted()) {
-                  console.log('[QuizMedia] Audio bloccato dal browser');
+                if (event.target.isMuted && event.target.isMuted()) {
                   setAudioBlocked(true);
                 } else {
                   setAudioBlocked(false);
                 }
-              }, 500);
-              
-              event.target.playVideo();
-              setIsLoading(false);
+              }, 800);
             },
             onStateChange: (event) => {
-              // YT.PlayerState: PLAYING = 1, PAUSED = 2, ENDED = 0
               if (event.data === 1) { // PLAYING
-                console.log('[QuizMedia] Video in riproduzione');
-                isPlayingRef.current = true;
                 setIsLoading(false);
-                
-                // Ricontrolla audio
-                if (!event.target.isMuted()) {
-                  setAudioBlocked(false);
-                }
-              } else if (event.data === 0) { // ENDED
-                console.log('[QuizMedia] Video terminato');
-                isPlayingRef.current = false;
-              } else if (event.data === 2) { // PAUSED
-                console.log('[QuizMedia] Video in pausa');
+                setAudioBlocked(false);
+                isPlayingRef.current = true;
               }
             },
-            onError: (event) => {
-              console.error('[QuizMedia] Errore player:', event.data);
+            onError: (e) => {
+              console.error("YT Error:", e);
               setIsLoading(false);
-              isPlayingRef.current = false;
             }
           }
         });
       } catch (e) {
-        console.error('[QuizMedia] Errore creazione player:', e);
+        console.error("Player creation error:", e);
         setIsLoading(false);
-        isInitializedRef.current = false;
       }
     };
 
-    // Carica API YouTube se necessario
     if (!window.YT) {
-      console.log('[QuizMedia] Caricamento API YouTube');
       const tag = document.createElement('script');
       tag.src = 'https://www.youtube.com/iframe_api';
-      const firstScriptTag = document.getElementsByTagName('script')[0];
-      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-      
-      window.onYouTubeIframeAPIReady = () => {
-        console.log('[QuizMedia] API YouTube pronta');
-        initPlayer();
-      };
+      document.body.appendChild(tag);
+      window.onYouTubeIframeAPIReady = initPlayer;
     } else {
       initPlayer();
     }
 
-    // Cleanup on unmount o cambio video
     return () => {
-      // NON fare cleanup se il video è ancora lo stesso e sta funzionando
-      // Il cleanup avverrà solo quando cambia davvero il video
+      // NON distruggere al cleanup dell'effetto per evitare flash neri 
+      // se il componente viene rimontato velocemente.
+      // La distruzione avviene solo se cambia ID video all'inizio.
     };
-  }, [mediaUrl, isResult, detectedType, cleanupPlayer]);
+  }, [mediaUrl, detectedType, videoId, cleanupPlayer]);
 
-  // Cleanup definitivo on unmount
-  useEffect(() => {
-    return () => {
-      console.log('[QuizMedia] Unmount - cleanup');
-      cleanupPlayer();
-      currentVideoIdRef.current = null;
-      isInitializedRef.current = false;
-      isPlayingRef.current = false;
-    };
-  }, [cleanupPlayer]);
+  // Se non c'è media, niente da renderizzare
+  if (!mediaUrl) return null;
 
-  // Non renderizzare se è risultato
-  if (isResult) return null;
-
-  // Render YouTube
-  if (detectedType === 'youtube') {
-    return (
-      <div 
-        ref={containerRef}
-        className="absolute inset-0 bg-black flex items-center justify-center"
-      >
-        {/* Container YouTube */}
-        <div 
-          id="quiz-fixed-player" 
-          className={`absolute inset-0 ${isAudioMode ? 'opacity-0' : 'opacity-100'}`}
-          style={{ pointerEvents: 'none' }}
-        />
-        
-        {/* Loading spinner */}
-        {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-10">
-            <Loader2 className="w-12 h-12 text-purple-500 animate-spin" />
-          </div>
-        )}
-        
-        {/* Audio blocked banner */}
-        {audioBlocked && !isLoading && (
+  return (
+    <div className="absolute inset-0 overflow-hidden pointer-events-none">
+      {/* BACKGROUND YOUTUBE CONTAINER */}
+      {detectedType === 'youtube' && (
+        <div className="absolute inset-0 bg-black flex items-center justify-center">
+           {/* Maschera opaca per migliorare leggibilità testo sopra */}
+          <div className="absolute inset-0 bg-black/60 z-10" />
+          
           <div 
-            className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 
-                       bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 
-                       rounded-full cursor-pointer flex items-center gap-2
-                       transition-all duration-200 shadow-lg"
-            onClick={handleUnblockAudio}
-          >
-            <Volume2 className="w-5 h-5" />
-            <span className="font-semibold">CLICCA QUI PER ATTIVARE L'AUDIO</span>
-          </div>
-        )}
-        
-        {/* Audio mode overlay */}
-        {isAudioMode && !isLoading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-purple-900 to-black z-5">
-            <div className="relative">
-              <div className="absolute inset-0 bg-purple-500/30 rounded-full blur-xl animate-pulse" />
-              <Music className="w-24 h-24 text-purple-400 relative z-10" />
+            id="quiz-fixed-player" 
+            className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[150%] h-[150%] object-cover ${isAudioMode ? 'opacity-0' : 'opacity-60'}`}
+          />
+          
+          {/* Loader */}
+          {isLoading && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-black">
+              <Loader2 className="w-16 h-16 text-fuchsia-500 animate-spin" />
             </div>
-            <p className="mt-4 text-xl text-purple-300 font-medium">Ascolta la traccia</p>
-          </div>
-        )}
-      </div>
-    );
-  }
+          )}
 
-  // Fallback per altri tipi
-  return <div className="absolute inset-0 bg-black" />;
-};
+          {/* Audio Block Warning */}
+          {audioBlocked && (
+            <div className="absolute top-10 left-1/2 -translate-x-1/2 z-50 pointer-events-auto">
+              <button 
+                onClick={handleUnblockAudio}
+                className="bg-red-600 text-white px-6 py-2 rounded-full font-bold animate-bounce flex items-center gap-2 shadow-lg hover:bg-red-700 transition"
+              >
+                <Volume2 className="w-5 h-5" /> CLICCA PER AUDIO
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* AUDIO VISUALIZER PLACEHOLDER */}
+      {isAudioMode && !isLoading && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-gradient-to-t from-fuchsia-900/50 to-black">
+          <div className="relative">
+            <div className="absolute inset-0 bg-fuchsia-500 rounded-full blur-3xl animate-pulse opacity-40"></div>
+            <Music className="w-32 h-32 text-white relative z-10 animate-bounce" />
+          </div>
+          <p className="mt-8 text-2xl text-fuchsia-200 font-mono tracking-widest uppercase">Audio Question</p>
+        </div>
+      )}
+    </div>
+  );
+}, (prevProps, nextProps) => {
+  // Funzione di comparazione personalizzata per React.memo
+  // Rerenderizza SOLO se cambia URL o isResult cambia stato in modo critico
+  return prevProps.mediaUrl === nextProps.mediaUrl && 
+         prevProps.mediaType === nextProps.mediaType &&
+         prevProps.isResult === nextProps.isResult; 
+});
 
 export default QuizMediaFixed;
