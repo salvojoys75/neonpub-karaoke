@@ -104,16 +104,8 @@ const KaraokePlayer = ({ url, status, volume = 100, isMuted, startedAt }) => {
               }
             },
             onStateChange: (event) => {
-              // Gestione stati YouTube
-              // 1 = Playing, 2 = Paused, 3 = Buffering
-              if (status === 'live' && event.data === 2) {
-                // Se dovrebbe essere live ma è in pausa, riprendi
-                setTimeout(() => {
-                  if (playerRef.current && typeof playerRef.current.playVideo === 'function') {
-                    playerRef.current.playVideo();
-                  }
-                }, 100);
-              }
+              // REMOVED: Auto-resume logic interferes with manual pause
+              // Play/pause is now handled by useEffect watching status prop
             },
             onError: (event) => {
               console.error('YouTube Player Error:', event.data);

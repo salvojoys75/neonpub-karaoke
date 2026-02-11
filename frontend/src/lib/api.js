@@ -677,12 +677,13 @@ export const getDisplayData = async (pubCode) => {
       return { data: null };
   }
 
-  const [perf, queue, lb, activeQuiz, msg] = await Promise.all([
+  const [perf, queue, lb, activeQuiz, msg, approvedMsgs] = await Promise.all([
     supabase.from('performances').select('*, participants(nickname)').eq('event_id', event.id).in('status', ['live','voting','paused']).maybeSingle(),
     supabase.from('song_requests').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'queued').limit(10), 
     supabase.from('participants').select('nickname, score').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
     supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
-    supabase.from('messages').select('*').eq('event_id', event.id).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle()
+    supabase.from('messages').select('*').eq('event_id', event.id).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle(),
+    supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'approved').order('created_at', {ascending: false}).limit(5)
   ])
   return {
     data: {
@@ -691,7 +692,8 @@ export const getDisplayData = async (pubCode) => {
       queue: queue.data?.map(q => ({...q, user_nickname: q.participants?.nickname})),
       leaderboard: lb.data,
       active_quiz: activeQuiz.data,
-      latest_message: msg.data
+      latest_message: msg.data,
+      approved_messages: approvedMsgs.data?.map(m => ({text: m.text, nickname: m.participants?.nickname})) || []
     }
   }
 }

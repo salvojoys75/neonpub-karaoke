@@ -63,7 +63,7 @@ const STYLES = `
 // SOTTO-COMPONENTI UI
 // ===========================================
 
-const TopBar = ({ pubName, logoUrl, onlineCount, msg, isMuted }) => (
+const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => (
   <div className="absolute top-0 left-0 right-0 h-24 z-[100] flex items-center justify-between px-8 bg-gradient-to-b from-black/90 via-black/60 to-transparent">
       {/* LOGO & INFO */}
       <div className="flex items-center gap-5">
@@ -81,16 +81,35 @@ const TopBar = ({ pubName, logoUrl, onlineCount, msg, isMuted }) => (
           </div>
       </div>
       
-      {/* TICKER MESSAGGI */}
+      {/* TICKER MESSAGGI SCORREVOLI */}
       <div className="flex-1 mx-16 h-14 glass-panel rounded-full flex items-center px-4 overflow-hidden relative">
-          {msg ? (
-             <div className="flex items-center gap-3 text-fuchsia-300 font-bold w-full px-4">
-                 <MessageSquare className="w-6 h-6 shrink-0 text-fuchsia-500 animate-pulse"/>
-                 <span className="text-xl text-white truncate drop-shadow-md">{msg.text}</span>
+          {messages && messages.length > 0 ? (
+             <div className="ticker-wrap w-full">
+                 <div className="ticker-content flex items-center gap-12">
+                     {messages.map((m, i) => (
+                         <div key={i} className="flex items-center gap-3 shrink-0">
+                             <MessageSquare className="w-5 h-5 text-fuchsia-400"/>
+                             <span className="text-sm text-fuchsia-300 font-bold">{m.nickname}:</span>
+                             <span className="text-lg text-white font-medium">{m.text}</span>
+                         </div>
+                     ))}
+                     {/* Duplicate for seamless loop */}
+                     {messages.map((m, i) => (
+                         <div key={`dup-${i}`} className="flex items-center gap-3 shrink-0">
+                             <MessageSquare className="w-5 h-5 text-fuchsia-400"/>
+                             <span className="text-sm text-fuchsia-300 font-bold">{m.nickname}:</span>
+                             <span className="text-lg text-white font-medium">{m.text}</span>
+                         </div>
+                     ))}
+                 </div>
              </div>
           ) : (
              <div className="ticker-wrap">
                  <div className="ticker-content text-white/40 text-sm font-medium uppercase tracking-widest flex items-center gap-8">
+                     <span>🎵 Prenota la tua canzone</span>
+                     <span>📸 Carica il tuo avatar</span>
+                     <span>🏆 Scala la classifica</span>
+                     <span>📱 Scansiona il QR Code</span>
                      <span>🎵 Prenota la tua canzone</span>
                      <span>📸 Carica il tuo avatar</span>
                      <span>🏆 Scala la classifica</span>
@@ -424,7 +443,10 @@ export default function PubDisplay() {
         </div>
     );
 
-    const { pub, current_performance: perf, queue, active_quiz: quiz, latest_message: msg, leaderboard } = data;
+    const { pub, current_performance: perf, queue, active_quiz: quiz, latest_message: msg, leaderboard, approved_messages } = data;
+
+    // Get last 5 approved messages for ticker
+    const recentMessages = approved_messages ? approved_messages.slice(0, 5) : [];
 
     // Macchina a Stati per decidere cosa mostrare
     const isQuiz = quiz && ['active', 'closed', 'showing_results'].includes(quiz.status);
@@ -447,7 +469,7 @@ export default function PubDisplay() {
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10 pointer-events-none z-0"></div>
 
             {/* LIVELLI UI */}
-            <TopBar pubName={pub.name} logoUrl={pub.logo_url} onlineCount={leaderboard?.length || 0} msg={msg} isMuted={isMuted} />
+            <TopBar pubName={pub.name} logoUrl={pub.logo_url} onlineCount={leaderboard?.length || 0} messages={recentMessages} isMuted={isMuted} />
             <FloatingReactions newReaction={newReaction} />
             
             <div className="w-full h-full pt-24 pb-0 relative z-10">
