@@ -98,9 +98,9 @@ export default function ClientApp() {
             api.getActiveQuiz()
         ]);
         
-        setQueue(q.data); 
-        setMyRequests(my.data); 
-        setLeaderboard(lb.data);
+        setQueue(q.data || []); 
+        setMyRequests(my.data || []); 
+        setLeaderboard(lb.data || []);
 
         // Performance Check
         const newPerf = perf.data;
@@ -136,11 +136,16 @@ export default function ClientApp() {
             }
         }
     } catch (e) { 
-        console.error(e); 
-        // FIX CRITICO: Se il token è scaduto, butta fuori l'utente per evitare loop
-        if(e.message === 'Not authenticated' || e.message.includes('token')) {
+        console.error("Errore loadData:", e); 
+        
+        // --- FIX CRITICO: RESET AUTOMATICO ---
+        // Se il token è invalido, usciamo forzatamente e ricarichiamo la pagina
+        if(e.message === 'Not authenticated' || e.message === 'Invalid token' || e.message.includes('token')) {
+            localStorage.removeItem('neonpub_token');
             logout();
+            window.location.reload();
         }
+        // -------------------------------------
     }
   }, [isAuthenticated, showQuizModal, quizResult, user, logout]);
 
