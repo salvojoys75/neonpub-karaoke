@@ -188,7 +188,6 @@ export const createOperatorProfile = async (email, name, password, initialCredit
 export const getEventState = async () => {
   const pubCode = localStorage.getItem('neonpub_pub_code');
   if (!pubCode) return null;
-  // MODIFICA: .eq('code', pubCode.toUpperCase()) per evitare discrepanze
   const { data } = await supabase.from('events').select('active_module, active_module_id').eq('code', pubCode.toUpperCase()).maybeSingle();
   return data;
 };
@@ -478,26 +477,32 @@ export const sendReaction = async (data) => {
 }
 
 export const sendMessage = async (data) => {
-  // MODIFICA: Aggirato vincolo DB. Stato 'approved', no participant_id per Admin.
+  // MODIFICA CRUCIALE: Recupero l'ID evento corretto per Admin o Utente
   const pubCode = localStorage.getItem('neonpub_pub_code');
   if (pubCode) {
       const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
       if (event) {
            const text = typeof data === 'string' ? data : (data.text || data.message);
            const { data: message, error } = await supabase.from('messages').insert({
-                event_id: event.id, participant_id: null, text: text, status: 'approved'
+                event_id: event.id, // ID EVENTO OBBLIGATORIO
+                participant_id: null, 
+                text: text, 
+                status: 'approved'
            }).select().single();
            if (error) throw error;
            return { data: message };
       }
   }
 
-  // Fallback a partecipante se non è admin
+  // Fallback a partecipante (utente normale)
   try {
       const participant = getParticipantFromToken();
       const text = typeof data === 'string' ? data : (data.text || data.message);
       const { data: message, error } = await supabase.from('messages').insert({
-          event_id: participant.event_id, participant_id: participant.participant_id, text: text, status: 'pending'
+          event_id: participant.event_id, // ID EVENTO OBBLIGATORIO
+          participant_id: participant.participant_id, 
+          text: text, 
+          status: 'pending'
       }).select().single();
       if (error) throw error;
       return { data: message };
@@ -512,8 +517,8 @@ export const getAdminPendingMessages = async () => {
   
   const { data, error } = await supabase.from('messages')
       .select('*, participants(nickname)')
-      .eq('event_id', event.id)
-      .eq('status', 'pending') // Questo filtro esclude automaticamente i messaggi Regia 'approved'
+      .eq('event_id', event.id) // FILTRO PER EVENTO
+      .eq('status', 'pending') 
   
   if (error) throw error
   return { data: data.map(m => ({...m, user_nickname: m.participants?.nickname})) }
@@ -548,7 +553,6 @@ export const startQuiz = async (data) => {
   }).select().single()
   
   if (error) throw error; 
-  // MODIFICA: Aggiornato anche active_module_id per aiutare il Dashboard a trovare il quiz
   await supabase.from('events').update({ active_module: 'quiz', active_module_id: quiz.id }).eq('id', event.id);
   return { data: quiz }
 }
@@ -643,15 +647,15 @@ export const getDisplayData = async (pubCode) => {
       return { data: null };
   }
 
-  // FIX: Separate queries per distinguere messaggi Admin (null participant) da Utenti
+  // FIX: Filtri rigorosi per event_id su TUTTE le tabelle
   const [perf, queue, lb, activeQuiz, adminMsg, approvedMsgs] = await Promise.all([
     supabase.from('performances').select('*, participants(nickname)').eq('event_id', event.id).in('status', ['live','voting','paused','ended']).order('started_at', {ascending: false}).limit(1).maybeSingle(),
     supabase.from('song_requests').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'queued').limit(10), 
     supabase.from('participants').select('nickname, score').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
     supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
-    // Messaggio REGIA: approved AND participant_id IS NULL (per il Display Overlay)
+    // Messaggio REGIA
     supabase.from('messages').select('*').eq('event_id', event.id).is('participant_id', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle(),
-    // Messaggi UTENTI: approved AND participant_id IS NOT NULL (per il ticker scorrevole)
+    // Messaggi UTENTI
     supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).not('participant_id', 'is', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(10)
   ])
 
