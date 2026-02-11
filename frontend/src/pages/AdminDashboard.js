@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { 
   Music, Play, Check, X, MessageSquare, LogOut, 
   Pause, RotateCcw, Plus, ListMusic, BrainCircuit, 
-  Send, VolumeX, Volume2, Settings, Save, Power, Download, Trash2, Coins
+  Send, VolumeX, Volume2, Settings, Save, Power, Download, Trash2, Coins, Tv, UserPlus, Ban
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/context/AuthContext";
-import { supabase } from "@/lib/supabase";
 import api, { createPub } from "@/lib/api";
 
 export default function AdminDashboard() {
@@ -58,7 +57,7 @@ export default function AdminDashboard() {
 
   // --- INIT & LOGOUT ---
   const handleLogout = () => {
-      localStorage.clear();
+      localStorage.removeItem("neonpub_pub_code");
       setPubCode(null);
       logout();
       navigate("/");
@@ -244,8 +243,8 @@ export default function AdminDashboard() {
           <header className="flex justify-between items-center mb-8">
               <h1 className="text-3xl font-bold text-fuchsia-500">SUPER ADMIN</h1>
               <div className="flex gap-2">
-                  <Button onClick={()=>setShowCreateOp(true)} className="bg-green-600">Nuovo Operatore</Button>
-                  <Button onClick={handleLogout} variant="outline">Logout</Button>
+                  <Button onClick={()=>setShowCreateOp(true)} className="bg-green-600"><UserPlus className="w-4 h-4 mr-2"/> Nuovo Operatore</Button>
+                  <Button onClick={handleLogout} variant="outline"><LogOut className="w-4 h-4 mr-2"/> Logout</Button>
               </div>
           </header>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -262,6 +261,7 @@ export default function AdminDashboard() {
                               <Button size="sm" onClick={()=>addCredits(u.id, u.credits+5)}>+5</Button>
                           </div>
                           <Button variant="destructive" size="sm" className="w-full" onClick={()=>toggleUser(u.id, u.is_active)}>
+                              {u.is_active ? <Ban className="w-4 h-4 mr-2"/> : <Check className="w-4 h-4 mr-2"/>}
                               {u.is_active ? "Disabilita" : "Riattiva"}
                           </Button>
                       </CardContent>
