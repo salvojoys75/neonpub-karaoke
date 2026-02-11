@@ -14,6 +14,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/context/AuthContext";
 import api, { createPub } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
