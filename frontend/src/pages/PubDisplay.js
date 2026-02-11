@@ -448,7 +448,7 @@ export default function PubDisplay() {
             }, 8000); // 8 seconds
             return () => clearTimeout(timer);
         }
-    }, [isScore, perf?.id]);
+    }, [isScore, perf?.id, load]); // Added load to dependencies
     
     let Content = null;
     if (isQuiz) Content = <QuizMode quiz={quiz} result={quizResult} />;
