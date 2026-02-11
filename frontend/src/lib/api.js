@@ -188,13 +188,14 @@ export const createOperatorProfile = async (email, name, password, initialCredit
 export const getEventState = async () => {
   const pubCode = localStorage.getItem('neonpub_pub_code');
   if (!pubCode) return null;
-  const { data } = await supabase.from('events').select('active_module, active_module_id').eq('code', pubCode).maybeSingle();
+  // MODIFICA: .eq('code', pubCode.toUpperCase()) per evitare discrepanze
+  const { data } = await supabase.from('events').select('active_module, active_module_id').eq('code', pubCode.toUpperCase()).maybeSingle();
   return data;
 };
 
 export const setEventModule = async (moduleId, specificContentId = null) => {
   const pubCode = localStorage.getItem('neonpub_pub_code');
-  const { data: event, error } = await supabase.from('events').update({ active_module: moduleId, active_module_id: specificContentId }).eq('code', pubCode).select().single();
+  const { data: event, error } = await supabase.from('events').update({ active_module: moduleId, active_module_id: specificContentId }).eq('code', pubCode.toUpperCase()).select().single();
   if (error) throw error;
   
   if (moduleId === 'quiz' && specificContentId) {
@@ -228,7 +229,7 @@ export const getQuizCatalog = async () => {
   try {
       const pubCode = localStorage.getItem('neonpub_pub_code');
       if(pubCode) {
-          const { data: event } = await supabase.from('events').select('id').eq('code', pubCode).single();
+          const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
           if(event) {
               const { data: usedQuizzes } = await supabase.from('quizzes')
                   .select('question')
@@ -477,11 +478,10 @@ export const sendReaction = async (data) => {
 }
 
 export const sendMessage = async (data) => {
-  // FIX: Usa status 'approved' ma senza participant_id per la regia
-  // Questo aggira il vincolo DB 'admin_overlay' e permette di filtrarli dopo
+  // MODIFICA: Aggirato vincolo DB. Stato 'approved', no participant_id per Admin.
   const pubCode = localStorage.getItem('neonpub_pub_code');
   if (pubCode) {
-      const { data: event } = await supabase.from('events').select('id').eq('code', pubCode).single();
+      const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
       if (event) {
            const text = typeof data === 'string' ? data : (data.text || data.message);
            const { data: message, error } = await supabase.from('messages').insert({
@@ -508,7 +508,13 @@ export const sendMessage = async (data) => {
 
 export const getAdminPendingMessages = async () => {
   const event = await getAdminEvent()
-  const { data, error } = await supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'pending')
+  if (!event || !event.id) throw new Error("Evento non valido");
+  
+  const { data, error } = await supabase.from('messages')
+      .select('*, participants(nickname)')
+      .eq('event_id', event.id)
+      .eq('status', 'pending') // Questo filtro esclude automaticamente i messaggi Regia 'approved'
+  
   if (error) throw error
   return { data: data.map(m => ({...m, user_nickname: m.participants?.nickname})) }
 }
@@ -542,7 +548,8 @@ export const startQuiz = async (data) => {
   }).select().single()
   
   if (error) throw error; 
-  await supabase.from('events').update({ active_module: 'quiz' }).eq('id', event.id);
+  // MODIFICA: Aggiornato anche active_module_id per aiutare il Dashboard a trovare il quiz
+  await supabase.from('events').update({ active_module: 'quiz', active_module_id: quiz.id }).eq('id', event.id);
   return { data: quiz }
 }
 
@@ -642,9 +649,9 @@ export const getDisplayData = async (pubCode) => {
     supabase.from('song_requests').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'queued').limit(10), 
     supabase.from('participants').select('nickname, score').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
     supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
-    // Messaggio REGIA: approved AND participant_id IS NULL
+    // Messaggio REGIA: approved AND participant_id IS NULL (per il Display Overlay)
     supabase.from('messages').select('*').eq('event_id', event.id).is('participant_id', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle(),
-    // Messaggi UTENTI: approved AND participant_id IS NOT NULL
+    // Messaggi UTENTI: approved AND participant_id IS NOT NULL (per il ticker scorrevole)
     supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).not('participant_id', 'is', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(10)
   ])
 
