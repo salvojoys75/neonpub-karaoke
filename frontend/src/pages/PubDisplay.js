@@ -5,14 +5,10 @@ import { supabase } from '@/lib/supabase';
 import api from '@/lib/api';
 import { Music, Mic2, Star, Trophy, Users, MessageSquare, Clock, Disc, Zap } from 'lucide-react';
 
-// IMPORT DEI COMPONENTI ESTERNI
 import KaraokePlayer from '@/components/KaraokePlayer';
 import QuizMediaFixed from '@/components/QuizMediaFixed';
 import FloatingReactions from '@/components/FloatingReactions';
 
-// ===========================================
-// STILI CSS (Broadcast TV Look)
-// ===========================================
 const STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800;900&family=JetBrains+Mono:wght@500&display=swap');
   
@@ -36,7 +32,6 @@ const STYLES = `
     box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
   }
 
-  /* Animazione Ticker Messaggi */
   @keyframes ticker { 
     0% { transform: translateX(100%); } 
     100% { transform: translateX(-100%); } 
@@ -44,7 +39,6 @@ const STYLES = `
   .ticker-wrap { width: 100%; overflow: hidden; }
   .ticker-content { display: inline-block; white-space: nowrap; animation: ticker 25s linear infinite; }
 
-  /* Sfondo Animato */
   @keyframes gradient-move {
     0% { background-position: 0% 50%; }
     50% { background-position: 100% 50%; }
@@ -59,27 +53,11 @@ const STYLES = `
   .text-glow { text-shadow: 0 0 30px rgba(217,70,239, 0.6); }
 `;
 
-// ===========================================
-// SOTTO-COMPONENTI UI
-// ===========================================
-
 const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => {
-  const [currentMsgIndex, setCurrentMsgIndex] = React.useState(0);
-  
-  // Rotate messages every 5 seconds
-  React.useEffect(() => {
-    if (!messages || messages.length === 0) return;
-    const interval = setInterval(() => {
-      setCurrentMsgIndex(prev => (prev + 1) % messages.length);
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [messages]);
-  
-  const currentMsg = messages && messages.length > 0 ? messages[currentMsgIndex] : null;
+  const messagesString = messages.map(m => `${m.nickname}: ${m.text}`).join('   •   ');
   
   return (
   <div className="absolute top-0 left-0 right-0 h-24 z-[100] flex items-center justify-between px-8 bg-gradient-to-b from-black/90 via-black/60 to-transparent">
-      {/* LOGO & INFO */}
       <div className="flex items-center gap-5">
           {logoUrl ? (
             <img src={logoUrl} alt="Logo" className="w-16 h-16 rounded-xl border-2 border-white/20 shadow-lg object-cover bg-black" />
@@ -95,17 +73,13 @@ const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => {
           </div>
       </div>
       
-      {/* TICKER MESSAGGI - UNO ALLA VOLTA */}
       <div className="flex-1 mx-16 h-14 glass-panel rounded-full flex items-center px-4 overflow-hidden relative">
-          {currentMsg ? (
-             <div className="w-full overflow-hidden">
-                 <div 
-                   key={currentMsgIndex}
-                   className="flex items-center gap-3 animate-slide-left"
-                 >
-                     <MessageSquare className="w-5 h-5 text-fuchsia-400 shrink-0"/>
-                     <span className="text-sm text-fuchsia-300 font-bold shrink-0">{currentMsg.nickname}:</span>
-                     <span className="text-lg text-white font-medium">{currentMsg.text}</span>
+          {messages && messages.length > 0 ? (
+             <div className="ticker-wrap">
+                 <div className="ticker-content text-white text-lg font-medium flex items-center gap-8">
+                     <MessageSquare className="w-5 h-5 text-fuchsia-400 inline-block shrink-0"/>
+                     <span>{messagesString}</span>
+                     <span className="ml-8">{messagesString}</span>
                  </div>
              </div>
           ) : (
@@ -124,29 +98,17 @@ const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => {
           )}
       </div>
 
-      {/* ONLINE COUNT */}
       <div className="flex flex-col items-end">
           <div className="glass-panel px-4 py-2 rounded-xl flex items-center gap-3">
               <Users className="w-5 h-5 text-fuchsia-400"/> 
               <span className="text-2xl font-mono font-bold">{onlineCount}</span>
           </div>
       </div>
-      
-      <style jsx>{`
-        @keyframes slide-left {
-          from { transform: translateX(100%); opacity: 0; }
-          to { transform: translateX(0); opacity: 1; }
-        }
-        .animate-slide-left {
-          animation: slide-left 0.8s ease-out;
-        }
-      `}</style>
   </div>
 );};
 
 const Sidebar = ({ pubCode, queue, leaderboard }) => (
   <div className="absolute top-28 right-6 bottom-6 w-[350px] z-[90] flex flex-col gap-6">
-      {/* QR CODE BOX */}
       <div className="glass-panel p-6 rounded-3xl flex flex-col items-center justify-center relative overflow-hidden">
           <div className="absolute inset-0 bg-fuchsia-600/10 blur-xl"></div>
           <div className="bg-white p-3 rounded-2xl mb-4 shadow-2xl relative z-10">
@@ -156,203 +118,186 @@ const Sidebar = ({ pubCode, queue, leaderboard }) => (
           <div className="text-xs text-white/60 uppercase mt-2 font-bold tracking-[0.2em] relative z-10">Scansiona per entrare</div>
       </div>
       
-      {/* CODA */}
       <div className="glass-panel rounded-3xl flex flex-col overflow-hidden relative" style={{maxHeight: '45%'}}>
-          <div className="p-5 border-b border-white/10 bg-black/40 backdrop-blur-md sticky top-0 z-10">
-              <div className="flex items-center gap-2 text-fuchsia-400 font-black uppercase tracking-widest text-sm">
-                  <Clock className="w-4 h-4"/> Prossimi Cantanti
+          <div className="bg-gradient-to-r from-fuchsia-600 to-purple-600 px-6 py-4 flex items-center justify-between border-b border-white/10 shrink-0">
+              <div className="flex items-center gap-3">
+                  <Disc className="w-6 h-6 text-white animate-spin" style={{animationDuration: '3s'}} />
+                  <span className="font-black text-white text-xl uppercase tracking-wider">Coda</span>
+              </div>
+              <div className="bg-white/20 px-3 py-1 rounded-full">
+                  <span className="text-white font-bold text-sm">{queue?.length || 0}</span>
               </div>
           </div>
-          <div className="flex-1 p-4 space-y-3 overflow-y-auto custom-scrollbar">
-              {queue.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-white/20 italic text-sm">
-                      <Disc className="w-10 h-10 mb-4 opacity-30 animate-spin-slow"/>
-                      Coda vuota...
-                  </div>
-              ) : (
-                  queue.slice(0, 5).map((req, i) => (
-                      <div key={i} className="bg-white/5 p-3 rounded-2xl border-l-4 border-fuchsia-600 flex items-center gap-4">
-                          <div className="font-mono text-white/30 text-xl font-bold w-6">#{i+1}</div>
-                          {req.user_avatar ? (
-                              <img src={req.user_avatar} className="w-10 h-10 rounded-full bg-zinc-800 object-cover border border-white/10" alt="avatar" />
-                          ) : (
-                              <div className="w-10 h-10 rounded-full bg-fuchsia-600/30 border border-white/10 flex items-center justify-center">
-                                  <Music className="w-5 h-5 text-fuchsia-400" />
-                              </div>
-                          )}
-                          <div className="overflow-hidden">
-                              <div className="text-white font-bold text-sm truncate">{req.user_nickname}</div>
-                              <div className="text-white/50 text-xs truncate font-medium">{req.title}</div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin scrollbar-thumb-fuchsia-600 scrollbar-track-transparent">
+              {queue && queue.length > 0 ? (
+                  queue.map((s, i) => (
+                      <div key={s.id} className="bg-white/5 backdrop-blur-sm p-4 rounded-2xl border border-white/10 hover:bg-white/10 transition-all flex items-center gap-4">
+                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-fuchsia-600 to-purple-600 flex items-center justify-center text-white font-black text-lg shadow-lg shrink-0">
+                              {i + 1}
                           </div>
+                          <div className="flex-1 min-w-0">
+                              <div className="text-white font-bold text-lg truncate">{s.user_nickname}</div>
+                              <div className="text-white/60 text-sm truncate">{s.song_title || 'Canzone senza titolo'}</div>
+                          </div>
+                          <Music className="w-5 h-5 text-fuchsia-400 shrink-0" />
                       </div>
                   ))
+              ) : (
+                  <div className="text-white/30 text-center py-8 italic">Nessuna canzone in coda</div>
               )}
           </div>
       </div>
 
-      {/* CLASSIFICA */}
       <div className="glass-panel rounded-3xl flex flex-col overflow-hidden relative flex-1">
-          <div className="p-5 border-b border-white/10 bg-black/40 backdrop-blur-md sticky top-0 z-10">
-              <div className="flex items-center gap-2 text-yellow-400 font-black uppercase tracking-widest text-sm">
-                  <Trophy className="w-4 h-4"/> Classifica Quiz
+          <div className="bg-gradient-to-r from-yellow-500 to-orange-500 px-6 py-4 flex items-center justify-between border-b border-white/10 shrink-0">
+              <div className="flex items-center gap-3">
+                  <Trophy className="w-6 h-6 text-white" />
+                  <span className="font-black text-white text-xl uppercase tracking-wider">Classifica</span>
               </div>
           </div>
-          <div className="flex-1 p-4 space-y-2 overflow-y-auto custom-scrollbar">
-              {!leaderboard || leaderboard.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-white/20 italic text-sm">
-                      <Trophy className="w-10 h-10 mb-4 opacity-30"/>
-                      Nessun punteggio
-                  </div>
-              ) : (
-                  leaderboard.slice(0, 10).map((player, i) => (
-                      <div key={i} className={`p-2.5 rounded-xl flex items-center gap-3 ${
-                          i === 0 ? 'bg-yellow-500/20 border border-yellow-500/30' :
-                          i === 1 ? 'bg-zinc-400/10 border border-zinc-400/20' :
-                          i === 2 ? 'bg-amber-700/10 border border-amber-700/20' :
-                          'bg-white/5'
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin scrollbar-thumb-yellow-500 scrollbar-track-transparent">
+              {leaderboard && leaderboard.length > 0 ? (
+                  leaderboard.map((u, i) => (
+                      <div key={u.id} className={`backdrop-blur-sm p-4 rounded-2xl border flex items-center gap-4 transition-all ${
+                          i === 0 ? 'bg-gradient-to-r from-yellow-500/30 to-orange-500/30 border-yellow-400/50' :
+                          i === 1 ? 'bg-white/10 border-gray-400/30' :
+                          i === 2 ? 'bg-amber-700/20 border-amber-600/30' :
+                          'bg-white/5 border-white/10'
                       }`}>
-                          <div className={`font-mono font-bold w-6 text-center ${
-                              i === 0 ? 'text-yellow-400 text-lg' :
-                              i === 1 ? 'text-zinc-300' :
-                              i === 2 ? 'text-amber-600' :
-                              'text-white/40 text-sm'
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-lg shadow-lg shrink-0 ${
+                              i === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-black' :
+                              i === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-500 text-black' :
+                              i === 2 ? 'bg-gradient-to-br from-amber-600 to-amber-800 text-white' :
+                              'bg-white/10 text-white'
                           }`}>
-                              {i+1}
+                              {i + 1}
                           </div>
-                          {player.avatar ? (
-                              <img src={player.avatar} className="w-8 h-8 rounded-full bg-zinc-800 object-cover border border-white/10" alt="avatar" />
-                          ) : (
-                              <div className="w-8 h-8 rounded-full bg-cyan-600/30 border border-white/10 flex items-center justify-center text-xs font-bold text-white">
-                                  {player.nickname?.[0]?.toUpperCase() || '?'}
-                              </div>
-                          )}
-                          <div className="flex-1 truncate">
-                              <div className="text-white font-bold text-sm truncate">{player.nickname}</div>
+                          <div className="text-white font-bold text-lg truncate flex-1">{u.nickname}</div>
+                          <div className={`font-mono font-bold text-xl ${i < 3 ? 'text-yellow-300' : 'text-white'}`}>
+                              {u.score || 0}
                           </div>
-                          <div className="font-mono text-cyan-400 font-bold text-sm">{player.score || 0}</div>
                       </div>
                   ))
+              ) : (
+                  <div className="text-white/30 text-center py-8 italic">Nessun punteggio</div>
               )}
           </div>
       </div>
   </div>
 );
 
-// --- MODALITÀ: KARAOKE ---
-const KaraokeMode = ({ perf, isMuted }) => {
-    return (
-        <div className="w-full h-full relative">
-            {/* VIDEO PLAYER */}
-            <div className="absolute inset-0 right-[380px] bg-black">
-                <KaraokePlayer 
-                    key={perf.id} 
-                    url={perf.youtube_url}
-                    status={perf.status}
-                    volume={100}
-                    isMuted={isMuted}
-                    startedAt={perf.started_at}
-                />
+const KaraokeMode = ({ perf, isMuted }) => (
+    <div className="w-full h-full relative flex items-center justify-center overflow-hidden">
+        <KaraokePlayer url={perf.video_url} status={perf.status} volume={100} isMuted={isMuted} startedAt={perf.started_at} />
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-50 mr-[175px]">
+            <div className="glass-panel px-12 py-8 rounded-[2rem] text-center border-l-8 border-fuchsia-500">
+                <div className="flex items-center gap-6 mb-4">
+                    <Mic2 className="w-10 h-10 text-fuchsia-400" />
+                    <div className="text-left">
+                        <div className="text-5xl font-black text-white">{perf.user_nickname}</div>
+                        <div className="text-2xl text-white/70 font-medium mt-1">{perf.song_title || 'Canzone'}</div>
+                    </div>
+                </div>
             </div>
-            
-            {/* LOWER THIRD (Banner Cantante) - RIDOTTO */}
-            <div className="absolute bottom-8 left-8 right-[420px] z-[80] anim-entry">
-                <div className="glass-panel p-4 rounded-xl border-l-8 border-fuchsia-500 relative overflow-hidden flex items-end gap-4 shadow-[0_0_50px_rgba(0,0,0,0.8)]">
-                    
-                    {/* Avatar Ridotto */}
-                    <div className="relative">
-                        <div className="absolute inset-0 bg-fuchsia-500 blur-xl opacity-50 rounded-full"></div>
-                        {perf.user_avatar ? (
-                            <img src={perf.user_avatar} className="w-16 h-16 rounded-full border-2 border-white/20 object-cover relative z-10 bg-zinc-900 shadow-2xl" alt="Singer" />
-                        ) : (
-                            <div className="w-16 h-16 rounded-full border-2 border-white/20 bg-fuchsia-600 flex items-center justify-center relative z-10 shadow-2xl">
-                                <Mic2 className="w-8 h-8 text-white" />
-                            </div>
-                        )}
-                        <div className="absolute -bottom-1 -right-1 bg-red-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full z-20 border border-white/20">LIVE</div>
-                    </div>
+        </div>
+    </div>
+);
 
-                    <div className="flex-1 pb-1">
-                        <div className="flex items-center gap-2 mb-1">
-                            <Mic2 className="w-4 h-4 text-fuchsia-400" />
-                            <span className="text-lg font-bold text-white">{perf.user_nickname}</span>
-                        </div>
-                        <h1 className="text-3xl font-black text-white leading-none line-clamp-1 text-glow mb-0.5">{perf.song_title}</h1>
-                        <h2 className="text-xl text-white/60 font-light uppercase tracking-wide">{perf.song_artist}</h2>
+const VotingMode = ({ perf }) => (
+    <div className="w-full h-full flex items-center justify-center animated-bg relative overflow-hidden mr-[175px]">
+        <div className="w-[800px] h-[800px] bg-fuchsia-600/20 rounded-full blur-[200px] absolute z-0 animate-pulse"></div>
+        <div className="text-center relative z-10">
+            <div className="mb-12">
+                <Star className="w-40 h-40 text-yellow-400 mx-auto animate-pulse" style={{filter: 'drop-shadow(0 0 40px rgba(250,204,21,0.8))'}} />
+            </div>
+            <h1 className="text-9xl font-black text-white mb-8 uppercase tracking-tight drop-shadow-2xl">Vota Ora!</h1>
+            <div className="glass-panel px-16 py-8 rounded-[3rem] inline-block border-4 border-fuchsia-500">
+                <div className="text-4xl text-fuchsia-300 font-bold mb-4">Esibizione di</div>
+                <div className="text-7xl font-black text-white">{perf.user_nickname}</div>
+            </div>
+            <div className="mt-12 text-3xl text-white/70 font-medium animate-pulse">Usa l'app per votare da 1 a 5 stelle</div>
+        </div>
+    </div>
+);
+
+const ScoreMode = ({ perf }) => {
+    const avgScore = perf.average_score ? parseFloat(perf.average_score).toFixed(1) : '0.0';
+    const stars = Math.round(parseFloat(avgScore));
+    
+    return (
+        <div className="w-full h-full flex items-center justify-center animated-bg relative overflow-hidden mr-[175px]">
+            <div className="w-[900px] h-[900px] bg-yellow-500/20 rounded-full blur-[200px] absolute z-0 animate-pulse"></div>
+            <div className="text-center relative z-10">
+                <div className="glass-panel px-20 py-12 rounded-[4rem] border-8 border-yellow-500 shadow-[0_0_100px_rgba(234,179,8,0.5)]">
+                    <div className="text-4xl uppercase text-yellow-300 font-bold tracking-widest mb-6">Punteggio Finale</div>
+                    <div className="text-6xl font-bold text-white mb-8">{perf.user_nickname}</div>
+                    <div className="flex justify-center gap-4 mb-8">
+                        {[1,2,3,4,5].map(i => (
+                            <Star key={i} className={`w-20 h-20 ${i <= stars ? 'text-yellow-400 fill-yellow-400' : 'text-white/20'}`} style={i <= stars ? {filter: 'drop-shadow(0 0 20px rgba(250,204,21,0.8))'} : {}} />
+                        ))}
                     </div>
+                    <div className="text-9xl font-black text-yellow-400 font-mono drop-shadow-2xl">{avgScore}</div>
+                    <div className="text-2xl text-white/60 mt-6 font-medium">{perf.vote_count || 0} voti ricevuti</div>
                 </div>
             </div>
         </div>
     );
 };
 
-// --- MODALITÀ: VOTAZIONE ---
-const VotingMode = ({ perf }) => (
-    <div className="w-full h-full flex flex-col items-center justify-center relative overflow-hidden bg-black">
-        <div className="absolute inset-0 bg-fuchsia-900/30 animate-pulse"></div>
-        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-30 mix-blend-overlay"></div>
-        
-        <div className="relative z-10 text-center animate-in zoom-in duration-500 mr-[350px]">
-            <Star className="w-64 h-64 text-yellow-400 fill-yellow-400 mx-auto mb-8 animate-bounce drop-shadow-[0_0_80px_rgba(234,179,8,0.8)]" />
-            <h1 className="text-[10rem] font-black text-white mb-4 uppercase italic transform -skew-x-6 text-glow leading-none">VOTA!</h1>
-            <div className="glass-panel px-16 py-8 rounded-full inline-block mt-8 border-2 border-yellow-500/50">
-                <p className="text-5xl text-white font-bold">Dai un voto a <span className="text-yellow-400 underline decoration-4 decoration-fuchsia-500">{perf.user_nickname}</span></p>
-            </div>
-        </div>
-    </div>
-);
+const QuizMode = ({ quiz, result }) => {
+    const isResult = quiz.status === 'showing_results';
+    const isLeaderboard = quiz.status === 'leaderboard';
 
-// --- MODALITÀ: PUNTEGGIO ---
-const ScoreMode = ({ perf }) => (
-    <div className="w-full h-full flex flex-col items-center justify-center bg-black relative">
-        <div className="absolute inset-0 bg-gradient-to-b from-black via-fuchsia-900/20 to-black"></div>
-        <div className="relative z-10 mr-[350px] text-center">
-            <Trophy className="w-48 h-48 text-yellow-500 mx-auto mb-6 drop-shadow-[0_0_50px_rgba(234,179,8,0.6)]" />
-            <h2 className="text-5xl text-white/60 font-bold uppercase tracking-[0.2em] mb-4">Punteggio Finale</h2>
-            <div className="text-[15rem] font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 leading-none drop-shadow-2xl scale-110">
-                {perf.average_score?.toFixed(1) || "0.0"}
-            </div>
-            <p className="text-3xl text-white mt-12 font-bold bg-white/10 px-10 py-4 rounded-full backdrop-blur-md border border-white/20 inline-block">
-                {perf.song_title}
-            </p>
-        </div>
-    </div>
-);
-
-// --- MODALITÀ: QUIZ ---
-const QuizMode = ({ quiz, result }) => (
-    <div className="w-full h-full flex flex-col bg-[#080808] relative p-12 overflow-hidden">
-        {/* Media Background (se c'è video/audio) */}
-        <QuizMediaFixed mediaUrl={quiz.media_url} mediaType={quiz.media_type} isResult={!!result} />
-        
-        {/* Overlay scuro per leggerezza testo */}
-        <div className="absolute inset-0 bg-black/70 z-10 pointer-events-none"></div>
-
-        <div className="relative z-20 flex-1 flex flex-col items-center justify-center mr-[350px]">
-            {/* Categoria Badge */}
-            <div className="bg-fuchsia-600 text-white px-10 py-4 rounded-full font-black text-xl uppercase tracking-[0.3em] mb-12 shadow-[0_0_40px_rgba(217,70,239,0.6)] transform -rotate-2 border-2 border-white/20">
-                {quiz.category || "QUIZ TIME"}
-            </div>
-
-            {result ? (
-                // --- SCHERMATA RISULTATO CON VINCITORI ---
-                <div className="w-full max-w-6xl animate-in zoom-in duration-500 flex flex-col items-center">
-                    
-                    <div className="bg-green-600/90 backdrop-blur-xl p-10 rounded-[3rem] mb-12 shadow-[0_0_100px_rgba(22,163,74,0.5)] border-4 border-green-400 text-center w-full">
-                        <div className="text-white/70 uppercase font-bold tracking-widest text-sm mb-2">Risposta Corretta</div>
-                        <span className="text-7xl font-black text-white leading-tight">{result.correct_option}</span>
+    return (
+        <div className="w-full h-full relative flex items-center justify-center overflow-hidden">
+            <QuizMediaFixed mediaUrl={quiz.media_url} mediaType={quiz.media_type} isResult={isResult} />
+            
+            {isLeaderboard ? (
+                <div className="absolute inset-0 z-50 flex items-center justify-center animated-bg mr-[175px]">
+                    <div className="w-full max-w-5xl glass-panel p-12 rounded-[3rem] border-4 border-yellow-500">
+                        <div className="flex items-center justify-center gap-6 mb-12">
+                            <Trophy className="w-20 h-20 text-yellow-400" />
+                            <h1 className="text-7xl font-black text-white uppercase">Classifica Quiz</h1>
+                        </div>
+                        <div className="space-y-4 max-h-[600px] overflow-y-auto scrollbar-thin scrollbar-thumb-yellow-500 scrollbar-track-transparent">
+                            {quiz.leaderboard && quiz.leaderboard.length > 0 ? (
+                                quiz.leaderboard.map((p, i) => (
+                                    <div key={p.id} className={`backdrop-blur-sm p-6 rounded-2xl border flex items-center gap-6 ${
+                                        i === 0 ? 'bg-gradient-to-r from-yellow-500/30 to-orange-500/30 border-yellow-400/50' :
+                                        i === 1 ? 'bg-white/10 border-gray-400/30' :
+                                        i === 2 ? 'bg-amber-700/20 border-amber-600/30' :
+                                        'bg-white/5 border-white/10'
+                                    }`}>
+                                        <div className={`w-14 h-14 rounded-xl flex items-center justify-center font-black text-2xl shadow-lg ${
+                                            i === 0 ? 'bg-gradient-to-br from-yellow-400 to-yellow-600 text-black' :
+                                            i === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-500 text-black' :
+                                            i === 2 ? 'bg-gradient-to-br from-amber-600 to-amber-800 text-white' :
+                                            'bg-white/10 text-white'
+                                        }`}>
+                                            {i + 1}
+                                        </div>
+                                        <div className="text-white font-bold text-3xl flex-1">{p.nickname}</div>
+                                        <div className={`font-mono font-bold text-4xl ${i < 3 ? 'text-yellow-300' : 'text-white'}`}>
+                                            {p.score || 0}
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="text-white/30 text-center py-12 text-2xl italic">Nessun punteggio disponibile</div>
+                            )}
+                        </div>
                     </div>
-
-                    <div className="w-full grid grid-cols-2 gap-10">
-                        {/* LISTA VINCITORI (CHI HA INDOVINATO + VELOCE) */}
-                        <div className="glass-panel p-8 rounded-3xl">
-                            <h3 className="text-fuchsia-400 font-bold uppercase tracking-widest mb-6 flex items-center gap-2 text-xl">
-                                <Zap className="w-6 h-6"/> I Più Veloci
-                            </h3>
-                            <div className="space-y-4 max-h-[500px] overflow-y-auto custom-scrollbar pr-2">
+                </div>
+            ) : isResult && result ? (
+                <div className="absolute inset-0 z-50 flex items-center justify-center p-16 mr-[175px]">
+                    <div className="w-full max-w-7xl grid grid-cols-2 gap-12">
+                        <div className="glass-panel p-8 rounded-3xl flex flex-col">
+                            <div className="text-3xl uppercase text-fuchsia-400 font-bold tracking-widest mb-6 text-center">Chi ha Risposto</div>
+                            <div className="flex-1 overflow-y-auto space-y-4 scrollbar-thin scrollbar-thumb-fuchsia-600 scrollbar-track-transparent">
                                 {result.winners && result.winners.length > 0 ? (
                                     result.winners.map((w, i) => (
-                                        <div key={i} className="flex items-center gap-4 bg-white/5 p-3 rounded-2xl border border-white/5">
-                                            <div className="bg-yellow-500 text-black font-black w-8 h-8 rounded-lg flex items-center justify-center text-lg">{i+1}</div>
+                                        <div key={i} className="bg-white/5 backdrop-blur-sm p-4 rounded-2xl border border-white/10 flex items-center gap-4">
+                                            <div className="bg-green-500 text-white font-black w-8 h-8 rounded-lg flex items-center justify-center text-lg">✓</div>
                                             {w.avatar && <img src={w.avatar} className="w-10 h-10 rounded-full object-cover border border-white/20" alt="avt" />}
                                             {!w.avatar && <div className="w-10 h-10 rounded-full bg-fuchsia-600 flex items-center justify-center text-white font-bold border border-white/20">{w.nickname.charAt(0).toUpperCase()}</div>}
                                             <span className="text-white font-bold text-xl truncate flex-1">{w.nickname}</span>
@@ -365,7 +310,6 @@ const QuizMode = ({ quiz, result }) => (
                             </div>
                         </div>
 
-                        {/* RISPOSTA CORRETTA - OCCUPANO TUTTA LA COLONNA DESTRA */}
                         <div className="glass-panel p-8 rounded-3xl flex flex-col items-center justify-center border-l-8 border-fuchsia-500">
                             <div className="text-3xl uppercase text-white/50 font-bold tracking-widest mb-4">Risposta Corretta</div>
                             <div className="text-7xl font-black text-white mb-6 text-center leading-tight">{result.correct_option}</div>
@@ -376,7 +320,6 @@ const QuizMode = ({ quiz, result }) => (
                     </div>
                 </div>
             ) : (
-                // --- SCHERMATA DOMANDA ---
                 <div className="w-full max-w-7xl text-center">
                     <h1 className="text-8xl font-black text-white leading-tight mb-20 drop-shadow-2xl">{quiz.question}</h1>
                     
@@ -399,10 +342,9 @@ const QuizMode = ({ quiz, result }) => (
                 </div>
             )}
         </div>
-    </div>
-);
+    );
+};
 
-// --- MODALITÀ: IDLE (Attesa) ---
 const IdleMode = ({ pub }) => (
     <div className="w-full h-full flex flex-col items-center justify-center animated-bg relative overflow-hidden">
         <div className="w-[1000px] h-[1000px] bg-fuchsia-600/10 rounded-full blur-[150px] absolute z-0 animate-pulse"></div>
@@ -423,9 +365,6 @@ const IdleMode = ({ pub }) => (
     </div>
 );
 
-// ===========================================
-// COMPONENTE PRINCIPALE
-// ===========================================
 export default function PubDisplay() {
     const { pubCode } = useParams();
     const [data, setData] = useState(null);
@@ -433,18 +372,26 @@ export default function PubDisplay() {
     const [quizResult, setQuizResult] = useState(null);
     const [newReaction, setNewReaction] = useState(null);
 
-    // Caricamento Dati
     const load = useCallback(async () => {
         try {
             const res = await api.getDisplayData(pubCode);
             if(res.data) {
                 setData(res.data);
                 
-                // Gestione Risultati Quiz
                 const q = res.data.active_quiz;
-                if(q && (q.status === 'showing_results' || q.status === 'leaderboard')) {
+                if(q && q.status === 'showing_results') {
                     const r = await api.getQuizResults(q.id);
                     setQuizResult(r.data);
+                } else if(q && q.status === 'leaderboard') {
+                    const lb = await api.getAdminLeaderboard();
+                    setData(prev => ({
+                        ...prev,
+                        active_quiz: {
+                            ...q,
+                            leaderboard: lb.data
+                        }
+                    }));
+                    setQuizResult(null);
                 } else {
                     setQuizResult(null);
                 }
@@ -452,10 +399,9 @@ export default function PubDisplay() {
         } catch(e) { console.error(e); }
     }, [pubCode]);
 
-    // Setup Polling e Realtime
     useEffect(() => {
         load();
-        const int = setInterval(load, 3000); // Fallback polling
+        const int = setInterval(load, 3000);
         
         const ch = supabase.channel('tv_ctrl')
             .on('broadcast', {event: 'control'}, p => { if(p.payload.command === 'mute') setIsMuted(p.payload.value); })
@@ -476,11 +422,9 @@ export default function PubDisplay() {
 
     const { pub, current_performance: perf, queue, active_quiz: quiz, latest_message: msg, leaderboard, approved_messages } = data;
 
-    // Get last 5 approved messages for ticker
     const recentMessages = approved_messages ? approved_messages.slice(0, 5) : [];
 
-    // Macchina a Stati per decidere cosa mostrare
-    const isQuiz = quiz && ['active', 'closed', 'showing_results'].includes(quiz.status);
+    const isQuiz = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
     const isKaraoke = !isQuiz && perf && ['live', 'paused'].includes(perf.status);
     const isVoting = !isQuiz && perf && perf.status === 'voting';
     const isScore = !isQuiz && perf && perf.status === 'ended';
@@ -496,10 +440,8 @@ export default function PubDisplay() {
         <div className="w-screen h-screen relative bg-black overflow-hidden">
             <style>{STYLES}</style>
             
-            {/* Background Texture Overlay */}
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10 pointer-events-none z-0"></div>
 
-            {/* LIVELLI UI */}
             <TopBar pubName={pub.name} logoUrl={pub.logo_url} onlineCount={leaderboard?.length || 0} messages={recentMessages} isMuted={isMuted} />
             <FloatingReactions newReaction={newReaction} />
             

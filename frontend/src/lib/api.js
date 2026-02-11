@@ -1,9 +1,5 @@
 import { supabase } from './supabase'
 
-// ============================================
-// HELPER FUNCTIONS
-// ============================================
-
 function getParticipantFromToken() {
   const token = localStorage.getItem('neonpub_token')
   if (!token) throw new Error('Not authenticated')
@@ -18,7 +14,6 @@ async function getAdminEvent() {
   const pubCode = localStorage.getItem('neonpub_pub_code')
   if (!pubCode) throw new Error('No event selected')
   
-  // Aggiunto controllo scadenza anche qui per sicurezza
   const { data, error } = await supabase
     .from('events')
     .select('*')
@@ -33,28 +28,21 @@ async function getAdminEvent() {
   return data
 }
 
-// ============================================
-// AUTH & EVENTS & STORAGE
-// ============================================
-
 export const createPub = async (data) => {
   const { data: user } = await supabase.auth.getUser()
   if (!user?.user) throw new Error('Not authenticated')
 
-  // 1. Check Profile and Credits
   const { data: profile } = await supabase.from('profiles').select('credits, is_active').eq('id', user.user.id).single();
   
   if (!profile || !profile.is_active) throw new Error("Utente disabilitato o non trovato.");
   if (profile.credits < 1) throw new Error("Crediti insufficienti! Ricarica i crediti per creare un evento.");
 
-  // 2. Deduct Credit
   const { error: creditError } = await supabase.from('profiles')
     .update({ credits: profile.credits - 1 })
     .eq('id', user.user.id);
   
   if (creditError) throw new Error("Errore aggiornamento crediti");
 
-  // 3. Create Event with Expiry (8 hours)
   const code = Math.random().toString(36).substring(2, 8).toUpperCase()
   const expiresAt = new Date();
   expiresAt.setHours(expiresAt.getHours() + 8);
@@ -68,7 +56,7 @@ export const createPub = async (data) => {
       event_type: 'mixed',
       status: 'active',
       active_module: 'karaoke',
-      expires_at: expiresAt.toISOString() // Nuovo campo scadenza
+      expires_at: expiresAt.toISOString()
     })
     .select()
     .single()
@@ -83,18 +71,16 @@ export const getActiveEventsForUser = async () => {
 
   const now = new Date().toISOString();
 
-  // Recupera eventi attivi e non scaduti
   const { data, error } = await supabase
     .from('events')
     .select('*')
     .eq('owner_id', user.user.id)
     .eq('status', 'active')
-    .gt('expires_at', now) // Solo quelli che scadono nel futuro
+    .gt('expires_at', now)
     .order('created_at', { ascending: false });
 
   if (error) console.error("Error fetching active events:", error);
   
-  // Opzionale: Pulizia eventi scaduti "pigra" (potrebbe essere fatto da cronjob)
   closeExpiredEvents(user.user.id);
 
   return data || [];
@@ -138,7 +124,6 @@ export const getPub = async (pubCode) => {
 
   if (error || !data) return { data: null };
   
-  // Se l'evento è scaduto, lo consideriamo come null o ended per il frontend
   if (data.status === 'ended' || (data.expires_at && new Date(data.expires_at) < new Date())) {
       return { data: null, expired: true };
   }
@@ -147,7 +132,6 @@ export const getPub = async (pubCode) => {
 }
 
 export const joinPub = async ({ pub_code, nickname }) => {
-  // Check validity
   const { data: event, error: eventError } = await supabase.from('events').select('id, name, status, expires_at').eq('code', pub_code.toUpperCase()).single()
   
   if (eventError || !event) throw new Error("Evento non trovato");
@@ -164,7 +148,6 @@ export const joinPub = async ({ pub_code, nickname }) => {
 export const adminLogin = async (data) => { return { data: { user: { email: data.email } } } }
 export const getMe = async () => { const { data: { user } } = await supabase.auth.getUser(); return { data: user } }
 
-// === SUPER ADMIN ===
 export const getAllProfiles = async () => {
     const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
     if (error) throw error;
@@ -186,34 +169,21 @@ export const toggleUserStatus = async (id, isActive) => {
 }
 
 export const createOperatorProfile = async (email, name, password, initialCredits) => {
-    // NOTA: Dal client non si possono creare utenti arbitrari senza logout.
-    // Metodo 1: Usare una Edge Function 'create-user'.
-    // Metodo 2: Usare RPC (se PostgreSQL ha i permessi).
-    // Metodo 3 (Fallback): Creare solo il record nel DB e dire all'admin di usare la Dashboard Supabase per Auth.
-    
     try {
-        // Tentativo di chiamata a Edge Function (ipotetica)
         const { data, error } = await supabase.functions.invoke('create-user', {
             body: { email, password, name, credits: initialCredits }
         });
 
         if (error) {
             console.warn("Edge function not found or error, falling back to profile stub. Please create user in Auth manually.");
-            // Fallback per prototipo: Simuliamo successo per la UI, ma avvisiamo in console
-            // In produzione, QUESTO NON CREA IL LOGIN REALE se non c'è il backend.
             return { data: 'Simulation: User creation requested. Setup Backend logic.' };
         }
         return data;
 
     } catch (e) {
-        // Se non ci sono edge functions configurate
         return { data: 'Mock success' };
     }
 }
-
-// ============================================
-// REGIA & STATO & CATALOGHI
-// ============================================
 
 export const getEventState = async () => {
   const pubCode = localStorage.getItem('neonpub_pub_code');
@@ -326,10 +296,6 @@ export const importQuizCatalog = async (jsonString) => {
     } catch (e) { throw new Error("Errore Importazione: " + e.message); }
 }
 
-// ============================================
-// SONG REQUESTS
-// ============================================
-
 export const requestSong = async (data) => {
   const participant = getParticipantFromToken()
   const { data: request, error } = await supabase.from('song_requests').insert({
@@ -383,10 +349,6 @@ export const deleteRequest = async (requestId) => {
     if (error) throw error;
     return { data };
 }
-
-// ============================================
-// PERFORMANCES
-// ============================================
 
 export const startPerformance = async (requestId, youtubeUrl) => {
   const { data: request } = await supabase.from('song_requests').select('*, participants(nickname)').eq('id', requestId).single()
@@ -456,7 +418,7 @@ export const restartPerformance = async (performanceId) => {
 
 export const toggleMute = async (isMuted) => {
     const pubCode = localStorage.getItem('neonpub_pub_code');
-    const channel = supabase.channel('tv_ctrl'); // Match PubDisplay listener
+    const channel = supabase.channel('tv_ctrl');
     await channel.send({
         type: 'broadcast',
         event: 'control',
@@ -490,10 +452,6 @@ export const getAdminCurrentPerformance = async () => {
   return { data: data ? { ...data, user_nickname: data.participants?.nickname || 'Unknown' } : null }
 }
 
-// ============================================
-// VOTING & MESSAGES
-// ============================================
-
 export const submitVote = async (data) => {
   const participant = getParticipantFromToken();
   const { data: vote, error } = await supabase.from('votes').insert({
@@ -521,12 +479,12 @@ export const sendReaction = async (data) => {
 export const sendMessage = async (data) => {
   let participantId = null;
   let eventId = null;
-  let status = data.status || 'pending';
+  let status = 'pending';
 
   try {
-     const p = getParticipantFromToken(); 
-     participantId = p.participant_id;
-     eventId = p.event_id;
+    const participant = getParticipantFromToken();
+    participantId = participant.participant_id;
+    eventId = participant.event_id;
   } catch (e) {
      const pubCode = localStorage.getItem('neonpub_pub_code');
      if(pubCode) {
@@ -566,10 +524,6 @@ export const rejectMessage = async (id) => {
   const { error } = await supabase.from('messages').update({status:'rejected'}).eq('id', id);
   if (error) throw error; return {data:'ok'}
 }
-
-// ============================================
-// QUIZ & DISPLAY DATA
-// ============================================
 
 export const startQuiz = async (data) => {
   const event = await getAdminEvent()
@@ -690,7 +644,7 @@ export const getDisplayData = async (pubCode) => {
     supabase.from('participants').select('nickname, score').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
     supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
     supabase.from('messages').select('*').eq('event_id', event.id).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle(),
-    supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'approved').order('created_at', {ascending: false}).limit(5)
+    supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'approved').order('created_at', {ascending: false}).limit(10)
   ])
   return {
     data: {
@@ -717,6 +671,6 @@ export default {
   startQuiz, endQuiz, answerQuiz, getActiveQuiz, closeQuizVoting, showQuizResults, showQuizLeaderboard,
   getQuizResults, getAdminLeaderboard,
   getLeaderboard, getDisplayData,
-  getActiveEventsForUser, // Sostituisce recoverActiveEvent
+  getActiveEventsForUser,
   deleteQuizQuestion
 }

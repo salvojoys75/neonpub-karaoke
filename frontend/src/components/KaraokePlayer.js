@@ -1,17 +1,11 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 
-// ===========================================
-// KARAOKE PLAYER - VERSIONE ULTRA STABILE
-// ===========================================
-// Gestisce video YouTube in modo professionale senza ricaricamenti
-
 const KaraokePlayer = ({ url, status, volume = 100, isMuted, startedAt }) => {
   const playerRef = useRef(null);
   const playerReadyRef = useRef(false);
   const currentVideoIdRef = useRef(null);
   const lastStartedAtRef = useRef(null);
   
-  // Estrae ID video in modo sicuro
   const getVideoId = (url) => {
     if (!url) return null;
     const match = url.match(/^.*(youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/);
@@ -20,7 +14,6 @@ const KaraokePlayer = ({ url, status, volume = 100, isMuted, startedAt }) => {
   
   const videoId = getVideoId(url);
 
-  // Cleanup player
   const cleanupPlayer = useCallback(() => {
     if (playerRef.current) {
       try {
@@ -35,33 +28,26 @@ const KaraokePlayer = ({ url, status, volume = 100, isMuted, startedAt }) => {
     }
   }, []);
 
-  // ========================================
-  // EFFECT 1: Inizializzazione Player
-  // ========================================
   useEffect(() => {
     if (!videoId) {
       cleanupPlayer();
       return;
     }
 
-    // Se è lo stesso video e il player esiste, NON ricreare
     if (currentVideoIdRef.current === videoId && playerRef.current && playerReadyRef.current) {
       return;
     }
 
-    // Nuovo video: reset
     currentVideoIdRef.current = videoId;
     playerReadyRef.current = false;
     cleanupPlayer();
 
-    // Inizializza YouTube API
     const initPlayer = () => {
       if (!window.YT || !window.YT.Player) {
         setTimeout(initPlayer, 100);
         return;
       }
 
-      // Verifica elemento DOM
       const element = document.getElementById('karaoke-iframe');
       if (!element) {
         setTimeout(initPlayer, 100);
@@ -90,7 +76,6 @@ const KaraokePlayer = ({ url, status, volume = 100, isMuted, startedAt }) => {
             onReady: (event) => {
               playerReadyRef.current = true;
               
-              // Imposta volume
               event.target.setVolume(volume);
               if (isMuted) {
                 event.target.mute();
@@ -98,18 +83,14 @@ const KaraokePlayer = ({ url, status, volume = 100, isMuted, startedAt }) => {
                 event.target.unMute();
               }
               
-              // Play se status è live
               if (status === 'live') {
                 event.target.playVideo();
               }
             },
             onStateChange: (event) => {
-              // REMOVED: Auto-resume logic interferes with manual pause
-              // Play/pause is now handled by useEffect watching status prop
             },
             onError: (event) => {
               console.error('YouTube Player Error:', event.data);
-              // Error codes: 2=Invalid param, 5=HTML5 error, 100=Not found, 101/150=Not allowed
             }
           }
         });
@@ -118,7 +99,6 @@ const KaraokePlayer = ({ url, status, volume = 100, isMuted, startedAt }) => {
       }
     };
 
-    // Carica API se necessario
     if (!window.YT) {
       const tag = document.createElement('script');
       tag.src = 'https://www.youtube.com/iframe_api';
@@ -128,43 +108,30 @@ const KaraokePlayer = ({ url, status, volume = 100, isMuted, startedAt }) => {
       initPlayer();
     }
 
-    // Non cleanup al unmount per evitare flash
     return () => {
-      // Solo se cambia veramente video
       if (currentVideoIdRef.current !== videoId) {
         cleanupPlayer();
       }
     };
-  }, [videoId]); // Solo quando cambia il video ID
+  }, [videoId]);
 
-  // ========================================
-  // EFFECT 2: Gestione Comandi Real-time
-  // ========================================
   useEffect(() => {
     if (!playerRef.current || !playerReadyRef.current) return;
     if (typeof playerRef.current.getPlayerState !== 'function') return;
 
     try {
-      // A. GESTIONE PLAY/PAUSE
       const currentState = playerRef.current.getPlayerState();
       
       if (status === 'live') {
-        // Dovrebbe suonare
-        if (currentState !== 1 && currentState !== 3) { // 1=Playing, 3=Buffering
+        if (currentState !== 1 && currentState !== 3) {
           playerRef.current.playVideo();
         }
       } else if (status === 'paused' || status === 'voting' || status === 'ended') {
-        // Dovrebbe essere in pausa
         if (currentState === 1) {
           playerRef.current.pauseVideo();
         }
       }
 
-      // B. GESTIONE RESTART
-      // REMOVED: startedAt check causes unwanted restart on pause/resume
-      // Video restart is handled by videoId change in first effect
-
-      // C. GESTIONE MUTE/VOLUME
       if (isMuted) {
         if (!playerRef.current.isMuted()) {
           playerRef.current.mute();
@@ -178,23 +145,18 @@ const KaraokePlayer = ({ url, status, volume = 100, isMuted, startedAt }) => {
     } catch (e) {
       console.warn('Control error:', e);
     }
-  }, [status, isMuted, startedAt, volume]); // Re-esegui solo quando cambia uno stato di controllo
+  }, [status, isMuted, startedAt, volume]);
 
-  // ========================================
-  // RENDER
-  // ========================================
   if (!videoId) return null;
 
   return (
     <div className="absolute inset-0 z-0 overflow-hidden bg-black pointer-events-none">
-      {/* Player Container - Leggermente ingrandito per eliminare barre nere */}
       <div 
         id="karaoke-iframe" 
         className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[110%] h-[110%]"
         style={{ minWidth: '100%', minHeight: '100%' }}
       />
       
-      {/* Overlay leggero per migliorare contrasto testo */}
       <div className="absolute inset-0 bg-black/20 pointer-events-none" />
     </div>
   );
