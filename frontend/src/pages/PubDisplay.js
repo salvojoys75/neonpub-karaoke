@@ -348,12 +348,13 @@ const QuizMode = ({ quiz, result }) => (
                             <h3 className="text-fuchsia-400 font-bold uppercase tracking-widest mb-6 flex items-center gap-2 text-xl">
                                 <Zap className="w-6 h-6"/> I Più Veloci
                             </h3>
-                            <div className="space-y-4">
+                            <div className="space-y-4 max-h-[500px] overflow-y-auto custom-scrollbar pr-2">
                                 {result.winners && result.winners.length > 0 ? (
                                     result.winners.map((w, i) => (
                                         <div key={i} className="flex items-center gap-4 bg-white/5 p-3 rounded-2xl border border-white/5">
                                             <div className="bg-yellow-500 text-black font-black w-8 h-8 rounded-lg flex items-center justify-center text-lg">{i+1}</div>
-                                            <img src={w.avatar} className="w-10 h-10 rounded-full object-cover border border-white/20" alt="avt" />
+                                            {w.avatar && <img src={w.avatar} className="w-10 h-10 rounded-full object-cover border border-white/20" alt="avt" />}
+                                            {!w.avatar && <div className="w-10 h-10 rounded-full bg-fuchsia-600 flex items-center justify-center text-white font-bold border border-white/20">{w.nickname.charAt(0).toUpperCase()}</div>}
                                             <span className="text-white font-bold text-xl truncate flex-1">{w.nickname}</span>
                                             <div className="text-green-400 font-mono font-bold text-lg">+{w.points}</div>
                                         </div>
@@ -364,15 +365,12 @@ const QuizMode = ({ quiz, result }) => (
                             </div>
                         </div>
 
-                        {/* STATISTICHE */}
-                        <div className="flex flex-col gap-6">
-                            <div className="glass-panel p-8 rounded-3xl flex-1 flex flex-col items-center justify-center border-l-8 border-green-500">
-                                <div className="text-8xl font-black text-white mb-2">{result.correct_count}</div>
-                                <div className="text-sm uppercase text-white/50 font-bold tracking-widest">Hanno Indovinato</div>
-                            </div>
-                            <div className="glass-panel p-8 rounded-3xl flex-1 flex flex-col items-center justify-center border-l-8 border-zinc-500">
-                                <div className="text-8xl font-black text-white mb-2">{result.total_answers}</div>
-                                <div className="text-sm uppercase text-white/50 font-bold tracking-widest">Risposte Totali</div>
+                        {/* RISPOSTA CORRETTA - OCCUPANO TUTTA LA COLONNA DESTRA */}
+                        <div className="glass-panel p-8 rounded-3xl flex flex-col items-center justify-center border-l-8 border-fuchsia-500">
+                            <div className="text-3xl uppercase text-white/50 font-bold tracking-widest mb-4">Risposta Corretta</div>
+                            <div className="text-7xl font-black text-white mb-6 text-center leading-tight">{result.correct_option}</div>
+                            <div className="w-32 h-32 bg-green-500 rounded-full flex items-center justify-center text-7xl font-black text-white font-mono shadow-[0_0_50px_rgba(34,197,94,0.5)]">
+                                {result.correct_index !== undefined ? String.fromCharCode(65 + result.correct_index) : '?'}
                             </div>
                         </div>
                     </div>

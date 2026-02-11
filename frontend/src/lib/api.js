@@ -616,13 +616,20 @@ export const endQuiz = async (id) => {
 
 export const getQuizResults = async (quizId) => {
   const { data: quiz } = await supabase.from('quizzes').select('*').eq('id', quizId).single()
-  const { data: answers, error } = await supabase.from('quiz_answers').select('*, participants(nickname)').eq('quiz_id', quizId)
+  const { data: answers, error } = await supabase.from('quiz_answers').select('*, participants(id, nickname, avatar_url)').eq('quiz_id', quizId)
   if (error) throw error
   const correctAnswers = answers.filter(a => a.is_correct)
   return {
     data: {
       quiz_id: quizId, question: quiz.question, correct_option: quiz.options[quiz.correct_index], correct_index: quiz.correct_index,
-      total_answers: answers.length, correct_count: correctAnswers.length, winners: correctAnswers.map(a => a.participants?.nickname || 'Unknown'), points: quiz.points
+      total_answers: answers.length, correct_count: correctAnswers.length, 
+      winners: correctAnswers.map(a => ({
+        id: a.participants?.id,
+        nickname: a.participants?.nickname || 'Unknown',
+        avatar: a.participants?.avatar_url || null,
+        points: quiz.points
+      })),
+      points: quiz.points
     }
   }
 }
