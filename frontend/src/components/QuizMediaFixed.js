@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, memo } from 'react';
 import { Loader2, Music, Volume2 } from 'lucide-react';
 
+// Helper per estrarre ID YouTube
 const getYoutubeId = (url) => {
   if (!url) return null;
   const regExp = /^.*(youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
@@ -8,6 +9,7 @@ const getYoutubeId = (url) => {
   return (match && match[2].length === 11) ? match[2] : null;
 };
 
+// Helper per determinare tipo media
 const getMediaType = (url, type) => {
   if (type === 'audio') return 'audio';
   if (type === 'video' || (url && (url.includes('youtube.com') || url.includes('youtu.be')))) {
@@ -16,6 +18,10 @@ const getMediaType = (url, type) => {
   return 'unknown';
 };
 
+// ====================================================
+// YOUTUBE PLAYER COMPONENT - Completamente isolato
+// Non si re-renderizza MAI a meno che cambi l'URL
+// ====================================================
 const YouTubePlayer = memo(({ videoId, isAudioMode }) => {
   const playerRef = useRef(null);
   const containerIdRef = useRef(`yt-quiz-${Date.now()}`);
@@ -87,7 +93,7 @@ const YouTubePlayer = memo(({ videoId, isAudioMode }) => {
               }, 800);
             },
             onStateChange: (event) => {
-              if (event.data === 1) {
+              if (event.data === 1) { // PLAYING
                 setIsLoading(false);
                 try {
                   if (!event.target.isMuted()) {
@@ -106,6 +112,7 @@ const YouTubePlayer = memo(({ videoId, isAudioMode }) => {
       }
     };
 
+    // Carica API YouTube se necessario
     if (!window.YT) {
       if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
         const tag = document.createElement('script');
@@ -122,6 +129,7 @@ const YouTubePlayer = memo(({ videoId, isAudioMode }) => {
       initPlayer();
     }
 
+    // Cleanup SOLO on unmount definitivo
     return () => {
       if (playerRef.current) {
         try {
@@ -132,24 +140,28 @@ const YouTubePlayer = memo(({ videoId, isAudioMode }) => {
         playerRef.current = null;
       }
     };
-  }, [videoId]);
+  }, [videoId]); // Dipende SOLO dal videoId - non cambia mai durante la vita del componente
 
   return (
     <div className="absolute inset-0 bg-black flex items-center justify-center overflow-hidden">
+      {/* Overlay scuro per leggibilità testo */}
       <div className="absolute inset-0 bg-black/50 z-10 pointer-events-none" />
       
+      {/* Container YouTube */}
       <div 
         id={containerIdRef.current}
         className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[150%] h-[150%] ${isAudioMode ? 'opacity-0' : 'opacity-70'}`}
         style={{ pointerEvents: 'none' }}
       />
       
+      {/* Loader */}
       {isLoading && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black">
           <Loader2 className="w-16 h-16 text-fuchsia-500 animate-spin" />
         </div>
       )}
 
+      {/* Audio Block Warning */}
       {audioBlocked && !isLoading && (
         <div className="absolute top-10 left-1/2 -translate-x-1/2 z-50" style={{ pointerEvents: 'auto' }}>
           <button 
@@ -161,6 +173,7 @@ const YouTubePlayer = memo(({ videoId, isAudioMode }) => {
         </div>
       )}
 
+      {/* Audio mode overlay */}
       {isAudioMode && !isLoading && (
         <div className="absolute inset-0 z-15 flex flex-col items-center justify-center bg-gradient-to-t from-fuchsia-900/50 to-black pointer-events-none">
           <div className="relative">
@@ -173,20 +186,30 @@ const YouTubePlayer = memo(({ videoId, isAudioMode }) => {
     </div>
   );
 }, (prev, next) => {
+  // Non re-renderizzare MAI - il videoId non cambia durante la vita del componente
   return prev.videoId === next.videoId;
 });
 
+// ====================================================
+// QUIZ MEDIA FIXED - Componente principale
+// Crea/distrugge YouTubePlayer solo quando cambia video
+// ====================================================
 const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult }) => {
   const detectedType = getMediaType(mediaUrl, mediaType);
   const videoId = getYoutubeId(mediaUrl);
   const isAudioMode = mediaType === 'audio';
 
+  // Se è risultato, non mostrare media
   if (isResult) return null;
 
+  // Se non c'è media o non è YouTube
   if (!mediaUrl || detectedType !== 'youtube' || !videoId) {
     return <div className="absolute inset-0 bg-black" />;
   }
 
+  // Render YouTube Player con key stabile basata su videoId
+  // Il key fa sì che React crei un NUOVO componente solo quando cambia il videoId
+  // e NON quando cambiano altri props del padre
   return (
     <YouTubePlayer 
       key={videoId}
@@ -195,6 +218,7 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult }) => {
     />
   );
 }, (prev, next) => {
+  // Regola di re-render: SOLO se cambia URL o isResult
   return prev.mediaUrl === next.mediaUrl && 
          prev.mediaType === next.mediaType &&
          prev.isResult === next.isResult;
