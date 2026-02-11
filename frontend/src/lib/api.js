@@ -4,13 +4,11 @@ import { supabase } from '@/lib/supabase'
 // 1. HELPER E AUTH
 // ============================================
 
-// Recupera l'utente autenticato (Operatore/Admin)
 const getUser = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     return user;
 };
 
-// Recupera il partecipante dal token localStorage (Cliente)
 function getParticipantFromToken() {
     const token = localStorage.getItem('neonpub_token');
     if (!token) throw new Error('Not authenticated');
@@ -29,21 +27,18 @@ function getParticipantFromToken() {
 // ============================================
 
 export const joinPub = async ({ pub_code, nickname, avatar_url }) => {
-    // 1. Trova l'evento
     const { data: event, error: evError } = await supabase
         .from('events')
         .select('id, name, status, settings')
         .eq('code', pub_code.toUpperCase())
-        .maybeSingle(); // Usa maybeSingle per evitare errori 406 se non trovato
+        .maybeSingle();
 
     if (evError) throw evError;
     if (!event) throw new Error("Evento non trovato. Controlla il codice.");
     if (event.status === 'ended') throw new Error("L'evento è terminato.");
 
-    // 2. Prepara Avatar
     const finalAvatar = avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${nickname}`;
 
-    // 3. Crea Partecipante
     const { data: participant, error: pError } = await supabase
         .from('participants')
         .insert({ 
@@ -57,7 +52,6 @@ export const joinPub = async ({ pub_code, nickname, avatar_url }) => {
 
     if (pError) throw pError;
     
-    // 4. Genera Token (Base64 semplice per demo)
     const tokenObj = { 
         participant_id: participant.id, 
         event_id: event.id, 
@@ -65,8 +59,6 @@ export const joinPub = async ({ pub_code, nickname, avatar_url }) => {
         pub_name: event.name 
     };
     const token = btoa(JSON.stringify(tokenObj));
-    
-    // Salva nel localStorage
     localStorage.setItem('neonpub_token', token);
     
     return { data: { token, user: { ...participant, pub_name: event.name } } };
@@ -88,7 +80,6 @@ export const requestSong = async (data) => {
 
 export const submitVote = async ({ performance_id, score }) => { 
     const p = getParticipantFromToken(); 
-    // Verifica se ha già votato
     const { data: existing } = await supabase.from('votes')
         .select('*')
         .eq('participant_id', p.participant_id)
@@ -107,13 +98,15 @@ export const submitVote = async ({ performance_id, score }) => {
 
 export const answerQuiz = async ({ quiz_id, answer_index }) => { 
     const p = getParticipantFromToken(); 
-    const { error } = await supabase.from('quiz_answers').insert({
+    const { data, error } = await supabase.from('quiz_answers').insert({
         quiz_id, 
         participant_id: p.participant_id, 
         answer_index
-    });
+    }).select().maybeSingle();
+    
     if(error) throw error;
-    return { data: { status: 'submitted' } };
+    // Mock points return (la logica reale andrebbe su server/rpc)
+    return { data: { points_earned: 10, ...data } };
 };
 
 export const sendReaction = async ({ emoji }) => { 
@@ -134,8 +127,146 @@ export const getMyRequests = async () => {
     return { data }; 
 };
 
+export const getSongQueue = async () => {
+    const p = getParticipantFromToken();
+    const { data } = await supabase
+        .from('song_requests')
+        // Usa !inner se vuoi forzare la relazione, ma la FK deve esistere
+        .select('*, participants(nickname, avatar_url)')
+        .eq('event_id', p.event_id)
+        .eq('status', 'queued')
+        .order('created_at', { ascending: true });
+
+    return { 
+        data: data?.map(r => ({
+            ...r, 
+            user_nickname: r.participants?.nickname || 'Anonimo',
+            user_avatar: r.participants?.avatar_url
+        })) || [] 
+    };
+};
+
+export const getCurrentPerformance = async () => {
+    const p = getParticipantFromToken();
+    const { data } = await supabase.from('performances')
+        .select('*, participants(nickname, avatar_url)')
+        .eq('event_id', p.event_id)
+        .in('status', ['live', 'voting', 'paused'])
+        .maybeSingle();
+        
+    return { 
+        data: data ? {
+            ...data, 
+            user_nickname: data.participants?.nickname,
+            user_avatar: data.participants?.avatar_url
+        } : null 
+    };
+};
+
+export const getLeaderboard = async () => {
+    const p = getParticipantFromToken();
+    const { data } = await supabase.from('participants')
+        .select('nickname, score, avatar_url')
+        .eq('event_id', p.event_id)
+        .order('score', {ascending:false})
+        .limit(20);
+    return { data };
+};
+
 // ============================================
-// 3. FUNZIONI ADMIN / OPERATORE
+// 3. FUNZIONI DISPLAY (TV) - QUELLA CHE MANCAVA
+// ============================================
+
+export const getDisplayData = async (pubCode) => {
+    if (!pubCode) throw new Error("Codice mancante");
+
+    // 1. Trova l'evento
+    const { data: event } = await supabase.from('events')
+        .select('*')
+        .eq('code', pubCode.toUpperCase())
+        .single();
+
+    if (!event) throw new Error("Evento non trovato");
+    const eventId = event.id;
+
+    // 2. Esegui query in parallelo
+    const [perf, queue, quiz, msgs, lb] = await Promise.all([
+        // Performance Corrente
+        getAdminCurrentPerformance(eventId),
+        
+        // Coda (riutilizza funzione admin)
+        getAdminQueue(eventId),
+        
+        // Quiz Attivo
+        getActiveQuiz(eventId),
+        
+        // Ultimo messaggio approvato
+        supabase.from('messages')
+            .select('*')
+            .eq('event_id', eventId)
+            .in('status', ['approved'])
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+            
+        // Classifica Top 5
+        supabase.from('participants')
+            .select('nickname, score, avatar_url')
+            .eq('event_id', eventId)
+            .order('score', { ascending: false })
+            .limit(5)
+    ]);
+
+    return {
+        data: {
+            pub: event,
+            current_performance: perf.data,
+            queue: queue.data,
+            active_quiz: quiz.data,
+            latest_message: msgs.data,
+            leaderboard: lb.data || []
+        }
+    };
+};
+
+export const getQuizResults = async (quizId) => {
+    // Calcola statistiche risposte
+    const { count: total } = await supabase.from('quiz_answers')
+        .select('*', { count: 'exact', head: true })
+        .eq('quiz_id', quizId);
+
+    const { data: quiz } = await supabase.from('quizzes').select('correct_index, options').eq('id', quizId).single();
+    
+    // Conta risposte corrette
+    const { count: correct } = await supabase.from('quiz_answers')
+        .select('*', { count: 'exact', head: true })
+        .eq('quiz_id', quizId)
+        .eq('answer_index', quiz.correct_index);
+
+    // Trova i vincitori (primi 3)
+    const { data: winners } = await supabase.from('quiz_answers')
+        .select('created_at, participants(nickname, avatar_url)')
+        .eq('quiz_id', quizId)
+        .eq('answer_index', quiz.correct_index)
+        .order('created_at', { ascending: true })
+        .limit(3);
+
+    return {
+        data: {
+            total_answers: total,
+            correct_count: correct,
+            correct_option: quiz.options[quiz.correct_index],
+            winners: winners?.map(w => ({
+                nickname: w.participants?.nickname,
+                avatar: w.participants?.avatar_url,
+                points: 10 // Mock points
+            })) || []
+        }
+    };
+};
+
+// ============================================
+// 4. FUNZIONI ADMIN / OPERATORE
 // ============================================
 
 export const getOwnerEvents = async () => {
@@ -181,18 +312,22 @@ export const getPub = async (pubCode) => {
     return { data };
 };
 
-// --- GESTIONE CODA & PLAYLIST ---
-
 export const getAdminQueue = async (eventId) => {
     if(!eventId) return { data: [] };
-    const { data } = await supabase
+    
+    // Nota: participants deve essere scritto esattamente come il nome della tabella collegata
+    const { data, error } = await supabase
         .from('song_requests')
         .select('*, participants(nickname, avatar_url)')
         .eq('event_id', eventId)
         .in('status', ['pending', 'queued'])
         .order('created_at', { ascending: true });
     
-    // Mapping sicuro per evitare crash se participants è null
+    if (error) {
+        console.error("Errore Queue:", error);
+        return { data: [] };
+    }
+    
     const mapped = data?.map(r => ({
         ...r, 
         user_nickname: r.participants?.nickname || 'Anonimo',
@@ -206,16 +341,12 @@ export const approveRequest = async (id) => supabase.from('song_requests').updat
 export const rejectRequest = async (id) => supabase.from('song_requests').update({ status: 'rejected' }).eq('id', id);
 export const deleteRequest = async (id) => supabase.from('song_requests').update({ status: 'deleted' }).eq('id', id);
 
-// --- KARAOKE PLAYER ---
-
 export const startPerformance = async (requestId, youtubeUrl) => {
     const { data: req } = await supabase.from('song_requests').select('*').eq('id', requestId).single();
     if(!req) throw new Error("Richiesta non trovata");
 
-    // Chiudi precedenti
     await supabase.from('performances').update({ status: 'ended' }).eq('event_id', req.event_id).in('status', ['live', 'voting', 'paused']);
 
-    // Crea nuova
     await supabase.from('performances').insert({
         event_id: req.event_id,
         song_request_id: req.id,
@@ -232,11 +363,18 @@ export const startPerformance = async (requestId, youtubeUrl) => {
 export const getAdminCurrentPerformance = async (eventId) => {
     if(!eventId) return { data: null };
     const { data } = await supabase.from('performances')
-        .select('*, participants(nickname)')
+        .select('*, participants(nickname, avatar_url)')
         .eq('event_id', eventId)
         .in('status', ['live', 'voting', 'paused'])
         .maybeSingle();
-    return { data: data ? {...data, user_nickname: data.participants?.nickname} : null };
+        
+    return { 
+        data: data ? {
+            ...data, 
+            user_nickname: data.participants?.nickname,
+            user_avatar: data.participants?.avatar_url
+        } : null 
+    };
 };
 
 export const ctrlPerformance = async (perfId, action) => {
@@ -249,11 +387,8 @@ export const ctrlPerformance = async (perfId, action) => {
     await supabase.from('performances').update({ status }).eq('id', perfId);
 };
 
-// --- QUIZ ---
-
 export const getActiveQuiz = async (eventId) => {
     if (!eventId) {
-        // Fallback per client che non passano ID esplicitamente ma usano token
         try {
             const p = getParticipantFromToken();
             eventId = p.event_id;
@@ -269,9 +404,7 @@ export const getActiveQuiz = async (eventId) => {
 };
 
 export const startQuiz = async (quizData) => {
-    // Chiudi quiz precedenti
     await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', quizData.event_id).neq('status', 'ended');
-    // Avvia nuovo
     await supabase.from('quizzes').insert({ ...quizData, status: 'active' });
 };
 
@@ -282,8 +415,6 @@ export const ctrlQuiz = async (quizId, action) => {
     if (action === 'end') status = 'ended';
     await supabase.from('quizzes').update({ status }).eq('id', quizId);
 };
-
-// --- MESSAGGI & SETTINGS ---
 
 export const getAdminPendingMessages = async (eventId) => {
     if(!eventId) return { data: [] };
@@ -313,14 +444,19 @@ export const uploadLogo = async (file) => {
     return data.publicUrl;
 };
 
-export const toggleMute = async (isMuted) => { 
-    // Logica opzionale
-    console.log("Mute toggled:", isMuted);
+export const toggleMute = async (isMuted) => {
+    const user = await getUser();
+    if(!user) return;
+    const { data: events } = await getOwnerEvents();
+    if(events.length > 0) {
+        // Invia segnale broadcast
+        await supabase.channel('tv_ctrl').send({
+            type: 'broadcast',
+            event: 'control',
+            payload: { command: 'mute', value: isMuted }
+        });
+    }
 };
-
-// ============================================
-// EXPORT DEFAULT (PER COMPATIBILITÀ)
-// ============================================
 
 const api = {
     // Client
@@ -330,6 +466,13 @@ const api = {
     answerQuiz,
     sendReaction,
     getMyRequests,
+    getSongQueue,
+    getCurrentPerformance,
+    getLeaderboard,
+    
+    // Display
+    getDisplayData,
+    getQuizResults,
     
     // Admin
     getOwnerEvents,
