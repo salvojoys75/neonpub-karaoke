@@ -1,15 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-const KaraokePlayer = ({ url, status, volume = 100 }) => {
+const KaraokePlayer = ({ url, status, volume = 100, isMuted, startedAt }) => {
   const playerRef = useRef(null);
-  const containerRef = useRef(null);
-  // Estrae ID video
   const videoId = url ? (url.match(/^.*(youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/) || [])[2] : null;
+  
+  // Per tracciare se abbiamo già fatto seek(0) per questo startedAt
+  const lastStartedAtRef = useRef(startedAt);
 
   useEffect(() => {
     if (!videoId) return;
 
-    // Carica API se manca
     if (!window.YT) {
       const tag = document.createElement('script');
       tag.src = 'https://www.youtube.com/iframe_api';
@@ -17,15 +17,11 @@ const KaraokePlayer = ({ url, status, volume = 100 }) => {
     }
 
     const initPlayer = () => {
-      // Se il player esiste già per QUESTO video, non ricrearlo
-      if (playerRef.current && playerRef.current.getIframe() && playerRef.current.getIframe().id === 'karaoke-iframe') {
-         // Gestione stati play/pause su player esistente
-         if (status === 'live') playerRef.current.playVideo();
-         if (status === 'paused') playerRef.current.pauseVideo();
+      // Se esiste già, non ricrearlo, aggiorna solo stato
+      if (playerRef.current && playerRef.current.getIframe()) {
          return;
       }
 
-      // Crea nuovo player
       playerRef.current = new window.YT.Player('karaoke-iframe', {
         videoId: videoId,
         width: '100%',
@@ -39,17 +35,21 @@ const KaraokePlayer = ({ url, status, volume = 100 }) => {
           modestbranding: 1,
           rel: 0,
           showinfo: 0,
-          mute: 0,
-          playsinline: 1
+          mute: 0, // Iniziamo senza mute
+          playsinline: 1,
+          origin: window.location.origin
         },
         events: {
           onReady: (event) => {
             event.target.setVolume(volume);
+            if (isMuted) event.target.mute();
             if (status === 'live') event.target.playVideo();
-            else event.target.pauseVideo();
           },
           onStateChange: (event) => {
-             // Opzionale: sincronizzazione fine
+             // 0 = Ended
+             if (event.data === 0) {
+                 // Opzionale: notifica fine video
+             }
           }
         }
       });
@@ -60,29 +60,45 @@ const KaraokePlayer = ({ url, status, volume = 100 }) => {
     } else {
       window.onYouTubeIframeAPIReady = initPlayer;
     }
-
-    // Cleanup solo se cambia video ID drasticamente
-    return () => {
-       // Non distruggiamo qui per evitare flash neri tra render
-    };
   }, [videoId]);
 
-  // Effetto separato per gestire SOLO lo stato Play/Pause senza ricaricare video
+  // Gestione Comandi in tempo reale (Play/Pause/Restart/Mute)
   useEffect(() => {
-    if (playerRef.current && typeof playerRef.current.playVideo === 'function') {
-        if (status === 'live') playerRef.current.playVideo();
-        if (status === 'paused') playerRef.current.pauseVideo();
-        if (status === 'voting' || status === 'ended') playerRef.current.pauseVideo();
+    if (!playerRef.current || typeof playerRef.current.getPlayerState !== 'function') return;
+
+    // 1. Gestione Play/Pause
+    if (status === 'live') {
+        playerRef.current.playVideo();
+    } else if (status === 'paused' || status === 'voting') {
+        playerRef.current.pauseVideo();
     }
-  }, [status]);
+
+    // 2. Gestione Riavvio (Se cambia il timestamp startedAt)
+    if (startedAt !== lastStartedAtRef.current) {
+        console.log("Riavvolgimento video...");
+        playerRef.current.seekTo(0);
+        playerRef.current.playVideo();
+        lastStartedAtRef.current = startedAt;
+    }
+
+    // 3. Gestione Mute Globale
+    if (isMuted) {
+        playerRef.current.mute();
+    } else {
+        playerRef.current.unMute();
+        playerRef.current.setVolume(volume);
+    }
+
+  }, [status, isMuted, startedAt, volume]);
 
   if (!videoId) return null;
 
   return (
-    <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden bg-black">
-      <div id="karaoke-iframe" className="w-full h-full scale-[1.05]" /> 
-      {/* Overlay leggero per uniformare luminosità */}
-      <div className="absolute inset-0 bg-black/20" />
+    <div className="absolute inset-0 z-0 overflow-hidden bg-black pointer-events-none">
+      {/* Scale 1.1 per rimuovere bordi neri eventuali */}
+      <div id="karaoke-iframe" className="w-full h-full scale-[1.02]" /> 
+      {/* Overlay scuro leggero per migliorare leggibilità testi */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/40 opacity-80" />
     </div>
   );
 };
