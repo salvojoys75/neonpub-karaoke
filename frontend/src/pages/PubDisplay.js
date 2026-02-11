@@ -432,24 +432,6 @@ export default function PubDisplay() {
     const isVoting = !isQuiz && perf && perf.status === 'voting';
     const isScore = !isQuiz && perf && perf.status === 'ended';
     
-    // Auto-hide score after 8 seconds
-    useEffect(() => {
-        if (isScore && perf) {
-            const timer = setTimeout(async () => {
-                // Mark performance as completed so it disappears
-                try {
-                    await supabase.from('performances')
-                        .update({ status: 'completed' })
-                        .eq('id', perf.id);
-                    load(); // Refresh to show idle screen
-                } catch (e) {
-                    console.error('Score auto-hide error:', e);
-                }
-            }, 8000); // 8 seconds
-            return () => clearTimeout(timer);
-        }
-    }, [isScore, perf?.id, load]); // Added load to dependencies
-    
     let Content = null;
     if (isQuiz) Content = <QuizMode quiz={quiz} result={quizResult} />;
     else if (isVoting) Content = <VotingMode perf={perf} />;
