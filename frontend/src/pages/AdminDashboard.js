@@ -35,6 +35,7 @@ export default function AdminDashboard() {
   const [queue, setQueue] = useState([]);
   const [currentPerformance, setCurrentPerformance] = useState(null);
   const [pendingMessages, setPendingMessages] = useState([]);
+  const [approvedMessages, setApprovedMessages] = useState([]);
   const [isMuted, setIsMuted] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState(null);
   
@@ -247,6 +248,11 @@ export default function AdminDashboard() {
       setQueue(qRes.data || []);
       setCurrentPerformance(perfRes.data);
       setPendingMessages(msgRes.data || []);
+      
+      // Load approved messages
+      const approvedRes = await supabase.from('messages').select('*, participants(nickname)').eq('status', 'approved').order('created_at', {ascending: false}).limit(10);
+      setApprovedMessages(approvedRes.data?.map(m => ({...m, user_nickname: m.participants?.nickname})) || []);
+      
       setQuizCatalog(quizCatRes.data || []);
       setChallenges(challRes.data || []);
 
@@ -802,6 +808,7 @@ export default function AdminDashboard() {
                {libraryTab === 'messages' && (
                    <div className="space-y-4 pt-2">
                        <Button className="w-full bg-cyan-600 hover:bg-cyan-500 mb-4" onClick={()=>setShowMessageModal(true)}><MessageSquare className="w-4 h-4 mr-2"/> Scrivi Messaggio Regia</Button>
+                       
                        <h3 className="text-xs font-bold text-zinc-500 uppercase">In Attesa ({pendingMessages.length})</h3>
                        {pendingMessages.map(msg => (
                            <div key={msg.id} className="bg-zinc-800 p-3 rounded border-l-2 border-blue-500">
@@ -810,6 +817,17 @@ export default function AdminDashboard() {
                                <div className="flex gap-2 justify-end"><Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-900/20 h-7" onClick={async()=>{await api.rejectMessage(msg.id); loadData();}}>Rifiuta</Button><Button size="sm" className="bg-green-600 h-7 hover:bg-green-500" onClick={async()=>{await api.approveMessage(msg.id); loadData();}}>Approva</Button></div>
                            </div>
                        ))}
+                       
+                       <h3 className="text-xs font-bold text-green-500 uppercase mt-6">Approvati (Display)</h3>
+                       {approvedMessages && approvedMessages.length > 0 ? approvedMessages.map(msg => (
+                           <div key={msg.id} className="bg-zinc-800 p-3 rounded border-l-2 border-green-500 flex items-start justify-between gap-3">
+                               <div className="flex-1">
+                                   <div className="flex gap-2 mb-1"><span className="font-bold text-sm text-green-400">{msg.user_nickname || 'Regia'}</span></div>
+                                   <p className="text-sm bg-black/20 p-2 rounded">{msg.text}</p>
+                               </div>
+                               <Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-900/20 shrink-0" onClick={async()=>{await supabase.from('messages').delete().eq('id', msg.id); toast.success("Eliminato"); loadData();}}><Trash2 className="w-4 h-4"/></Button>
+                           </div>
+                       )) : <p className="text-xs text-zinc-600 italic">Nessun messaggio approvato</p>}
                    </div>
                )}
 

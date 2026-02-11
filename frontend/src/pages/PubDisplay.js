@@ -63,7 +63,21 @@ const STYLES = `
 // SOTTO-COMPONENTI UI
 // ===========================================
 
-const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => (
+const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => {
+  const [currentMsgIndex, setCurrentMsgIndex] = React.useState(0);
+  
+  // Rotate messages every 5 seconds
+  React.useEffect(() => {
+    if (!messages || messages.length === 0) return;
+    const interval = setInterval(() => {
+      setCurrentMsgIndex(prev => (prev + 1) % messages.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [messages]);
+  
+  const currentMsg = messages && messages.length > 0 ? messages[currentMsgIndex] : null;
+  
+  return (
   <div className="absolute top-0 left-0 right-0 h-24 z-[100] flex items-center justify-between px-8 bg-gradient-to-b from-black/90 via-black/60 to-transparent">
       {/* LOGO & INFO */}
       <div className="flex items-center gap-5">
@@ -81,26 +95,17 @@ const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => (
           </div>
       </div>
       
-      {/* TICKER MESSAGGI SCORREVOLI */}
+      {/* TICKER MESSAGGI - UNO ALLA VOLTA */}
       <div className="flex-1 mx-16 h-14 glass-panel rounded-full flex items-center px-4 overflow-hidden relative">
-          {messages && messages.length > 0 ? (
-             <div className="ticker-wrap w-full">
-                 <div className="ticker-content flex items-center gap-12">
-                     {messages.map((m, i) => (
-                         <div key={i} className="flex items-center gap-3 shrink-0">
-                             <MessageSquare className="w-5 h-5 text-fuchsia-400"/>
-                             <span className="text-sm text-fuchsia-300 font-bold">{m.nickname}:</span>
-                             <span className="text-lg text-white font-medium">{m.text}</span>
-                         </div>
-                     ))}
-                     {/* Duplicate for seamless loop */}
-                     {messages.map((m, i) => (
-                         <div key={`dup-${i}`} className="flex items-center gap-3 shrink-0">
-                             <MessageSquare className="w-5 h-5 text-fuchsia-400"/>
-                             <span className="text-sm text-fuchsia-300 font-bold">{m.nickname}:</span>
-                             <span className="text-lg text-white font-medium">{m.text}</span>
-                         </div>
-                     ))}
+          {currentMsg ? (
+             <div className="w-full overflow-hidden">
+                 <div 
+                   key={currentMsgIndex}
+                   className="flex items-center gap-3 animate-slide-left"
+                 >
+                     <MessageSquare className="w-5 h-5 text-fuchsia-400 shrink-0"/>
+                     <span className="text-sm text-fuchsia-300 font-bold shrink-0">{currentMsg.nickname}:</span>
+                     <span className="text-lg text-white font-medium">{currentMsg.text}</span>
                  </div>
              </div>
           ) : (
@@ -126,8 +131,18 @@ const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => (
               <span className="text-2xl font-mono font-bold">{onlineCount}</span>
           </div>
       </div>
+      
+      <style jsx>{`
+        @keyframes slide-left {
+          from { transform: translateX(100%); opacity: 0; }
+          to { transform: translateX(0); opacity: 1; }
+        }
+        .animate-slide-left {
+          animation: slide-left 0.8s ease-out;
+        }
+      `}</style>
   </div>
-);
+);};
 
 const Sidebar = ({ pubCode, queue, leaderboard }) => (
   <div className="absolute top-28 right-6 bottom-6 w-[350px] z-[90] flex flex-col gap-6">
