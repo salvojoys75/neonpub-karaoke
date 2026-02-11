@@ -477,35 +477,32 @@ export const sendReaction = async (data) => {
 }
 
 export const sendMessage = async (data) => {
-  let participantId = null;
-  let eventId = null;
-  let status = 'pending';
-
-  try {
-    const participant = getParticipantFromToken();
-    participantId = participant.participant_id;
-    eventId = participant.event_id;
-  } catch (e) {
-     const pubCode = localStorage.getItem('neonpub_pub_code');
-     if(pubCode) {
-        const { data: event } = await supabase.from('events').select('id').eq('code', pubCode).single();
-        if(event) {
-           eventId = event.id;
-           status = 'admin_overlay'; // MODIFICA: Messaggi regia non approvati ma overlay
-        }
-     }
+  // MODIFICA: Controlla PRIMA se è un messaggio da Admin (via codice operatore)
+  const pubCode = localStorage.getItem('neonpub_pub_code');
+  if (pubCode) {
+      const { data: event } = await supabase.from('events').select('id').eq('code', pubCode).single();
+      if (event) {
+           const text = typeof data === 'string' ? data : (data.text || data.message);
+           const { data: message, error } = await supabase.from('messages').insert({
+                event_id: event.id, participant_id: null, text: text, status: 'admin_overlay'
+           }).select().single();
+           if (error) throw error;
+           return { data: message };
+      }
   }
 
-  if (!eventId) throw new Error("Errore contesto evento: ricarica la pagina");
-  
-  const text = typeof data === 'string' ? data : (data.text || data.message);
-  
-  const { data: message, error } = await supabase.from('messages').insert({
-      event_id: eventId, participant_id: participantId, text: text, status: status
-    }).select().single()
-
-  if (error) throw error
-  return { data: message }
+  // Fallback a partecipante se non è admin
+  try {
+      const participant = getParticipantFromToken();
+      const text = typeof data === 'string' ? data : (data.text || data.message);
+      const { data: message, error } = await supabase.from('messages').insert({
+          event_id: participant.event_id, participant_id: participant.participant_id, text: text, status: 'pending'
+      }).select().single();
+      if (error) throw error;
+      return { data: message };
+  } catch (e) {
+      throw new Error("Errore invio messaggio: autenticazione non valida.");
+  }
 }
 
 export const getAdminPendingMessages = async () => {
@@ -647,12 +644,12 @@ export const getDisplayData = async (pubCode) => {
     supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'approved').order('created_at', {ascending: false}).limit(10)
   ])
 
-  // MODIFICA: Filtra performance terminate da più di 2 minuti per tornare alla schermata di benvenuto
   let currentPerformance = perf.data ? {...perf.data, user_nickname: perf.data.participants?.nickname} : null;
+  // MODIFICA: Se è finita da più di 15 secondi, torna a Idle
   if (currentPerformance && currentPerformance.status === 'ended') {
       const endedAt = new Date(currentPerformance.ended_at);
       const now = new Date();
-      if ((now - endedAt) > 2 * 60 * 1000) { // 2 minuti
+      if ((now - endedAt) > 15 * 1000) { 
           currentPerformance = null;
       }
   }

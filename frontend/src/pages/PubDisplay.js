@@ -112,7 +112,6 @@ const AdminMessageOverlay = ({ message }) => {
     
     useEffect(() => {
         if (message) {
-            // Controlla se il messaggio è recente (es. ultimi 15 secondi)
             const created = new Date(message.created_at);
             const now = new Date();
             if ((now - created) < 15000) {
@@ -302,7 +301,6 @@ const ScoreMode = ({ perf }) => (
 );
 
 const QuizMode = ({ quiz, result }) => {
-    // MODIFICA: Se lo stato è leaderboard, mostra la classifica a tutto schermo
     if (quiz.status === 'leaderboard' && quiz.leaderboard) {
         return (
              <div className="w-full h-full flex flex-col bg-[#080808] relative p-12 overflow-hidden items-center justify-center mr-[350px]">
@@ -422,25 +420,33 @@ export default function PubDisplay() {
         try {
             const res = await api.getDisplayData(pubCode);
             if(res.data) {
-                setData(res.data);
-                
-                const q = res.data.active_quiz;
+                // MODIFICA: Logica unificata per evitare flickering
+                let finalData = res.data;
+                const q = finalData.active_quiz;
+
+                // 1. Gestione Risultati Quiz
                 if(q && q.status === 'showing_results') {
                     const r = await api.getQuizResults(q.id);
                     setQuizResult(r.data);
-                } else if(q && q.status === 'leaderboard') {
-                    const lb = await api.getAdminLeaderboard();
-                    setData(prev => ({
-                        ...prev,
-                        active_quiz: {
-                            ...q,
-                            leaderboard: lb.data
-                        }
-                    }));
-                    setQuizResult(null);
                 } else {
                     setQuizResult(null);
                 }
+
+                // 2. Gestione Classifica Quiz
+                if(q && q.status === 'leaderboard') {
+                    // Usa la classifica generale già scaricata da getDisplayData per evitare chiamate async doppie e scatti
+                    // Mappa la struttura per il componente QuizMode
+                    finalData = {
+                        ...finalData,
+                        active_quiz: {
+                            ...q,
+                            leaderboard: finalData.leaderboard
+                        }
+                    };
+                }
+                
+                // 3. Unico Update di Stato
+                setData(finalData);
             }
         } catch(e) { console.error(e); }
     }, [pubCode]);
