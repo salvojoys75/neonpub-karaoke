@@ -83,6 +83,7 @@ export default function AdminDashboard() {
   const [quizCorrectIndex, setQuizCorrectIndex] = useState(0);
   const [quizMediaUrl, setQuizMediaUrl] = useState("");
   const [quizMediaType, setQuizMediaType] = useState("text");
+  const [quizCategory, setQuizCategory] = useState("Indovina Intro");
 
   // --- MESSAGGI VARS ---
   const [adminMessage, setAdminMessage] = useState("");
@@ -394,7 +395,7 @@ export default function AdminDashboard() {
   const launchCustomQuiz = async () => {
       try {
           await api.startQuiz({
-              category: "custom", 
+              category: quizCategory, 
               question: quizQuestion, 
               options: quizOptions, 
               correct_index: quizCorrectIndex, 
@@ -450,13 +451,25 @@ export default function AdminDashboard() {
       }
   };
 
+  const MUSIC_CATEGORIES = [
+    { id: 'all', label: 'Tutti' },
+    { id: 'intro', label: 'Intro' },
+    { id: 'lyrics', label: 'Testi' },
+    { id: 'video', label: 'Videoclip' },
+    { id: 'cover', label: 'Cover' },
+    { id: 'anno', label: 'Anno' },
+    { id: 'artista', label: 'Artista' },
+  ];
+
   const filteredCatalog = quizCatalog.filter(item => {
       if (quizCategoryFilter === 'all') return true;
-      const cat = item.category.toLowerCase();
-      if (quizCategoryFilter === 'intro' && (cat.includes('intro') || item.media_type === 'audio')) return true;
-      if (quizCategoryFilter === 'video' && (cat.includes('cinema') || cat.includes('video') || item.media_type === 'video')) return true;
-      if (quizCategoryFilter === 'lyrics' && (cat.includes('testo') || cat.includes('lyrics'))) return true;
-      if (quizCategoryFilter === 'general' && !cat.includes('intro') && !cat.includes('video') && !cat.includes('lyrics')) return true;
+      const cat = (item.category || '').toLowerCase();
+      if (quizCategoryFilter === 'intro' && (cat.includes('intro') || cat.includes('indovina') || item.media_type === 'audio')) return true;
+      if (quizCategoryFilter === 'video' && (cat.includes('video') || cat.includes('clip') || cat.includes('cinema') || item.media_type === 'video')) return true;
+      if (quizCategoryFilter === 'lyrics' && (cat.includes('testo') || cat.includes('lyrics') || cat.includes('parole'))) return true;
+      if (quizCategoryFilter === 'cover' && (cat.includes('cover') || cat.includes('originale'))) return true;
+      if (quizCategoryFilter === 'anno' && (cat.includes('anno') || cat.includes('decade') || cat.includes('epoca'))) return true;
+      if (quizCategoryFilter === 'artista' && (cat.includes('artista') || cat.includes('cantante') || cat.includes('band') || cat.includes('chi'))) return true;
       return false;
   });
 
@@ -742,11 +755,10 @@ export default function AdminDashboard() {
                             </div>
                         )}
 
-                        <div className="flex gap-1 mb-2 bg-zinc-950 p-1 rounded">
-                            <Button size="sm" variant={quizCategoryFilter==='all'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('all')}>Tutti</Button>
-                            <Button size="sm" variant={quizCategoryFilter==='intro'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('intro')}>Intro</Button>
-                            <Button size="sm" variant={quizCategoryFilter==='lyrics'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('lyrics')}>Testi</Button>
-                            <Button size="sm" variant={quizCategoryFilter==='video'?'secondary':'ghost'} className="text-[10px] h-6 flex-1" onClick={()=>setQuizCategoryFilter('video')}>Video</Button>
+                        <div className="flex flex-wrap gap-1 mb-2 bg-zinc-950 p-1 rounded">
+                            {MUSIC_CATEGORIES.map(cat => (
+                                <Button key={cat.id} size="sm" variant={quizCategoryFilter===cat.id?'secondary':'ghost'} className="text-[10px] h-6 px-2" onClick={()=>setQuizCategoryFilter(cat.id)}>{cat.label}</Button>
+                            ))}
                         </div>
 
                         <div className="flex-1 overflow-hidden flex flex-col">
@@ -860,8 +872,23 @@ export default function AdminDashboard() {
 
       <Dialog open={showCustomQuizModal} onOpenChange={setShowCustomQuizModal}>
           <DialogContent className="bg-zinc-900 border-zinc-800 max-h-[90vh] overflow-y-auto">
-              <DialogHeader><DialogTitle>Crea Quiz Manuale</DialogTitle></DialogHeader>
+              <DialogHeader><DialogTitle>Crea Quiz Musicale</DialogTitle></DialogHeader>
               <div className="space-y-4 pt-4">
+                  <div>
+                      <label className="text-xs text-zinc-500 mb-1">Categoria</label>
+                      <Select value={quizCategory} onValueChange={setQuizCategory}>
+                          <SelectTrigger className="bg-zinc-800 border-zinc-700"><SelectValue /></SelectTrigger>
+                          <SelectContent className="bg-zinc-800 border-zinc-700">
+                              <SelectItem value="Indovina Intro">Indovina l'Intro</SelectItem>
+                              <SelectItem value="Indovina Videoclip">Indovina il Videoclip</SelectItem>
+                              <SelectItem value="Completa il Testo">Completa il Testo</SelectItem>
+                              <SelectItem value="Chi Canta?">Chi Canta?</SelectItem>
+                              <SelectItem value="Indovina l'Anno">Indovina l'Anno</SelectItem>
+                              <SelectItem value="Cover o Originale?">Cover o Originale?</SelectItem>
+                              <SelectItem value="Musica Generale">Musica Generale</SelectItem>
+                          </SelectContent>
+                      </Select>
+                  </div>
                   <div>
                       <label className="text-xs text-zinc-500 mb-1">Domanda</label>
                       <Textarea value={quizQuestion} onChange={e=>setQuizQuestion(e.target.value)} className="bg-zinc-800 border-zinc-700"/>
@@ -899,7 +926,8 @@ export default function AdminDashboard() {
           <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
               <DialogHeader><DialogTitle>Importa Script JSON</DialogTitle></DialogHeader>
               <div className="space-y-4 pt-4">
-                  <p className="text-xs text-zinc-500">Formato: {`[ { "question": "...", "options": ["A","B","C","D"], "correct_index": 0, "media_url": "https://...", "media_type": "audio" } ]`}</p>
+                  <p className="text-xs text-zinc-500">Formato: {`[ { "category": "Indovina Intro", "question": "...", "options": ["A","B","C","D"], "correct_index": 0, "media_url": "https://youtube...", "media_type": "audio" } ]`}</p>
+                  <p className="text-[10px] text-zinc-600">Categorie: Indovina Intro, Indovina Videoclip, Completa il Testo, Chi Canta?, Indovina l'Anno, Cover o Originale?, Musica Generale</p>
                   <Textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder='Incolla JSON qui...' className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"/>
                   <Button className="w-full bg-blue-600 font-bold" onClick={handleImportScript}><Download className="w-4 h-4 mr-2"/> IMPORTA NEL CATALOGO</Button>
               </div>

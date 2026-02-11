@@ -67,7 +67,16 @@ export default function ClientApp() {
          } else if (serverQuiz.status === 'showing_results' || serverQuiz.status === 'leaderboard') {
              if (!quizResult) { const res = await api.getQuizResults(serverQuiz.id); setQuizResult(res.data); setActiveQuiz(serverQuiz); setShowQuizModal(true); } else { setActiveQuiz(serverQuiz); }
          }
-      } else { if (activeQuiz && !quizResult) { setShowQuizModal(false); setActiveQuiz(null); } }
+      } else { 
+        // Quiz terminato: chiudi SEMPRE il modal e resetta tutto
+        if (activeQuiz) { 
+          setShowQuizModal(false); 
+          setActiveQuiz(null); 
+          setQuizResult(null);
+          setQuizAnswer(null);
+          setPointsEarned(0);
+        } 
+      }
     } catch (error) { console.error(error); }
   }, [user?.id, hasVoted, activeQuiz, quizResult]);
 
