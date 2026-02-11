@@ -94,12 +94,12 @@ export default function ClientApp() {
         // Performance Check
         const newPerf = perf.data;
         setCurrentPerf(prev => {
-            // Se inizia il voto
-            if (newPerf?.status === 'voting' && prev?.status !== 'voting' && newPerf.participant_id !== user.user.id) {
-                setShowVote(true);
-            }
-            return newPerf;
-        });
+    // Se inizia il voto
+    if (newPerf?.status === 'voting' && prev?.status !== 'voting' && newPerf.participant_id !== user.id) {
+        setShowVote(true);
+    }
+    return newPerf;
+});
 
         // Quiz Check (CRITICO: Auto-close se non c'è quiz o se parte karaoke)
         const sQuiz = quiz.data;
@@ -222,11 +222,11 @@ export default function ClientApp() {
       {/* HEADER */}
       <header className="sticky top-0 bg-zinc-950/90 backdrop-blur border-b border-white/10 p-4 flex justify-between items-center z-40">
           <div className="flex items-center gap-3">
-              <img src={user.user.avatar_url} className="w-8 h-8 rounded-full border border-fuchsia-500 object-cover"/>
-              <div>
-                  <h1 className="font-bold text-sm leading-none">{user.pub_name}</h1>
-                  <p className="text-xs text-zinc-500">{user.nickname}</p>
-              </div>
+              <img src={user.avatar_url} className="w-8 h-8 rounded-full border border-fuchsia-500 object-cover"/>
+<div>
+    <h1 className="font-bold text-sm leading-none">{user.pub_name}</h1>
+    <p className="text-xs text-zinc-500">{user.nickname}</p>
+</div>
           </div>
           <Button variant="ghost" size="sm" onClick={logout} className="text-zinc-500 text-xs">Esci</Button>
       </header>
