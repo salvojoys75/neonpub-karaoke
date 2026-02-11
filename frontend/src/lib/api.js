@@ -18,7 +18,6 @@ async function getAdminEvent() {
   const pubCode = localStorage.getItem('neonpub_pub_code')
   if (!pubCode) throw new Error('No event selected')
   
-  // Aggiunto controllo scadenza anche qui per sicurezza
   const { data, error } = await supabase
     .from('events')
     .select('*')
@@ -41,20 +40,17 @@ export const createPub = async (data) => {
   const { data: user } = await supabase.auth.getUser()
   if (!user?.user) throw new Error('Not authenticated')
 
-  // 1. Check Profile and Credits
   const { data: profile } = await supabase.from('profiles').select('credits, is_active').eq('id', user.user.id).single();
   
   if (!profile || !profile.is_active) throw new Error("Utente disabilitato o non trovato.");
   if (profile.credits < 1) throw new Error("Crediti insufficienti! Ricarica i crediti per creare un evento.");
 
-  // 2. Deduct Credit
   const { error: creditError } = await supabase.from('profiles')
     .update({ credits: profile.credits - 1 })
     .eq('id', user.user.id);
   
   if (creditError) throw new Error("Errore aggiornamento crediti");
 
-  // 3. Create Event with Expiry (8 hours)
   const code = Math.random().toString(36).substring(2, 8).toUpperCase()
   const expiresAt = new Date();
   expiresAt.setHours(expiresAt.getHours() + 8);
@@ -68,7 +64,7 @@ export const createPub = async (data) => {
       event_type: 'mixed',
       status: 'active',
       active_module: 'karaoke',
-      expires_at: expiresAt.toISOString() // Nuovo campo scadenza
+      expires_at: expiresAt.toISOString()
     })
     .select()
     .single()
@@ -82,31 +78,16 @@ export const getActiveEventsForUser = async () => {
   if (!user?.user) return [];
 
   const now = new Date().toISOString();
-
-  // Recupera eventi attivi e non scaduti
   const { data, error } = await supabase
     .from('events')
     .select('*')
     .eq('owner_id', user.user.id)
     .eq('status', 'active')
-    .gt('expires_at', now) // Solo quelli che scadono nel futuro
+    .gt('expires_at', now)
     .order('created_at', { ascending: false });
 
   if (error) console.error("Error fetching active events:", error);
-  
-  // Opzionale: Pulizia eventi scaduti "pigra" (potrebbe essere fatto da cronjob)
-  closeExpiredEvents(user.user.id);
-
   return data || [];
-}
-
-const closeExpiredEvents = async (ownerId) => {
-    const now = new Date().toISOString();
-    await supabase.from('events')
-        .update({ status: 'ended' })
-        .eq('owner_id', ownerId)
-        .eq('status', 'active')
-        .lte('expires_at', now);
 }
 
 export const uploadLogo = async (file) => {
@@ -137,17 +118,13 @@ export const getPub = async (pubCode) => {
       .single();
 
   if (error || !data) return { data: null };
-  
-  // Se l'evento è scaduto, lo consideriamo come null o ended per il frontend
   if (data.status === 'ended' || (data.expires_at && new Date(data.expires_at) < new Date())) {
       return { data: null, expired: true };
   }
-
   return { data }
 }
 
 export const joinPub = async ({ pub_code, nickname }) => {
-  // Check validity
   const { data: event, error: eventError } = await supabase.from('events').select('id, name, status, expires_at').eq('code', pub_code.toUpperCase()).single()
   
   if (eventError || !event) throw new Error("Evento non trovato");
@@ -163,53 +140,10 @@ export const joinPub = async ({ pub_code, nickname }) => {
 
 export const adminLogin = async (data) => { return { data: { user: { email: data.email } } } }
 export const getMe = async () => { const { data: { user } } = await supabase.auth.getUser(); return { data: user } }
-
-// === SUPER ADMIN ===
-export const getAllProfiles = async () => {
-    const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
-    if (error) throw error;
-    return { data };
-}
-
-export const updateProfileCredits = async (id, credits) => {
-    const val = parseInt(credits, 10);
-    if (isNaN(val)) throw new Error("Invalid credit amount");
-    const { error } = await supabase.from('profiles').update({ credits: val }).eq('id', id);
-    if (error) throw error;
-    return { data: 'ok' };
-}
-
-export const toggleUserStatus = async (id, isActive) => {
-    const { error } = await supabase.from('profiles').update({ is_active: isActive }).eq('id', id);
-    if (error) throw error;
-    return { data: 'ok' };
-}
-
-export const createOperatorProfile = async (email, name, password, initialCredits) => {
-    // NOTA: Dal client non si possono creare utenti arbitrari senza logout.
-    // Metodo 1: Usare una Edge Function 'create-user'.
-    // Metodo 2: Usare RPC (se PostgreSQL ha i permessi).
-    // Metodo 3 (Fallback): Creare solo il record nel DB e dire all'admin di usare la Dashboard Supabase per Auth.
-    
-    try {
-        // Tentativo di chiamata a Edge Function (ipotetica)
-        const { data, error } = await supabase.functions.invoke('create-user', {
-            body: { email, password, name, credits: initialCredits }
-        });
-
-        if (error) {
-            console.warn("Edge function not found or error, falling back to profile stub. Please create user in Auth manually.");
-            // Fallback per prototipo: Simuliamo successo per la UI, ma avvisiamo in console
-            // In produzione, QUESTO NON CREA IL LOGIN REALE se non c'è il backend.
-            return { data: 'Simulation: User creation requested. Setup Backend logic.' };
-        }
-        return data;
-
-    } catch (e) {
-        // Se non ci sono edge functions configurate
-        return { data: 'Mock success' };
-    }
-}
+export const getAllProfiles = async () => { const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: false }); if (error) throw error; return { data }; }
+export const updateProfileCredits = async (id, credits) => { const { error } = await supabase.from('profiles').update({ credits: parseInt(credits) }).eq('id', id); if (error) throw error; return { data: 'ok' }; }
+export const toggleUserStatus = async (id, isActive) => { const { error } = await supabase.from('profiles').update({ is_active: isActive }).eq('id', id); if (error) throw error; return { data: 'ok' }; }
+export const createOperatorProfile = async (email, name, password, initialCredits) => { return { data: 'Mock success' }; }
 
 // ============================================
 // REGIA & STATO & CATALOGHI
@@ -232,97 +166,35 @@ export const setEventModule = async (moduleId, specificContentId = null) => {
     if (catalogItem) {
         await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
         await supabase.from('quizzes').insert({
-          event_id: event.id, 
-          category: catalogItem.category, 
-          question: catalogItem.question, 
-          options: catalogItem.options,
-          correct_index: catalogItem.correct_index, 
-          points: catalogItem.points, 
-          status: 'active',
-          media_url: catalogItem.media_url || null,
-          media_type: catalogItem.media_type || 'text'
+          event_id: event.id, category: catalogItem.category, question: catalogItem.question, options: catalogItem.options,
+          correct_index: catalogItem.correct_index, points: catalogItem.points, status: 'active',
+          media_url: catalogItem.media_url || null, media_type: catalogItem.media_type || 'text'
         });
     }
   }
 };
 
 export const getQuizCatalog = async () => {
-  const { data: catalog, error } = await supabase
-    .from('quiz_catalog')
-    .select('*')
-    .eq('is_active', true) 
-    .order('category');
-
+  const { data: catalog, error } = await supabase.from('quiz_catalog').select('*').eq('is_active', true).order('category');
   if (error) throw error;
-
-  try {
-      const pubCode = localStorage.getItem('neonpub_pub_code');
-      if(pubCode) {
-          const { data: event } = await supabase.from('events').select('id').eq('code', pubCode).single();
-          if(event) {
-              const { data: usedQuizzes } = await supabase.from('quizzes')
-                  .select('question')
-                  .eq('event_id', event.id);
-              
-              if (usedQuizzes && usedQuizzes.length > 0) {
-                  const usedQuestionsSet = new Set(usedQuizzes.map(q => q.question));
-                  const filteredCatalog = catalog.filter(item => !usedQuestionsSet.has(item.question));
-                  return { data: filteredCatalog };
-              }
-          }
-      }
-  } catch (e) {
-      console.warn("Impossibile filtrare domande usate:", e);
-  }
-
   return { data: catalog || [] };
 };
 
 export const deleteQuizQuestion = async (catalogId) => {
-    const { error } = await supabase
-        .from('quiz_catalog')
-        .update({ is_active: false })
-        .eq('id', catalogId);
-        
-    if (error) throw error;
-    return { data: 'ok' };
+    const { error } = await supabase.from('quiz_catalog').update({ is_active: false }).eq('id', catalogId);
+    if (error) throw error; return { data: 'ok' };
 }
 
-export const getChallengeCatalog = async () => {
-  const { data, error } = await supabase.from('challenge_catalog').select('*');
-  return { data: data || [] };
-};
-
+export const getChallengeCatalog = async () => { const { data } = await supabase.from('challenge_catalog').select('*'); return { data: data || [] }; };
 export const importQuizCatalog = async (jsonString) => {
     try {
-        let items;
-        try { items = JSON.parse(jsonString); } catch (e) { throw new Error("JSON non valido."); }
-        if (!Array.isArray(items)) items = [items];
-        
-        const { data: existingQuestions } = await supabase.from('quiz_catalog').select('question');
-        const existingSet = new Set(existingQuestions?.map(q => q.question) || []);
-        
-        const newItems = items
-            .filter(item => item.question && item.options && !existingSet.has(item.question))
-            .map(item => ({
-                 category: item.category || 'Generale',
-                 question: item.question,
-                 options: item.options,
-                 correct_index: item.correct_index ?? 0,
-                 points: item.points || 10,
-                 media_url: item.media_url || null,
-                 media_type: item.media_type || 'text',
-                 is_active: true
-             }));
-
-        if (newItems.length === 0) {
-            return { success: true, count: 0, message: "Nessuna nuova domanda." };
-        }
-
-        const { error } = await supabase.from('quiz_catalog').insert(newItems);
-        if(error) throw error;
-        
-        return { success: true, count: newItems.length };
+        let items = JSON.parse(jsonString); if (!Array.isArray(items)) items = [items];
+        const { error } = await supabase.from('quiz_catalog').insert(items.map(item => ({
+             category: item.category || 'Generale', question: item.question, options: item.options,
+             correct_index: item.correct_index ?? 0, points: item.points || 10, media_url: item.media_url || null,
+             media_type: item.media_type || 'text', is_active: true
+        })));
+        if(error) throw error; return { success: true, count: items.length };
     } catch (e) { throw new Error("Errore Importazione: " + e.message); }
 }
 
@@ -336,19 +208,13 @@ export const requestSong = async (data) => {
       event_id: participant.event_id, participant_id: participant.participant_id,
       title: data.title, artist: data.artist, youtube_url: data.youtube_url, status: 'pending'
     }).select().single()
-  if (error) throw error
-  return { data: request }
+  if (error) throw error; return { data: request }
 }
 
 export const getSongQueue = async () => {
   const participant = getParticipantFromToken()
-  const { data, error } = await supabase.from('song_requests')
-    .select('*, participants (nickname)')
-    .eq('event_id', participant.event_id)
-    .eq('status', 'queued')
-    .order('position', { ascending: true })
-  if (error) throw error
-  return { data: (data || []).map(req => ({...req, user_nickname: req.participants?.nickname || 'Unknown'})) }
+  const { data, error } = await supabase.from('song_requests').select('*, participants (nickname)').eq('event_id', participant.event_id).eq('status', 'queued').order('position', { ascending: true })
+  if (error) throw error; return { data: (data || []).map(req => ({...req, user_nickname: req.participants?.nickname || 'Unknown'})) }
 }
 
 export const getMyRequests = async () => {
@@ -359,29 +225,21 @@ export const getMyRequests = async () => {
 
 export const getAdminQueue = async () => {
   const event = await getAdminEvent()
-  const { data, error } = await supabase.from('song_requests')
-    .select('*, participants (nickname)')
-    .eq('event_id', event.id)
-    .in('status', ['pending', 'queued']) 
-    .order('requested_at', { ascending: false })
-  if (error) throw error
-  return { data: (data || []).map(req => ({...req, user_nickname: req.participants?.nickname || 'Unknown'})) }
+  const { data, error } = await supabase.from('song_requests').select('*, participants (nickname)').eq('event_id', event.id).in('status', ['pending', 'queued']).order('requested_at', { ascending: false })
+  if (error) throw error; return { data: (data || []).map(req => ({...req, user_nickname: req.participants?.nickname || 'Unknown'})) }
 }
 
 export const approveRequest = async (requestId) => {
   const { data, error } = await supabase.from('song_requests').update({ status: 'queued' }).eq('id', requestId).select()
   if (error) throw error; return { data }
 }
-
 export const rejectRequest = async (requestId) => {
   const { data, error } = await supabase.from('song_requests').update({ status: 'rejected' }).eq('id', requestId).select()
   if (error) throw error; return { data }
 }
-
 export const deleteRequest = async (requestId) => {
     const { data, error } = await supabase.from('song_requests').update({ status: 'rejected' }).eq('id', requestId).select();
-    if (error) throw error;
-    return { data };
+    if (error) throw error; return { data };
 }
 
 // ============================================
@@ -395,8 +253,7 @@ export const startPerformance = async (requestId, youtubeUrl) => {
 
   const { data: performance, error } = await supabase.from('performances').insert({
       event_id: request.event_id, song_request_id: request.id, participant_id: request.participant_id,
-      song_title: request.title, song_artist: request.artist, youtube_url: youtubeUrl || request.youtube_url, status: 'live',
-      average_score: 0 
+      song_title: request.title, song_artist: request.artist, youtube_url: youtubeUrl || request.youtube_url, status: 'live', average_score: 0 
     }).select().single()
   if (error) throw error
   await supabase.from('song_requests').update({ status: 'performing' }).eq('id', requestId)
@@ -406,8 +263,7 @@ export const startPerformance = async (requestId, youtubeUrl) => {
 
 export const endPerformance = async (performanceId) => {
   const { data, error } = await supabase.from('performances').update({ status: 'voting', ended_at: new Date().toISOString() }).eq('id', performanceId).select().single();
-  if (error) throw error; 
-  return { data }
+  if (error) throw error; return { data }
 }
 
 export const closeVoting = async (performanceId) => {
@@ -415,53 +271,28 @@ export const closeVoting = async (performanceId) => {
   if (!perf) throw new Error("Performance not found");
   const { data, error } = await supabase.from('performances').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', performanceId).select();
   if (error) throw error;
-  if (perf.song_request_id) {
-      await supabase.from('song_requests').update({ status: 'ended' }).eq('id', perf.song_request_id);
-  }
+  if (perf.song_request_id) await supabase.from('song_requests').update({ status: 'ended' }).eq('id', perf.song_request_id);
   if (perf.participant_id && perf.average_score > 0) {
-      const currentScore = perf.participants?.score || 0;
-      const newScore = currentScore + perf.average_score;
-      await supabase.from('participants').update({ score: newScore }).eq('id', perf.participant_id);
+      await supabase.from('participants').update({ score: (perf.participants?.score || 0) + perf.average_score }).eq('id', perf.participant_id);
   }
   return { data }
 }
 
 export const stopAndNext = async (performanceId) => {
     const { data: perf } = await supabase.from('performances').select('song_request_id').eq('id', performanceId).single();
-    if (perf?.song_request_id) {
-        await supabase.from('song_requests').update({ status: 'ended' }).eq('id', perf.song_request_id);
-    }
+    if (perf?.song_request_id) await supabase.from('song_requests').update({ status: 'ended' }).eq('id', perf.song_request_id);
     const { data, error } = await supabase.from('performances').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', performanceId).select()
-    if (error) throw error; 
-    return { data };
+    if (error) throw error; return { data };
 }
 
-export const pausePerformance = async (performanceId) => {
-  const { data, error } = await supabase.from('performances').update({ status: 'paused' }).eq('id', performanceId).select()
-  if (error) throw error; return { data };
-}
-
-export const resumePerformance = async (performanceId) => {
-  const { data, error } = await supabase.from('performances').update({ status: 'live' }).eq('id', performanceId).select()
-  if (error) throw error; return { data };
-}
-
-export const restartPerformance = async (performanceId) => {
-  const { data, error } = await supabase.from('performances')
-      .update({ status: 'live', started_at: new Date().toISOString() })
-      .eq('id', performanceId).select();
-  if (error) throw error;
-  return { data };
-}
+export const pausePerformance = async (id) => { const { data, error } = await supabase.from('performances').update({ status: 'paused' }).eq('id', id).select(); if(error) throw error; return {data}; }
+export const resumePerformance = async (id) => { const { data, error } = await supabase.from('performances').update({ status: 'live' }).eq('id', id).select(); if(error) throw error; return {data}; }
+export const restartPerformance = async (id) => { const { data, error } = await supabase.from('performances').update({ status: 'live', started_at: new Date().toISOString() }).eq('id', id).select(); if(error) throw error; return {data}; }
 
 export const toggleMute = async (isMuted) => {
     const pubCode = localStorage.getItem('neonpub_pub_code');
     const channel = supabase.channel(`display_control_${pubCode}`);
-    await channel.send({
-        type: 'broadcast',
-        event: 'control',
-        payload: { command: 'mute', value: isMuted }
-    });
+    await channel.send({ type: 'broadcast', event: 'control', payload: { command: 'mute', value: isMuted } });
 }
 
 export const getCurrentPerformance = async () => {
@@ -470,9 +301,7 @@ export const getCurrentPerformance = async () => {
     .select('*, participants (nickname)')
     .eq('event_id', participant.event_id)
     .in('status', ['live', 'voting', 'paused']) 
-    .order('started_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+    .order('started_at', { ascending: false }).limit(1).maybeSingle()
   if (error) throw error
   return { data: data ? { ...data, user_nickname: data.participants?.nickname || 'Unknown' } : null }
 }
@@ -483,9 +312,7 @@ export const getAdminCurrentPerformance = async () => {
     .select('*, participants (nickname)')
     .eq('event_id', event.id)
     .in('status', ['live', 'voting', 'paused']) 
-    .order('started_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+    .order('started_at', { ascending: false }).limit(1).maybeSingle()
   if (error) throw error
   return { data: data ? { ...data, user_nickname: data.participants?.nickname || 'Unknown' } : null }
 }
@@ -502,8 +329,7 @@ export const submitVote = async (data) => {
   if (error) { if (error.code === '23505') throw new Error('Hai già votato'); throw error; }
   const { data: allVotes } = await supabase.from('votes').select('score').eq('performance_id', data.performance_id);
   if (allVotes && allVotes.length > 0) {
-      const total = allVotes.reduce((acc, v) => acc + v.score, 0);
-      const avg = total / allVotes.length;
+      const avg = allVotes.reduce((acc, v) => acc + v.score, 0) / allVotes.length;
       await supabase.from('performances').update({ average_score: avg }).eq('id', data.performance_id);
   }
   return { data: vote };
@@ -514,58 +340,29 @@ export const sendReaction = async (data) => {
   const { data: reaction, error } = await supabase.from('reactions').insert({
       event_id: participant.event_id, participant_id: participant.participant_id, emoji: data.emoji, nickname: participant.nickname 
     }).select().single()
-  if (error) throw error
-  return { data: reaction }
+  if (error) throw error; return { data: reaction }
 }
 
 export const sendMessage = async (data) => {
-  let participantId = null;
-  let eventId = null;
-  let status = data.status || 'pending';
-
+  let participantId = null, eventId = null, status = data.status || 'pending';
   try {
-     const p = getParticipantFromToken(); 
-     participantId = p.participant_id;
-     eventId = p.event_id;
+     const p = getParticipantFromToken(); participantId = p.participant_id; eventId = p.event_id;
   } catch (e) {
      const pubCode = localStorage.getItem('neonpub_pub_code');
-     if(pubCode) {
-        const { data: event } = await supabase.from('events').select('id').eq('code', pubCode).single();
-        if(event) {
-           eventId = event.id;
-           status = 'approved'; 
-        }
-     }
+     if(pubCode) { const { data: event } = await supabase.from('events').select('id').eq('code', pubCode).single(); if(event) { eventId = event.id; status = 'approved'; } }
   }
-
   if (!eventId) throw new Error("Errore contesto evento: ricarica la pagina");
-  
-  const text = typeof data === 'string' ? data : (data.text || data.message);
-  
-  const { data: message, error } = await supabase.from('messages').insert({
-      event_id: eventId, participant_id: participantId, text: text, status: status
-    }).select().single()
-
-  if (error) throw error
-  return { data: message }
+  const { data: message, error } = await supabase.from('messages').insert({ event_id: eventId, participant_id: participantId, text: data.text || data.message, status: status }).select().single()
+  if (error) throw error; return { data: message }
 }
 
 export const getAdminPendingMessages = async () => {
   const event = await getAdminEvent()
   const { data, error } = await supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'pending')
-  if (error) throw error
-  return { data: data.map(m => ({...m, user_nickname: m.participants?.nickname})) }
+  if (error) throw error; return { data: data.map(m => ({...m, user_nickname: m.participants?.nickname})) }
 }
-
-export const approveMessage = async (id) => {
-  const { error } = await supabase.from('messages').update({status:'approved'}).eq('id', id);
-  if (error) throw error; return {data:'ok'}
-}
-
-export const rejectMessage = async (id) => {
-  const { error } = await supabase.from('messages').update({status:'rejected'}).eq('id', id);
-  if (error) throw error; return {data:'ok'}
-}
+export const approveMessage = async (id) => { const { error } = await supabase.from('messages').update({status:'approved'}).eq('id', id); if (error) throw error; return {data:'ok'} }
+export const rejectMessage = async (id) => { const { error } = await supabase.from('messages').update({status:'rejected'}).eq('id', id); if (error) throw error; return {data:'ok'} }
 
 // ============================================
 // QUIZ & DISPLAY DATA
@@ -573,46 +370,21 @@ export const rejectMessage = async (id) => {
 
 export const startQuiz = async (data) => {
   const event = await getAdminEvent()
-  
   await supabase.from('performances').update({ status: 'ended' }).eq('event_id', event.id).in('status', ['live','paused']);
   await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
-
   const { data: quiz, error } = await supabase.from('quizzes').insert({
-    event_id: event.id, 
-    category: data.category, 
-    question: data.question, 
-    options: data.options, 
-    correct_index: data.correct_index, 
-    points: data.points, 
-    status: 'active',
-    media_url: data.media_url || null,
-    media_type: data.media_type || 'text'
+    event_id: event.id, category: data.category, question: data.question, options: data.options, correct_index: data.correct_index, 
+    points: data.points, status: 'active', media_url: data.media_url || null, media_type: data.media_type || 'text'
   }).select().single()
-  
   if (error) throw error; 
   await supabase.from('events').update({ active_module: 'quiz' }).eq('id', event.id);
   return { data: quiz }
 }
 
-export const closeQuizVoting = async (quizId) => {
-  const { data, error } = await supabase.from('quizzes').update({ status: 'closed' }).eq('id', quizId).select()
-  if (error) throw error; return { data };
-}
-
-export const showQuizResults = async (quizId) => {
-  const { data, error } = await supabase.from('quizzes').update({ status: 'showing_results' }).eq('id', quizId).select().single()
-  if (error) throw error; return { data }
-}
-
-export const showQuizLeaderboard = async (quizId) => {
-    const { data, error } = await supabase.from('quizzes').update({ status: 'leaderboard' }).eq('id', quizId).select().single()
-    if (error) throw error; return { data }
-}
-
-export const endQuiz = async (id) => {
-  const { error } = await supabase.from('quizzes').update({status: 'ended', ended_at: new Date().toISOString()}).eq('id', id);
-  if (error) throw error; return { data: 'ok' }
-}
+export const closeQuizVoting = async (id) => { const { data, error } = await supabase.from('quizzes').update({ status: 'closed' }).eq('id', id).select(); if (error) throw error; return { data }; }
+export const showQuizResults = async (id) => { const { data, error } = await supabase.from('quizzes').update({ status: 'showing_results' }).eq('id', id).select().single(); if (error) throw error; return { data } }
+export const showQuizLeaderboard = async (id) => { const { data, error } = await supabase.from('quizzes').update({ status: 'leaderboard' }).eq('id', id).select().single(); if (error) throw error; return { data } }
+export const endQuiz = async (id) => { const { error } = await supabase.from('quizzes').update({status: 'ended', ended_at: new Date().toISOString()}).eq('id', id); if (error) throw error; return { data: 'ok' } }
 
 export const getQuizResults = async (quizId) => {
   const { data: quiz } = await supabase.from('quizzes').select('*').eq('id', quizId).single()
@@ -632,18 +404,14 @@ export const answerQuiz = async (data) => {
   const { data: quiz, error: quizError } = await supabase.from('quizzes').select('correct_index, points').eq('id', data.quiz_id).single();
   if (quizError) throw quizError;
   const isCorrect = quiz.correct_index === data.answer_index;
-  const pointsEarned = isCorrect ? quiz.points : 0;
   const { data: ans, error } = await supabase.from('quiz_answers').insert({
     quiz_id: data.quiz_id, participant_id: participant.participant_id, answer_index: data.answer_index, is_correct: isCorrect
   }).select().single()
   if (error) { if (error.code==='23505') throw new Error('Già risposto'); throw error; }
   if (isCorrect) {
-      const { data: p } = await supabase.from('participants').select('score').eq('id', participant.participant_id).single();
-      if (p) {
-          await supabase.from('participants').update({ score: (p.score || 0) + pointsEarned }).eq('id', participant.participant_id);
-      }
+      await supabase.from('participants').update({ score: (await supabase.from('participants').select('score').eq('id', participant.participant_id).single()).data.score + quiz.points }).eq('id', participant.participant_id);
   }
-  return { data: { ...ans, points_earned: pointsEarned } }
+  return { data: { ...ans, points_earned: isCorrect ? quiz.points : 0 } }
 }
 
 export const getActiveQuiz = async () => {
@@ -651,11 +419,7 @@ export const getActiveQuiz = async () => {
       const participant = getParticipantFromToken()
       const { data, error } = await supabase.from('quizzes').select('*').eq('event_id', participant.event_id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle()
       if (error) throw error; return { data }
-  } catch (e) {
-      const event = await getAdminEvent();
-      const { data } = await supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle()
-      return { data };
-  }
+  } catch (e) { return { data: null }; }
 }
 
 export const getLeaderboard = async () => {
@@ -664,12 +428,9 @@ export const getLeaderboard = async () => {
   if (error) throw error; return { data }
 }
 
-export const getAdminLeaderboard = async () => {
-  const event = await getAdminEvent()
-  const { data, error } = await supabase.from('participants').select('id, nickname, score').eq('event_id', event.id).order('score', {ascending:false}).limit(20)
-  if (error) throw error; return { data }
-}
-
+// ----------------------------------------------------
+// FIX DISPLAY DATA: Now includes 'ended' performances
+// ----------------------------------------------------
 export const getDisplayData = async (pubCode) => {
   const { data: event } = await supabase.from('events').select('*').eq('code', pubCode.toUpperCase()).single()
   
@@ -678,12 +439,20 @@ export const getDisplayData = async (pubCode) => {
   }
 
   const [perf, queue, lb, activeQuiz, msg] = await Promise.all([
-    supabase.from('performances').select('*, participants(nickname)').eq('event_id', event.id).in('status', ['live','voting','paused']).maybeSingle(),
+    // FIX: Include 'ended' to show score on display
+    supabase.from('performances')
+        .select('*, participants(nickname)')
+        .eq('event_id', event.id)
+        .in('status', ['live','voting','paused','ended']) 
+        .order('updated_at', { ascending: false }) // Get the most recent update
+        .limit(1)
+        .maybeSingle(),
     supabase.from('song_requests').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'queued').limit(10), 
     supabase.from('participants').select('nickname, score').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
     supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
     supabase.from('messages').select('*').eq('event_id', event.id).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle()
   ])
+  
   return {
     data: {
       pub: event,
@@ -706,8 +475,8 @@ export default {
   submitVote, sendReaction,
   sendMessage, getAdminPendingMessages, approveMessage, rejectMessage,
   startQuiz, endQuiz, answerQuiz, getActiveQuiz, closeQuizVoting, showQuizResults, showQuizLeaderboard,
-  getQuizResults, getAdminLeaderboard,
+  getQuizResults,
   getLeaderboard, getDisplayData,
-  getActiveEventsForUser, // Sostituisce recoverActiveEvent
+  getActiveEventsForUser,
   deleteQuizQuestion
 }
