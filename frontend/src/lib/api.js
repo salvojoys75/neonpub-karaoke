@@ -1,3 +1,5 @@
+--- START OF FILE api.js ---
+
 import { supabase } from './supabase'
 
 function getParticipantFromToken() {
@@ -205,7 +207,7 @@ export const setEventModule = async (moduleId, specificContentId = null) => {
           event_id: event.id, 
           category: catalogItem.category, 
           question: catalogItem.question, 
-          options: catalogItem.options,
+          options: catalogItem.options, 
           correct_index: catalogItem.correct_index, 
           points: catalogItem.points, 
           status: 'active',
@@ -491,7 +493,7 @@ export const sendMessage = async (data) => {
         const { data: event } = await supabase.from('events').select('id').eq('code', pubCode).single();
         if(event) {
            eventId = event.id;
-           status = 'approved'; 
+           status = 'admin_overlay'; // MODIFICA: Messaggi regia non approvati ma overlay
         }
      }
   }
@@ -638,22 +640,33 @@ export const getDisplayData = async (pubCode) => {
       return { data: null };
   }
 
-  const [perf, queue, lb, activeQuiz, msg, approvedMsgs] = await Promise.all([
+  const [perf, queue, lb, activeQuiz, adminMsg, approvedMsgs] = await Promise.all([
     supabase.from('performances').select('*, participants(nickname)').eq('event_id', event.id).in('status', ['live','voting','paused','ended']).order('started_at', {ascending: false}).limit(1).maybeSingle(),
     supabase.from('song_requests').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'queued').limit(10), 
     supabase.from('participants').select('nickname, score').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
     supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
-    supabase.from('messages').select('*').eq('event_id', event.id).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle(),
+    supabase.from('messages').select('*').eq('event_id', event.id).eq('status', 'admin_overlay').order('created_at', {ascending: false}).limit(1).maybeSingle(),
     supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'approved').order('created_at', {ascending: false}).limit(10)
   ])
+
+  // MODIFICA: Filtra performance terminate da più di 2 minuti per tornare alla schermata di benvenuto
+  let currentPerformance = perf.data ? {...perf.data, user_nickname: perf.data.participants?.nickname} : null;
+  if (currentPerformance && currentPerformance.status === 'ended') {
+      const endedAt = new Date(currentPerformance.ended_at);
+      const now = new Date();
+      if ((now - endedAt) > 2 * 60 * 1000) { // 2 minuti
+          currentPerformance = null;
+      }
+  }
+
   return {
     data: {
       pub: event,
-      current_performance: perf.data ? {...perf.data, user_nickname: perf.data.participants?.nickname} : null,
+      current_performance: currentPerformance,
       queue: queue.data?.map(q => ({...q, user_nickname: q.participants?.nickname})),
       leaderboard: lb.data,
       active_quiz: activeQuiz.data,
-      latest_message: msg.data,
+      admin_message: adminMsg.data,
       approved_messages: approvedMsgs.data?.map(m => ({text: m.text, nickname: m.participants?.nickname})) || []
     }
   }

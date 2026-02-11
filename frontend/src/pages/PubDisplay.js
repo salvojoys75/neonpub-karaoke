@@ -1,9 +1,11 @@
+--- START OF FILE PubDisplay.js ---
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '@/lib/supabase';
 import api from '@/lib/api';
-import { Music, Mic2, Star, Trophy, Users, MessageSquare, Clock, Disc, Zap } from 'lucide-react';
+import { Music, Mic2, Star, Trophy, Users, MessageSquare, Clock, Disc, Zap, Megaphone } from 'lucide-react';
 
 import KaraokePlayer from '@/components/KaraokePlayer';
 import QuizMediaFixed from '@/components/QuizMediaFixed';
@@ -106,6 +108,37 @@ const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => {
       </div>
   </div>
 );};
+
+const AdminMessageOverlay = ({ message }) => {
+    const [visible, setVisible] = useState(false);
+    
+    useEffect(() => {
+        if (message) {
+            // Controlla se il messaggio è recente (es. ultimi 15 secondi)
+            const created = new Date(message.created_at);
+            const now = new Date();
+            if ((now - created) < 15000) {
+                setVisible(true);
+                const timer = setTimeout(() => setVisible(false), 10000);
+                return () => clearTimeout(timer);
+            }
+        }
+    }, [message]);
+
+    if (!visible || !message) return null;
+
+    return (
+        <div className="absolute inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+            <div className="glass-panel p-12 rounded-[3rem] max-w-5xl text-center border-4 border-fuchsia-500 shadow-[0_0_100px_rgba(217,70,239,0.5)] transform animate-bounce-in">
+                <div className="flex justify-center mb-6">
+                    <Megaphone className="w-24 h-24 text-fuchsia-400 animate-pulse" />
+                </div>
+                <h2 className="text-4xl text-fuchsia-200 font-bold uppercase tracking-[0.5em] mb-8">Comunicazione Regia</h2>
+                <p className="text-7xl font-black text-white leading-tight drop-shadow-2xl">{message.text}</p>
+            </div>
+        </div>
+    );
+};
 
 const Sidebar = ({ pubCode, queue, leaderboard }) => (
   <div className="absolute top-28 right-6 bottom-6 w-[350px] z-[90] flex flex-col gap-6">
@@ -270,7 +303,29 @@ const ScoreMode = ({ perf }) => (
     </div>
 );
 
-const QuizMode = ({ quiz, result }) => (
+const QuizMode = ({ quiz, result }) => {
+    // MODIFICA: Se lo stato è leaderboard, mostra la classifica a tutto schermo
+    if (quiz.status === 'leaderboard' && quiz.leaderboard) {
+        return (
+             <div className="w-full h-full flex flex-col bg-[#080808] relative p-12 overflow-hidden items-center justify-center mr-[350px]">
+                <div className="bg-yellow-500/10 blur-[200px] w-full h-full absolute"></div>
+                <h1 className="text-8xl font-black text-yellow-400 uppercase tracking-[0.2em] mb-12 drop-shadow-2xl flex items-center gap-6 z-10">
+                    <Trophy className="w-32 h-32" /> Classifica
+                </h1>
+                <div className="glass-panel p-8 rounded-[3rem] w-full max-w-4xl border-4 border-yellow-500/30 z-10 flex flex-col gap-4 max-h-[80vh] overflow-y-auto custom-scrollbar">
+                     {quiz.leaderboard.slice(0, 10).map((p, i) => (
+                         <div key={i} className={`flex items-center gap-6 p-6 rounded-3xl ${i===0 ? 'bg-yellow-500/20 border-2 border-yellow-500' : 'bg-white/5'}`}>
+                             <div className={`text-4xl font-black w-16 h-16 rounded-xl flex items-center justify-center ${i===0 ? 'bg-yellow-500 text-black' : 'bg-white/10 text-white'}`}>{i+1}</div>
+                             <div className="text-4xl font-bold text-white flex-1">{p.nickname}</div>
+                             <div className="text-5xl font-mono text-yellow-400 font-black">{p.score}</div>
+                         </div>
+                     ))}
+                </div>
+             </div>
+        );
+    }
+
+    return (
     <div className="w-full h-full flex flex-col bg-[#080808] relative p-12 overflow-hidden">
         <QuizMediaFixed mediaUrl={quiz.media_url} mediaType={quiz.media_type} isResult={!!result} />
         
@@ -336,7 +391,7 @@ const QuizMode = ({ quiz, result }) => (
             )}
         </div>
     </div>
-);
+)};
 
 const IdleMode = ({ pub }) => (
     <div className="w-full h-full flex flex-col items-center justify-center animated-bg relative overflow-hidden">
@@ -413,7 +468,7 @@ export default function PubDisplay() {
         </div>
     );
 
-    const { pub, current_performance: perf, queue, active_quiz: quiz, latest_message: msg, leaderboard, approved_messages } = data;
+    const { pub, current_performance: perf, queue, active_quiz: quiz, admin_message, leaderboard, approved_messages } = data;
 
     const recentMessages = approved_messages ? approved_messages.slice(0, 10) : [];
 
@@ -437,6 +492,7 @@ export default function PubDisplay() {
 
             <TopBar pubName={pub.name} logoUrl={pub.logo_url} onlineCount={leaderboard?.length || 0} messages={recentMessages} isMuted={isMuted} />
             <FloatingReactions newReaction={newReaction} />
+            <AdminMessageOverlay message={admin_message} />
             
             <div className="w-full h-full pt-24 pb-0 relative z-10">
                 {Content}
