@@ -7,7 +7,7 @@ import {
   ListMusic, BrainCircuit, Swords, Send, Star, VolumeX, Volume2, ExternalLink,
   Users, Coins, Settings, Save, LayoutDashboard, Gem, Upload, UserPlus, Ban, Trash2, Image as ImageIcon,
   FileJson, Download, Gamepad2, StopCircle, Eye, EyeOff, ListOrdered, MonitorPlay, 
-  Music2, Film, Mic2, Clock, Unlock, Lock
+  Music2, Film, Mic2, Clock, Unlock, Lock, Dices
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -100,6 +100,22 @@ export default function AdminDashboard() {
   const [showVenueModal, setShowVenueModal] = useState(false);
   const [editingVenue, setEditingVenue] = useState(null);
   const [venueFormData, setVenueFormData] = useState({ name: '', city: '', address: '' });
+
+// --- RANDOM EXTRACTION ---
+  const [songPool, setSongPool] = useState([]);
+  const [showPoolModal, setShowPoolModal] = useState(false);
+  const [editingSong, setEditingSong] = useState(null);
+  const [poolFormData, setPoolFormData] = useState({ title: '', artist: '', youtube_url: '', genre: '', decade: '', difficulty: 'facile' });
+  const [showImportPoolModal, setShowImportPoolModal] = useState(false);
+  const [importPoolText, setImportPoolText] = useState("");
+  const [extractionMode, setExtractionMode] = useState({ participant: 'random', song: 'random' });
+  const [selectedParticipantId, setSelectedParticipantId] = useState(null);
+  const [selectedSongId, setSelectedSongId] = useState(null);
+  const [onlineParticipants, setOnlineParticipants] = useState([]);
+
+*/
+
+/* 
 
   const pollIntervalRef = useRef(null);
   const timerIntervalRef = useRef(null);
@@ -394,6 +410,124 @@ export default function AdminDashboard() {
       loadMyVenues();
     }
   }, [appState]);
+// --- RANDOM EXTRACTION FUNCTIONS ---
+  const loadSongPool = async () => {
+    try {
+      const { data } = await api.getRandomSongPool();
+      setSongPool(data || []);
+    } catch (e) {
+      console.error("Errore caricamento pool:", e);
+    }
+  };
+
+  const loadOnlineParticipants = async () => {
+    if (!pubCode) return;
+    try {
+      const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
+      if (event) {
+        const { data: parts } = await supabase
+          .from('participants')
+          .select('*')
+          .eq('event_id', event.id)
+          .order('last_activity', { ascending: false })
+          .limit(50);
+        setOnlineParticipants(parts || []);
+      }
+    } catch (e) {
+      console.error("Errore caricamento partecipanti:", e);
+    }
+  };
+
+  const handleOpenPoolModal = (song = null) => {
+    if (song) {
+      setEditingSong(song);
+      setPoolFormData({
+        title: song.title,
+        artist: song.artist,
+        youtube_url: song.youtube_url,
+        genre: song.genre || '',
+        decade: song.decade || '',
+        difficulty: song.difficulty || 'facile'
+      });
+    } else {
+      setEditingSong(null);
+      setPoolFormData({ title: '', artist: '', youtube_url: '', genre: '', decade: '', difficulty: 'facile' });
+    }
+    setShowPoolModal(true);
+  };
+
+  const handleSaveSongPool = async () => {
+    if (!poolFormData.title || !poolFormData.artist || !poolFormData.youtube_url) {
+      return toast.error("Titolo, Artista e URL YouTube sono obbligatori");
+    }
+    try {
+      if (editingSong) {
+        await api.updateSongInPool(editingSong.id, poolFormData);
+        toast.success("Canzone aggiornata");
+      } else {
+        await api.addSongToPool(poolFormData);
+        toast.success("Canzone aggiunta al pool");
+      }
+      setShowPoolModal(false);
+      loadSongPool();
+    } catch (e) {
+      toast.error("Errore: " + e.message);
+    }
+  };
+
+  const handleDeleteSongPool = async (songId) => {
+    if (!confirm("Eliminare questa canzone dal pool?")) return;
+    try {
+      await api.deleteSongFromPool(songId);
+      toast.success("Canzone eliminata");
+      loadSongPool();
+    } catch (e) {
+      toast.error("Errore eliminazione: " + e.message);
+    }
+  };
+
+  const handleImportPoolScript = async () => {
+    try {
+      const parsed = JSON.parse(importPoolText);
+      if (!Array.isArray(parsed)) throw new Error("Formato non valido");
+      const result = await api.importSongsToPool(parsed);
+      toast.success(`${result.count} canzoni importate!`);
+      setShowImportPoolModal(false);
+      setImportPoolText("");
+      loadSongPool();
+    } catch (e) {
+      toast.error("Errore import: " + e.message);
+    }
+  };
+
+  const handleExtractRandom = async () => {
+    try {
+      const options = {};
+      if (extractionMode.participant === 'forced' && selectedParticipantId) {
+        options.forcedParticipantId = selectedParticipantId;
+      }
+      if (extractionMode.song === 'forced' && selectedSongId) {
+        options.forcedSongId = selectedSongId;
+      }
+      
+      const { data } = await api.extractRandomKaraoke(options);
+      toast.success(`🎲 ${data.participant.nickname} canterà "${data.song.title}"!`);
+      loadData(); // Ricarica coda
+    } catch (e) {
+      toast.error("Errore estrazione: " + e.message);
+    }
+  };
+
+  useEffect(() => {
+    if (appState === 'dashboard' && libraryTab === 'extraction') {
+      loadSongPool();
+      loadOnlineParticipants();
+    }
+  }, [appState, libraryTab]);
+
+*/
+
+/* 
 
   // --- DASHBOARD ACTIONS ---
   const handleOpenDisplay = () => {
@@ -725,7 +859,7 @@ export default function AdminDashboard() {
          <aside className="col-span-4 border-r border-white/10 bg-zinc-900/50 flex flex-col">
             <div className="p-2 border-b border-white/5">
                <Tabs value={libraryTab} onValueChange={setLibraryTab} className="w-full">
-                  <TabsList className="grid w-full grid-cols-5 bg-zinc-950 p-1">
+                  <TabsList className="grid w-full grid-cols-6 bg-zinc-950 p-1">
                      <TabsTrigger value="karaoke" className="text-xs px-1"><ListMusic className="w-3 h-3" /></TabsTrigger>
                      <TabsTrigger value="quiz" className="text-xs px-1"><BrainCircuit className="w-3 h-3" /></TabsTrigger>
                      <TabsTrigger value="challenges" className="text-xs px-1"><Swords className="w-3 h-3" /></TabsTrigger>
@@ -734,6 +868,11 @@ export default function AdminDashboard() {
                         {pendingMessages.length > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>}
                      </TabsTrigger>
                      <TabsTrigger value="settings" className="text-xs px-1"><Settings className="w-3 h-3" /></TabsTrigger>
+<TabsTrigger value="extraction" className="text-xs px-1"><Dices className="w-3 h-3" /></TabsTrigger>
+
+*/
+
+/* 
                   </TabsList>
                </Tabs>
             </div>
@@ -973,6 +1112,136 @@ export default function AdminDashboard() {
                        </div>
                    </div>
                )}
+{libraryTab === 'extraction' && (
+                   <div className="space-y-4 pt-2">
+                       {/* HEADER */}
+                       <div className="flex justify-between items-center">
+                           <h3 className="text-sm font-bold text-white">🎲 Pool Canzoni Estrazione</h3>
+                           <div className="flex gap-1">
+                               <Button size="sm" onClick={() => handleOpenPoolModal()} className="bg-blue-600 h-7">
+                                   <Plus className="w-3 h-3 mr-1"/> Nuova
+                               </Button>
+                               <Button size="sm" onClick={() => setShowImportPoolModal(true)} className="bg-green-600 h-7">
+                                   <FileJson className="w-3 h-3 mr-1"/> Import
+                               </Button>
+                           </div>
+                       </div>
+
+                       {/* LISTA CANZONI */}
+                       <ScrollArea className="h-48">
+                           {songPool.length > 0 ? (
+                               <div className="space-y-2">
+                                   {songPool.map(song => (
+                                       <div key={song.id} className="bg-zinc-800 p-2 rounded flex justify-between items-center text-xs">
+                                           <div className="flex-1">
+                                               <div className="font-bold text-white">{song.title}</div>
+                                               <div className="text-zinc-500">{song.artist} • {song.decade} • {song.difficulty}</div>
+                                           </div>
+                                           <div className="flex gap-1">
+                                               <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => handleOpenPoolModal(song)}>
+                                                   <Settings className="w-3 h-3"/>
+                                               </Button>
+                                               <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-500" onClick={() => handleDeleteSongPool(song.id)}>
+                                                   <Trash2 className="w-3 h-3"/>
+                                               </Button>
+                                           </div>
+                                       </div>
+                                   ))}
+                               </div>
+                           ) : (
+                               <p className="text-xs text-zinc-600 italic">Nessuna canzone. Importa il JSON con 30 canzoni!</p>
+                           )}
+                       </ScrollArea>
+
+                       <div className="text-[10px] text-zinc-600">Totale: {songPool.length} canzoni</div>
+
+                       {/* PANNELLO ESTRAZIONE */}
+                       <div className="border-t border-white/10 pt-4 mt-4">
+                           <h3 className="text-sm font-bold text-fuchsia-500 mb-3">🎰 ESTRAZIONE CASUALE</h3>
+                           
+                           {/* Partecipante */}
+                           <div className="mb-3">
+                               <label className="text-xs text-zinc-400 mb-1 block">Partecipante:</label>
+                               <div className="space-y-1">
+                                   <label className="flex items-center gap-2 text-xs">
+                                       <input 
+                                           type="radio" 
+                                           checked={extractionMode.participant === 'random'}
+                                           onChange={() => setExtractionMode({...extractionMode, participant: 'random'})}
+                                       />
+                                       <span className="text-white">Casuale dal pub</span>
+                                   </label>
+                                   <label className="flex items-center gap-2 text-xs">
+                                       <input 
+                                           type="radio"
+                                           checked={extractionMode.participant === 'forced'}
+                                           onChange={() => setExtractionMode({...extractionMode, participant: 'forced'})}
+                                       />
+                                       <span className="text-white">Scelgo io:</span>
+                                   </label>
+                                   {extractionMode.participant === 'forced' && (
+                                       <Select value={selectedParticipantId} onValueChange={setSelectedParticipantId}>
+                                           <SelectTrigger className="bg-zinc-800 text-xs h-8">
+                                               <SelectValue placeholder="Seleziona..." />
+                                           </SelectTrigger>
+                                           <SelectContent>
+                                               {onlineParticipants.map(p => (
+                                                   <SelectItem key={p.id} value={p.id}>{p.nickname}</SelectItem>
+                                               ))}
+                                           </SelectContent>
+                                       </Select>
+                                   )}
+                               </div>
+                           </div>
+
+                           {/* Canzone */}
+                           <div className="mb-3">
+                               <label className="text-xs text-zinc-400 mb-1 block">Canzone:</label>
+                               <div className="space-y-1">
+                                   <label className="flex items-center gap-2 text-xs">
+                                       <input 
+                                           type="radio"
+                                           checked={extractionMode.song === 'random'}
+                                           onChange={() => setExtractionMode({...extractionMode, song: 'random'})}
+                                       />
+                                       <span className="text-white">Casuale dal pool</span>
+                                   </label>
+                                   <label className="flex items-center gap-2 text-xs">
+                                       <input 
+                                           type="radio"
+                                           checked={extractionMode.song === 'forced'}
+                                           onChange={() => setExtractionMode({...extractionMode, song: 'forced'})}
+                                       />
+                                       <span className="text-white">Scelgo io:</span>
+                                   </label>
+                                   {extractionMode.song === 'forced' && (
+                                       <Select value={selectedSongId} onValueChange={setSelectedSongId}>
+                                           <SelectTrigger className="bg-zinc-800 text-xs h-8">
+                                               <SelectValue placeholder="Seleziona..." />
+                                           </SelectTrigger>
+                                           <SelectContent>
+                                               {songPool.map(s => (
+                                                   <SelectItem key={s.id} value={s.id}>{s.title} - {s.artist}</SelectItem>
+                                               ))}
+                                           </SelectContent>
+                                       </Select>
+                                   )}
+                               </div>
+                           </div>
+
+                           {/* Bottone Estrazione */}
+                           <Button 
+                               className="w-full bg-gradient-to-r from-fuchsia-600 to-purple-600 font-bold" 
+                               onClick={handleExtractRandom}
+                               disabled={songPool.length === 0}
+                           >
+                               <Dices className="w-4 h-4 mr-2"/> ESTRAI E METTI IN CODA
+                           </Button>
+                       </div>
+                   </div>
+               )}
+
+*/
             </ScrollArea>
          </aside>
 
@@ -1124,6 +1393,99 @@ export default function AdminDashboard() {
               </div>
           </DialogContent>
       </Dialog>
+<Dialog open={showPoolModal} onOpenChange={setShowPoolModal}>
+          <DialogContent className="bg-zinc-900 border-zinc-800">
+              <DialogHeader>
+                  <DialogTitle>{editingSong ? 'Modifica Canzone' : 'Nuova Canzone Pool'}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 pt-4">
+                  <div>
+                      <label className="text-xs text-zinc-500 mb-1 block">Titolo *</label>
+                      <Input 
+                          value={poolFormData.title} 
+                          onChange={e=>setPoolFormData({...poolFormData, title: e.target.value})} 
+                          placeholder="Es: Azzurro" 
+                          className="bg-zinc-800"
+                      />
+                  </div>
+                  <div>
+                      <label className="text-xs text-zinc-500 mb-1 block">Artista *</label>
+                      <Input 
+                          value={poolFormData.artist} 
+                          onChange={e=>setPoolFormData({...poolFormData, artist: e.target.value})} 
+                          placeholder="Es: Adriano Celentano" 
+                          className="bg-zinc-800"
+                      />
+                  </div>
+                  <div>
+                      <label className="text-xs text-zinc-500 mb-1 block">URL YouTube *</label>
+                      <Input 
+                          value={poolFormData.youtube_url} 
+                          onChange={e=>setPoolFormData({...poolFormData, youtube_url: e.target.value})} 
+                          placeholder="https://www.youtube.com/watch?v=..." 
+                          className="bg-zinc-800"
+                      />
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                      <div>
+                          <label className="text-xs text-zinc-500 mb-1 block">Genere</label>
+                          <Input 
+                              value={poolFormData.genre} 
+                              onChange={e=>setPoolFormData({...poolFormData, genre: e.target.value})} 
+                              placeholder="Pop" 
+                              className="bg-zinc-800"
+                          />
+                      </div>
+                      <div>
+                          <label className="text-xs text-zinc-500 mb-1 block">Decennio</label>
+                          <Input 
+                              value={poolFormData.decade} 
+                              onChange={e=>setPoolFormData({...poolFormData, decade: e.target.value})} 
+                              placeholder="1980" 
+                              className="bg-zinc-800"
+                          />
+                      </div>
+                      <div>
+                          <label className="text-xs text-zinc-500 mb-1 block">Difficoltà</label>
+                          <Select value={poolFormData.difficulty} onValueChange={(v)=>setPoolFormData({...poolFormData, difficulty: v})}>
+                              <SelectTrigger className="bg-zinc-800">
+                                  <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                  <SelectItem value="facile">Facile</SelectItem>
+                                  <SelectItem value="media">Media</SelectItem>
+                                  <SelectItem value="difficile">Difficile</SelectItem>
+                              </SelectContent>
+                          </Select>
+                      </div>
+                  </div>
+                  <Button className="w-full bg-green-600 font-bold" onClick={handleSaveSongPool}>
+                      <Save className="w-4 h-4 mr-2"/> {editingSong ? 'Aggiorna' : 'Aggiungi'} Canzone
+                  </Button>
+              </div>
+          </DialogContent>
+      </Dialog>
+
+      {/* MODALE IMPORT POOL JSON */}
+      <Dialog open={showImportPoolModal} onOpenChange={setShowImportPoolModal}>
+          <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
+              <DialogHeader><DialogTitle>Importa Canzoni Pool (JSON)</DialogTitle></DialogHeader>
+              <div className="space-y-4 pt-4">
+                  <p className="text-xs text-zinc-500">Formato: {`[ { "title": "...", "artist": "...", "youtube_url": "https://...", "genre": "Pop", "decade": "1980", "difficulty": "facile" } ]`}</p>
+                  <Textarea 
+                      value={importPoolText} 
+                      onChange={e=>setImportPoolText(e.target.value)} 
+                      placeholder='Incolla JSON qui...' 
+                      className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"
+                  />
+                  <Button className="w-full bg-green-600 font-bold" onClick={handleImportPoolScript}>
+                      <Download className="w-4 h-4 mr-2"/> IMPORTA NEL POOL
+                  </Button>
+              </div>
+          </DialogContent>
+      </Dialog>
+
+*/
     </div>
   );
 }

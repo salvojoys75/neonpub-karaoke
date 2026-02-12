@@ -896,6 +896,191 @@ export const trackQuizUsage = async (questionId, venueId) => {
   }
 }
 
+// ==================== RANDOM SONG POOL ====================
+
+export const getRandomSongPool = async () => {
+  const { data: user } = await supabase.auth.getUser()
+  if (!user?.user) throw new Error('Not authenticated')
+  
+  const { data, error } = await supabase
+    .from('random_song_pool')
+    .select('*')
+    .eq('operator_id', user.user.id)
+    .eq('is_active', true)
+    .order('artist', { ascending: true })
+  
+  if (error) throw error
+  return { data }
+}
+
+export const addSongToPool = async (songData) => {
+  const { data: user } = await supabase.auth.getUser()
+  if (!user?.user) throw new Error('Not authenticated')
+  
+  const { data, error } = await supabase
+    .from('random_song_pool')
+    .insert({
+      operator_id: user.user.id,
+      title: songData.title,
+      artist: songData.artist,
+      youtube_url: songData.youtube_url,
+      genre: songData.genre || null,
+      decade: songData.decade || null,
+      difficulty: songData.difficulty || null
+    })
+    .select()
+    .single()
+  
+  if (error) throw error
+  return { data }
+}
+
+export const updateSongInPool = async (songId, songData) => {
+  const { data, error } = await supabase
+    .from('random_song_pool')
+    .update({
+      title: songData.title,
+      artist: songData.artist,
+      youtube_url: songData.youtube_url,
+      genre: songData.genre,
+      decade: songData.decade,
+      difficulty: songData.difficulty
+    })
+    .eq('id', songId)
+    .select()
+    .single()
+  
+  if (error) throw error
+  return { data }
+}
+
+export const deleteSongFromPool = async (songId) => {
+  const { error } = await supabase
+    .from('random_song_pool')
+    .update({ is_active: false })
+    .eq('id', songId)
+  
+  if (error) throw error
+  return { data: 'ok' }
+}
+
+export const importSongsToPool = async (songsArray) => {
+  const { data: user } = await supabase.auth.getUser()
+  if (!user?.user) throw new Error('Not authenticated')
+  
+  const songsToInsert = songsArray.map(song => ({
+    operator_id: user.user.id,
+    title: song.title,
+    artist: song.artist,
+    youtube_url: song.youtube_url,
+    genre: song.genre || null,
+    decade: song.decade || null,
+    difficulty: song.difficulty || null
+  }))
+  
+  const { data, error } = await supabase
+    .from('random_song_pool')
+    .insert(songsToInsert)
+    .select()
+  
+  if (error) throw error
+  return { data, count: data.length }
+}
+
+// ==================== RANDOM EXTRACTION ====================
+
+export const extractRandomKaraoke = async (options = {}) => {
+  try {
+    const event = await getAdminEvent()
+    
+    // 1. Estrai partecipante
+    let participant = null
+    
+    if (options.forcedParticipantId) {
+      const { data } = await supabase
+        .from('participants')
+        .select('*')
+        .eq('id', options.forcedParticipantId)
+        .single()
+      participant = data
+    } else {
+      const { data: participants } = await supabase
+        .from('participants')
+        .select('*')
+        .eq('event_id', event.id)
+        .order('last_activity', { ascending: false })
+        .limit(50)
+      
+      if (!participants || participants.length === 0) {
+        throw new Error('Nessun partecipante disponibile')
+      }
+      
+      participant = participants[Math.floor(Math.random() * participants.length)]
+    }
+    
+    // 2. Estrai canzone
+    let song = null
+    
+    if (options.forcedSongId) {
+      const { data } = await supabase
+        .from('random_song_pool')
+        .select('*')
+        .eq('id', options.forcedSongId)
+        .single()
+      song = data
+    } else {
+      const { data: user } = await supabase.auth.getUser()
+      const { data: songs } = await supabase
+        .from('random_song_pool')
+        .select('*')
+        .eq('operator_id', user.user.id)
+        .eq('is_active', true)
+      
+      if (!songs || songs.length === 0) {
+        throw new Error('Nessuna canzone nel pool. Carica delle canzoni prima!')
+      }
+      
+      song = songs[Math.floor(Math.random() * songs.length)]
+    }
+    
+    // 3. Crea richiesta automatica
+    const { data: request, error: reqError } = await supabase
+      .from('song_requests')
+      .insert({
+        event_id: event.id,
+        participant_id: participant.id,
+        song_title: song.title,
+        song_artist: song.artist,
+        status: 'queued'
+      })
+      .select('*, participants(nickname, avatar_url)')
+      .single()
+    
+    if (reqError) throw reqError
+    
+    return {
+      data: {
+        participant: {
+          id: participant.id,
+          nickname: participant.nickname,
+          avatar_url: participant.avatar_url
+        },
+        song: {
+          id: song.id,
+          title: song.title,
+          artist: song.artist,
+          youtube_url: song.youtube_url
+        },
+        request: request
+      }
+    }
+    
+  } catch (error) {
+    console.error('Extract random error:', error)
+    throw error
+  }
+}
+
 export default {
   createPub, updateEventSettings, uploadLogo, getPub, joinPub, uploadAvatar, adminLogin, getMe,
   getAllProfiles, updateProfileCredits, createOperatorProfile, toggleUserStatus,
@@ -911,5 +1096,7 @@ export default {
   getActiveEventsForUser,
   deleteQuizQuestion,
   // Venues
-  getMyVenues, createVenue, updateVenue, deleteVenue, trackQuizUsage
+  getMyVenues, createVenue, updateVenue, deleteVenue, trackQuizUsage,
+  // Random Extraction
+  getRandomSongPool, addSongToPool, updateSongInPool, deleteSongFromPool, importSongsToPool, extractRandomKaraoke
 }
