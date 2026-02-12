@@ -98,7 +98,8 @@ const closeExpiredEvents = async (ownerId) => {
 export const uploadLogo = async (file) => {
   if (!file) throw new Error("Nessun file selezionato");
   const fileExt = file.name.split('.').pop();
-  const cleanName = file.name.replace(/[^a-zA-Z0-9]/g, '_');
+  const nameWithoutExt = file.name.replace(`.${fileExt}`, '');
+  const cleanName = nameWithoutExt.replace(/[^a-zA-Z0-9]/g, '_');
   const fileName = `${Date.now()}_${cleanName}.${fileExt}`;
   const { error: uploadError } = await supabase.storage.from('logos').upload(fileName, file, { upsert: true });
   if (uploadError) throw uploadError;
