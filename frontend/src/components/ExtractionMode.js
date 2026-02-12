@@ -1,113 +1,162 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Sparkles, Music2, Trophy, Zap } from 'lucide-react';
+import { Sparkles, Music2, Trophy, Mic2, Star } from 'lucide-react';
 
-const SLOT_SPIN_DURATION = 2500;
-const REVEAL_DELAY = 3000;
+// --- CONFIGURAZIONE ---
+const SPIN_DURATION = 3000; // Durata rotazione partecipante
+const SONG_DELAY = 1500;    // Ritardo partenza slot canzone
+const REVEAL_DELAY = 500;   // Pausa drammatica prima del flash finale
 
-// Suoni slot machine (usando Web Audio API)
-const playSlotSound = () => {
-  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-  const oscillator = audioContext.createOscillator();
-  const gainNode = audioContext.createGain();
-  oscillator.connect(gainNode);
-  gainNode.connect(audioContext.destination);
-  oscillator.frequency.value = 200;
-  oscillator.type = 'square';
-  gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-  gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-  oscillator.start(audioContext.currentTime);
-  oscillator.stop(audioContext.currentTime + 0.3);
-};
+// --- GESTIONE AUDIO (Web Audio API per suoni senza file esterni) ---
+const audioCtxRef = { current: null };
 
-const playWinSound = () => {
-  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-  const notes = [523.25, 659.25, 783.99, 1046.50];
-  notes.forEach((freq, i) => {
-    const oscillator = audioContext.createOscillator();
-    const gainNode = audioContext.createGain();
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContext.destination);
-    oscillator.frequency.value = freq;
-    oscillator.type = 'sine';
-    const startTime = audioContext.currentTime + (i * 0.1);
-    gainNode.gain.setValueAtTime(0.3, startTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + 0.3);
-    oscillator.start(startTime);
-    oscillator.stop(startTime + 0.3);
-  });
+const initAudio = () => {
+  if (!audioCtxRef.current) {
+    audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtxRef.current.state === 'suspended') {
+    audioCtxRef.current.resume();
+  }
+  return audioCtxRef.current;
 };
 
 const playTickSound = () => {
-  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-  const oscillator = audioContext.createOscillator();
-  const gainNode = audioContext.createGain();
-  oscillator.connect(gainNode);
-  gainNode.connect(audioContext.destination);
-  oscillator.frequency.value = 800;
-  oscillator.type = 'sine';
-  gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
-  gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.05);
-  oscillator.start(audioContext.currentTime);
-  oscillator.stop(audioContext.currentTime + 0.05);
+  const ctx = initAudio();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  
+  // Suono "Meccanico" tipo ruota della fortuna
+  osc.frequency.setValueAtTime(150, ctx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.05);
+  osc.type = 'triangle';
+  
+  gain.gain.setValueAtTime(0.3, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.05);
+  
+  osc.start(ctx.currentTime);
+  osc.stop(ctx.currentTime + 0.05);
 };
 
-// Componente Slot Reel
-const SlotReel = ({ items, isSpinning, finalValue, delay = 0 }) => {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const intervalRef = useRef(null);
+const playDrumRoll = (duration) => {
+  const ctx = initAudio();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  
+  osc.type = 'lowpass'; 
+  osc.frequency.value = 100;
+  
+  // Rumore bianco simulato per rullante (semplificato)
+  const bufferSize = ctx.sampleRate * duration;
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = Math.random() * 2 - 1;
+  }
+  
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+  const noiseGain = ctx.createGain();
+  noise.connect(noiseGain);
+  noiseGain.connect(ctx.destination);
+  
+  noiseGain.gain.setValueAtTime(0.1, ctx.currentTime);
+  noiseGain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + duration - 0.5);
+  noiseGain.gain.linearRampToValueAtTime(0, ctx.currentTime + duration);
+  
+  noise.start(ctx.currentTime);
+};
 
-  useEffect(() => {
-    if (isSpinning) {
-      const startDelay = setTimeout(() => {
-        playSlotSound();
-        intervalRef.current = setInterval(() => {
-          setCurrentIndex(prev => (prev + 1) % items.length);
-          playTickSound();
-        }, 100);
-      }, delay);
-      return () => {
-        clearTimeout(startDelay);
-        if (intervalRef.current) clearInterval(intervalRef.current);
-      };
-    } else {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-      const finalIndex = items.findIndex(item =>
-        item.id === finalValue?.id || item.title === finalValue?.title
-      );
-      if (finalIndex !== -1) setCurrentIndex(finalIndex);
-    }
-  }, [isSpinning, items, finalValue, delay]);
+const playVictorySound = () => {
+  const ctx = initAudio();
+  
+  // Accordo trionfale
+  [261.63, 329.63, 392.00, 523.25].forEach((freq, i) => { // C Major
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    osc.type = 'sawtooth';
+    osc.frequency.value = freq;
+    
+    const now = ctx.currentTime;
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.2, now + 0.1);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 2);
+    
+    osc.start(now);
+    osc.stop(now + 2);
+  });
+};
 
-  const displayItem = items[currentIndex] || items[0];
-  if (!displayItem) return null;
+// --- COMPONENTI UI ---
 
+const SlotCard = ({ title, icon: Icon, item, isSpinning, isRevealed, colorClass, delay = 0 }) => {
+  const [displayItem, setDisplayItem] = useState(item);
+  
   return (
-    <div className="extraction-reel">
-      <div className={`extraction-reel-inner ${isSpinning ? 'spinning' : ''}`}>
-        <div className="extraction-reel-content">
-          {displayItem.avatar_url ? (
-            <img
-              src={displayItem.avatar_url}
-              alt={displayItem.nickname}
-              className="extraction-avatar"
-            />
-          ) : displayItem.title ? (
-            <div className="extraction-avatar extraction-avatar-icon">
-              <Music2 className="extraction-icon-inner" />
+    <div className={`
+      relative group flex flex-col items-center justify-center p-6 
+      rounded-3xl border-2 transition-all duration-500 overflow-hidden
+      w-full max-w-md mx-auto h-full min-h-[250px]
+      ${isRevealed 
+        ? `bg-black/60 border-${colorClass}-400 shadow-[0_0_50px_rgba(var(--${colorClass}-rgb),0.5)] scale-105` 
+        : 'bg-black/30 border-white/10 scale-100'}
+    `}>
+      {/* Background Glow */}
+      <div className={`absolute inset-0 bg-gradient-to-b from-${colorClass}-500/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700`} />
+      
+      {/* Icona Header */}
+      <div className="absolute top-4 left-0 right-0 flex justify-center">
+        <div className={`px-4 py-1 rounded-full bg-${colorClass}-500/20 border border-${colorClass}-500/50 backdrop-blur-md flex items-center gap-2`}>
+          <Icon className={`w-4 h-4 text-${colorClass}-300`} />
+          <span className={`text-xs font-bold uppercase tracking-widest text-${colorClass}-200`}>{title}</span>
+        </div>
+      </div>
+
+      {/* Contenuto Principale */}
+      <div className="relative z-10 flex flex-col items-center justify-center w-full mt-6 space-y-4">
+        {/* Avatar / Icona */}
+        <div className={`
+          relative w-32 h-32 md:w-40 md:h-40 rounded-full border-4 
+          flex items-center justify-center shadow-2xl overflow-hidden bg-gray-900
+          transition-all duration-300
+          ${isSpinning ? 'border-white/30 animate-pulse' : `border-${colorClass}-500 shadow-[0_0_30px_rgba(var(--${colorClass}-rgb),0.6)]`}
+        `}>
+          {isSpinning ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center animate-spin-fast blur-sm opacity-50">
+               <Icon className="w-12 h-12 text-white/50" />
             </div>
           ) : (
-            <div className="extraction-avatar extraction-avatar-letter">
-              {displayItem.nickname?.charAt(0).toUpperCase()}
-            </div>
+            displayItem?.avatar_url ? (
+               <img src={displayItem.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+            ) : (
+               <div className={`text-4xl md:text-5xl font-black text-white`}>
+                 {displayItem?.nickname?.charAt(0).toUpperCase() || <Icon className="w-16 h-16" />}
+               </div>
+            )
           )}
-          <div className="extraction-name">
-            {displayItem.nickname || displayItem.title || '???'}
-          </div>
-          {displayItem.artist && (
-            <div className="extraction-artist">{displayItem.artist}</div>
+        </div>
+
+        {/* Testo */}
+        <div className="text-center w-full px-2">
+          <h2 className={`
+            font-black text-white uppercase tracking-tight leading-none
+            transition-all duration-300 drop-shadow-lg
+            ${isSpinning ? 'text-2xl blur-[2px] opacity-70' : 'text-3xl md:text-4xl scale-110'}
+          `}>
+            {isSpinning ? '...' : (displayItem?.nickname || displayItem?.title || '???')}
+          </h2>
+          {!isSpinning && displayItem?.artist && (
+            <p className={`text-${colorClass}-300 font-medium text-lg mt-1 animate-fadeIn`}>
+              {displayItem.artist}
+            </p>
           )}
         </div>
       </div>
@@ -115,45 +164,28 @@ const SlotReel = ({ items, isSpinning, finalValue, delay = 0 }) => {
   );
 };
 
-// Componente Confetti
-const Confetti = () => {
-  const pieces = Array.from({ length: 50 }, (_, i) => ({
-    id: i,
-    left: Math.random() * 100,
-    delay: Math.random() * 2,
-    duration: 3 + Math.random() * 2,
-    color: ['#d946ef', '#a855f7', '#ec4899', '#f59e0b', '#10b981'][Math.floor(Math.random() * 5)]
-  }));
-  return (
-    <div className="absolute inset-0 pointer-events-none overflow-hidden">
-      {pieces.map(piece => (
-        <div
-          key={piece.id}
-          className="absolute rounded-sm animate-confetti"
-          style={{
-            left: `${piece.left}%`,
-            top: '-20px',
-            width: 'clamp(8px, 1vw, 14px)',
-            height: 'clamp(8px, 1vw, 14px)',
-            backgroundColor: piece.color,
-            animationDelay: `${piece.delay}s`,
-            animationDuration: `${piece.duration}s`
-          }}
-        />
-      ))}
-    </div>
-  );
-};
-
-export default function ExtractionMode({ extractionData, participants, songs, onComplete }) {
-  const [phase, setPhase] = useState('countdown');
+export default function ExtractionModeTV({ extractionData, participants, songs, onComplete }) {
+  const [phase, setPhase] = useState('intro'); // intro, spinning, locked, reveal
   const [countdown, setCountdown] = useState(3);
-  const [isSpinning, setIsSpinning] = useState(false);
+  
+  // Stati visuali temporanei per l'animazione
+  const [tempParticipant, setTempParticipant] = useState(participants?.[0]);
+  const [tempSong, setTempSong] = useState(songs?.[0]);
+  
+  const [pSpinning, setPSpinning] = useState(false);
+  const [sSpinning, setSSpinning] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
+
+  // Helper per scegliere elemento random durante lo spin
+  const getRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
   useEffect(() => {
-    if (phase === 'countdown') {
+    let intervalP, intervalS;
+
+    // FASE 1: Countdown
+    if (phase === 'intro') {
       const timer = setInterval(() => {
-        setCountdown(prev => {
+        setCountdown((prev) => {
           if (prev <= 1) {
             clearInterval(timer);
             setPhase('spinning');
@@ -162,358 +194,205 @@ export default function ExtractionMode({ extractionData, participants, songs, on
           playTickSound();
           return prev - 1;
         });
-      }, 800);
+      }, 1000);
       return () => clearInterval(timer);
     }
 
+    // FASE 2: Spinning
     if (phase === 'spinning') {
-      setIsSpinning(true);
-      const stopParticipant = setTimeout(() => {
-        setIsSpinning(false);
-        playWinSound();
-      }, SLOT_SPIN_DURATION);
-      const revealTimer = setTimeout(() => {
+      setPSpinning(true);
+      setSSpinning(true);
+      playDrumRoll(SPIN_DURATION / 1000);
+
+      // Loop visivo veloce Partecipante
+      intervalP = setInterval(() => {
+        setTempParticipant(getRandom(participants));
+      }, 80);
+
+      // Loop visivo veloce Canzone
+      intervalS = setInterval(() => {
+        setTempSong(getRandom(songs));
+      }, 80);
+
+      // Stop Partecipante
+      setTimeout(() => {
+        clearInterval(intervalP);
+        setTempParticipant(extractionData.participant);
+        setPSpinning(false);
+        playTickSound(); // Suono "Lock"
+        
+        // Stop Canzone dopo ritardo
+        setTimeout(() => {
+          clearInterval(intervalS);
+          setTempSong(extractionData.song);
+          setSSpinning(false);
+          setPhase('locked');
+        }, SONG_DELAY);
+        
+      }, SPIN_DURATION);
+    }
+
+    // FASE 3: Locked -> Reveal (Flash)
+    if (phase === 'locked') {
+      setTimeout(() => {
         setPhase('reveal');
+        playVictorySound();
+        setShowConfetti(true);
       }, REVEAL_DELAY);
-      return () => {
-        clearTimeout(stopParticipant);
-        clearTimeout(revealTimer);
-      };
     }
-
+    
+    // FASE 4: Completamento
     if (phase === 'reveal') {
-      playWinSound();
-      const celebrationTimer = setTimeout(() => {
-        setPhase('celebration');
-      }, 2000);
-      return () => clearTimeout(celebrationTimer);
+       const endTimer = setTimeout(() => {
+         if (onComplete) onComplete();
+       }, 5000);
+       return () => clearTimeout(endTimer);
     }
 
-    if (phase === 'celebration') {
-      const completeTimer = setTimeout(() => {
-        if (onComplete) onComplete();
-      }, 3000);
-      return () => clearTimeout(completeTimer);
-    }
-  }, [phase, onComplete]);
-
-  const participant = extractionData?.participant;
-  const song = extractionData?.song;
+    return () => {
+      if (intervalP) clearInterval(intervalP);
+      if (intervalS) clearInterval(intervalS);
+    };
+  }, [phase, participants, songs, extractionData, onComplete]);
 
   return (
-    <div className="extraction-root">
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center overflow-hidden bg-black text-white font-sans">
       <style>{`
-        .extraction-root {
-          position: absolute;
-          inset: 0;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          overflow: hidden;
-          background: radial-gradient(ellipse at center, #1a0030 0%, #0a0010 60%, #000 100%);
+        /* Variabili colore dinamiche per Tailwind JIT o custom */
+        :root {
+          --fuchsia-rgb: 217, 70, 239;
+          --cyan-rgb: 34, 211, 238;
         }
-
-        /* ---------- COUNTDOWN ---------- */
-        .extraction-countdown-wrap {
-          text-align: center;
-          animation: bounce-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+        @keyframes spotlight {
+          0% { transform: rotate(45deg) translateX(-20%); opacity: 0.4; }
+          50% { transform: rotate(35deg) translateX(0%); opacity: 0.8; }
+          100% { transform: rotate(45deg) translateX(-20%); opacity: 0.4; }
         }
-        .extraction-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: clamp(8px, 1vw, 16px);
-          margin-bottom: clamp(16px, 3vh, 40px);
-          padding: clamp(8px, 1.2vh, 18px) clamp(16px, 2vw, 32px);
-          background: rgba(217,70,239,0.15);
-          backdrop-filter: blur(20px);
-          border-radius: 9999px;
-          border: 2px solid #d946ef;
+        @keyframes spotlight-r {
+          0% { transform: rotate(-45deg) translateX(20%); opacity: 0.4; }
+          50% { transform: rotate(-35deg) translateX(0%); opacity: 0.8; }
+          100% { transform: rotate(-45deg) translateX(20%); opacity: 0.4; }
         }
-        .extraction-badge-text {
-          font-size: clamp(1rem, 2.5vw, 2rem);
-          font-weight: 900;
-          color: white;
-          text-transform: uppercase;
-          letter-spacing: 0.25em;
+        @keyframes spin-fast {
+          0% { transform: translateY(-10%); }
+          100% { transform: translateY(10%); }
         }
-        .extraction-zap {
-          width: clamp(20px, 2.5vw, 40px);
-          height: clamp(20px, 2.5vw, 40px);
-          color: #facc15;
-          animation: pulse 1s ease-in-out infinite;
+        .animate-spin-fast {
+          animation: spin-fast 0.1s linear infinite alternate;
         }
-        .extraction-countdown-number {
-          font-size: clamp(8rem, 30vw, 28rem);
-          font-weight: 900;
-          line-height: 1;
-          background: linear-gradient(to bottom, #e879f9, #7c3aed);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
-          animation: pulse-glow 1.5s ease-in-out infinite;
-          position: relative;
-          z-index: 1;
-        }
-
-        /* ---------- SLOT AREA ---------- */
-        .extraction-slots-wrap {
-          width: 90%;
-          max-width: 900px;
-          display: flex;
-          flex-direction: column;
-          gap: clamp(12px, 2vh, 28px);
-        }
-        .extraction-title {
-          text-align: center;
-          font-size: clamp(1.2rem, 3vw, 2.8rem);
-          font-weight: 900;
-          text-transform: uppercase;
-          letter-spacing: 0.1em;
-          background: linear-gradient(to right, #e879f9, #a855f7, #ec4899);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
-          margin-bottom: clamp(4px, 1vh, 16px);
-          animation: bounce-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
-        }
-        .extraction-card {
-          background: rgba(0,0,0,0.5);
-          backdrop-filter: blur(20px);
-          border-radius: clamp(16px, 3vw, 40px);
-          padding: clamp(12px, 2.5vh, 36px) clamp(16px, 3vw, 48px);
-          border: 3px solid rgba(217,70,239,0.4);
-          box-shadow: 0 0 60px rgba(217,70,239,0.25);
-        }
-        .extraction-card-song {
-          border-color: rgba(168,85,247,0.4);
-          box-shadow: 0 0 60px rgba(168,85,247,0.25);
-          animation: bounce-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
-        }
-        .extraction-card-header {
-          display: flex;
-          align-items: center;
-          gap: clamp(8px, 1.2vw, 20px);
-          margin-bottom: clamp(8px, 1.5vh, 20px);
-        }
-        .extraction-card-icon {
-          width: clamp(24px, 3vw, 52px);
-          height: clamp(24px, 3vw, 52px);
-          color: #facc15;
-          flex-shrink: 0;
-        }
-        .extraction-card-icon-song {
-          color: #e879f9;
-        }
-        .extraction-card-label {
-          font-size: clamp(0.9rem, 2vw, 1.8rem);
-          font-weight: 900;
-          color: white;
-          text-transform: uppercase;
-          letter-spacing: 0.15em;
-        }
-
-        /* ---------- SLOT REEL ---------- */
-        .extraction-reel {
-          width: 100%;
-        }
-        .extraction-reel-inner {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: filter 0.3s, transform 0.3s;
-        }
-        .extraction-reel-inner.spinning {
-          filter: blur(3px);
-          transform: scale(0.97);
-        }
-        .extraction-reel-content {
-          text-align: center;
-          width: 100%;
-        }
-        .extraction-avatar {
-          width: clamp(64px, 12vw, 140px);
-          height: clamp(64px, 12vw, 140px);
-          border-radius: 9999px;
-          margin: 0 auto clamp(8px, 1.5vh, 20px);
-          border: clamp(3px, 0.5vw, 7px) solid #d946ef;
-          box-shadow: 0 0 40px rgba(217,70,239,0.6);
-          object-fit: cover;
-          display: block;
-        }
-        .extraction-avatar-icon {
-          border-radius: clamp(12px, 2vw, 24px);
-          background: linear-gradient(135deg, #c026d3, #7c3aed);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-        .extraction-avatar-letter {
-          background: linear-gradient(135deg, #c026d3, #7c3aed);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: clamp(1.5rem, 6vw, 5rem);
-          font-weight: 900;
-          color: white;
-        }
-        .extraction-icon-inner {
-          width: 55%;
-          height: 55%;
-          color: white;
-        }
-        .extraction-name {
-          font-size: clamp(1.6rem, 5vw, 4.5rem);
-          font-weight: 900;
-          color: white;
-          margin-bottom: clamp(4px, 0.5vh, 10px);
-          text-shadow: 0 0 30px rgba(217,70,239,0.5);
-          line-height: 1.1;
-        }
-        .extraction-artist {
-          font-size: clamp(1rem, 2.5vw, 2.2rem);
-          font-weight: 700;
-          color: #e879f9;
-        }
-
-        /* ---------- CELEBRATION ---------- */
-        .extraction-celebration {
-          text-align: center;
-          margin-top: clamp(8px, 2vh, 24px);
-          animation: bounce-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
-        }
-        .extraction-celebration-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: clamp(8px, 1.5vw, 24px);
-          padding: clamp(10px, 1.5vh, 20px) clamp(20px, 3vw, 48px);
-          background: linear-gradient(to right, #c026d3, #7c3aed);
-          border-radius: 9999px;
-          border: 3px solid rgba(255,255,255,0.2);
-          box-shadow: 0 0 60px rgba(217,70,239,0.6);
-        }
-        .extraction-celebration-icon {
-          width: clamp(20px, 2.5vw, 42px);
-          height: clamp(20px, 2.5vw, 42px);
-          color: #fde047;
-          animation: pulse 1s ease-in-out infinite;
-        }
-        .extraction-celebration-text {
-          font-size: clamp(1rem, 2.8vw, 2.5rem);
-          font-weight: 900;
-          color: white;
-          text-transform: uppercase;
-          letter-spacing: 0.1em;
-        }
-
-        /* ---------- BG GLOW ---------- */
-        .extraction-glow {
-          position: absolute;
-          top: 50%;
-          left: 50%;
-          transform: translate(-50%, -50%);
-          width: 80vw;
-          height: 80vw;
-          max-width: 900px;
-          max-height: 900px;
-          background: rgba(217,70,239,0.12);
-          border-radius: 9999px;
-          filter: blur(120px);
-          animation: pulse 3s ease-in-out infinite;
-          pointer-events: none;
-        }
-
-        /* ---------- KEYFRAMES ---------- */
-        @keyframes confetti {
-          0%   { transform: translateY(0) rotate(0deg); opacity: 1; }
-          100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
-        }
-        .animate-confetti { animation: confetti linear forwards; }
-
-        @keyframes pulse-glow {
-          0%, 100% { filter: drop-shadow(0 0 20px rgba(217,70,239,0.4)); }
-          50%       { filter: drop-shadow(0 0 60px rgba(217,70,239,0.9)); }
-        }
-        @keyframes bounce-in {
-          0%   { transform: scale(0) rotate(-180deg); opacity: 0; }
-          50%  { transform: scale(1.15) rotate(8deg); }
-          100% { transform: scale(1) rotate(0deg); opacity: 1; }
-        }
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50%       { opacity: 0.6; }
+        .bg-grid-pattern {
+          background-image: linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+          background-size: 40px 40px;
         }
       `}</style>
 
-      {/* Background glow */}
-      <div className="extraction-glow" />
-      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] opacity-10 pointer-events-none" />
+      {/* --- BACKGROUND LAYER --- */}
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-indigo-900 via-black to-black"></div>
+      <div className="absolute inset-0 bg-grid-pattern opacity-20"></div>
+      
+      {/* Riflettori */}
+      <div className="absolute top-[-50%] left-[-20%] w-[80vh] h-[200vh] bg-white/5 blur-[80px] origin-top animate-[spotlight_8s_ease-in-out_infinite]" />
+      <div className="absolute top-[-50%] right-[-20%] w-[80vh] h-[200vh] bg-fuchsia-500/10 blur-[80px] origin-top animate-[spotlight-r_8s_ease-in-out_infinite]" />
+      
+      {/* Confetti (Semplificati CSS) */}
+      {showConfetti && (
+        <div className="absolute inset-0 pointer-events-none">
+          {Array.from({ length: 50 }).map((_, i) => (
+            <div 
+              key={i}
+              className="absolute w-2 h-2 bg-yellow-400 rounded-full animate-pulse"
+              style={{
+                top: '-10px',
+                left: `${Math.random() * 100}%`,
+                animation: `fall ${2 + Math.random() * 3}s linear forwards`,
+                backgroundColor: ['#FFD700', '#FF00FF', '#00FFFF'][Math.floor(Math.random() * 3)]
+              }}
+            />
+          ))}
+          <style>{`
+            @keyframes fall {
+              to { transform: translateY(110vh) rotate(720deg); }
+            }
+          `}</style>
+        </div>
+      )}
 
-      {phase === 'celebration' && <Confetti />}
+      {/* --- CONTENT LAYER --- */}
+      <div className="relative z-10 w-full max-w-7xl h-full flex flex-col justify-center items-center px-4 py-6 md:py-12">
+        
+        {/* Header Logo */}
+        <div className="absolute top-6 md:top-12 flex flex-col items-center">
+          <div className="flex items-center gap-3 mb-2">
+            <Star className="w-6 h-6 text-yellow-400 fill-yellow-400 animate-spin-slow" />
+            <h1 className="text-2xl md:text-3xl font-black tracking-[0.5em] uppercase text-transparent bg-clip-text bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 drop-shadow-sm">
+              Talent Show
+            </h1>
+            <Star className="w-6 h-6 text-yellow-400 fill-yellow-400 animate-spin-slow" />
+          </div>
+          <div className="h-1 w-32 bg-gradient-to-r from-transparent via-yellow-500 to-transparent"></div>
+        </div>
 
-      <div style={{ position: 'relative', zIndex: 10, width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-
-        {/* ---- FASE COUNTDOWN ---- */}
-        {phase === 'countdown' && (
-          <div className="extraction-countdown-wrap">
-            <div className="extraction-badge">
-              <Zap className="extraction-zap" />
-              <span className="extraction-badge-text">Estrazione Casuale</span>
-              <Zap className="extraction-zap" />
+        {/* FASE COUNTDOWN */}
+        {phase === 'intro' && (
+          <div className="flex items-center justify-center scale-150">
+            <div className="text-[12rem] md:text-[20rem] font-black text-white leading-none relative">
+              <span className="absolute inset-0 blur-3xl text-fuchsia-600 animate-pulse">{countdown}</span>
+              <span className="relative bg-gradient-to-b from-white to-gray-400 bg-clip-text text-transparent">
+                {countdown}
+              </span>
             </div>
-            <div className="extraction-countdown-number">{countdown}</div>
           </div>
         )}
 
-        {/* ---- FASE SPINNING / REVEAL / CELEBRATION ---- */}
-        {(phase === 'spinning' || phase === 'reveal' || phase === 'celebration') && (
-          <div className="extraction-slots-wrap">
-
-            <div className="extraction-title">
-              {phase === 'spinning' ? '🎰 Estrazione in corso...' : '✨ Ecco il vincitore!'}
-            </div>
-
-            {/* Card Cantante */}
-            <div className="extraction-card">
-              <div className="extraction-card-header">
-                <Trophy className="extraction-card-icon" />
-                <span className="extraction-card-label">Il Cantante</span>
-              </div>
-              <SlotReel
-                items={participants || []}
-                isSpinning={isSpinning}
-                finalValue={participant}
-                delay={0}
+        {/* FASE ESTRAZIONE */}
+        {phase !== 'intro' && (
+          <div className="w-full flex flex-col md:flex-row items-center justify-center gap-6 md:gap-12 mt-12 md:mt-0 flex-1">
+            
+            {/* Slot Partecipante */}
+            <div className="w-full h-[40vh] md:h-auto md:flex-1 flex justify-center">
+              <SlotCard 
+                title="Concorrente"
+                icon={Mic2}
+                item={tempParticipant}
+                isSpinning={pSpinning}
+                isRevealed={phase === 'reveal'}
+                colorClass="fuchsia"
               />
             </div>
 
-            {/* Card Canzone — appare dopo che il rullo si ferma */}
-            {!isSpinning && (
-              <div className="extraction-card extraction-card-song">
-                <div className="extraction-card-header">
-                  <Music2 className="extraction-card-icon extraction-card-icon-song" />
-                  <span className="extraction-card-label">La Canzone</span>
-                </div>
-                <SlotReel
-                  items={songs || []}
-                  isSpinning={false}
-                  finalValue={song}
-                  delay={500}
-                />
-              </div>
-            )}
+            {/* VS Badge (Desktop) / Divider (Mobile) */}
+            <div className="shrink-0 flex items-center justify-center">
+               <div className="w-12 h-12 md:w-16 md:h-16 rounded-full bg-gradient-to-br from-yellow-400 to-orange-600 flex items-center justify-center shadow-[0_0_30px_rgba(234,179,8,0.6)] border-4 border-black z-20">
+                 <span className="font-black text-black text-xl md:text-2xl italic">VS</span>
+               </div>
+            </div>
 
-            {/* Messaggio celebration */}
-            {phase === 'celebration' && (
-              <div className="extraction-celebration">
-                <div className="extraction-celebration-badge">
-                  <Sparkles className="extraction-celebration-icon" />
-                  <span className="extraction-celebration-text">Preparati a cantare! 🎤</span>
-                  <Sparkles className="extraction-celebration-icon" />
-                </div>
-              </div>
-            )}
+            {/* Slot Canzone */}
+            <div className="w-full h-[40vh] md:h-auto md:flex-1 flex justify-center">
+              <SlotCard 
+                title="Canzone Assegnata"
+                icon={Music2}
+                item={tempSong}
+                isSpinning={sSpinning}
+                isRevealed={phase === 'reveal'}
+                colorClass="cyan" // Usa un colore diverso per contrasto
+              />
+            </div>
 
+          </div>
+        )}
+
+        {/* MESSAGGIO VITTORIA */}
+        {phase === 'reveal' && (
+          <div className="absolute bottom-10 md:bottom-20 animate-bounce-in">
+             <div className="bg-white/10 backdrop-blur-md border border-white/20 px-8 py-4 rounded-full shadow-[0_0_50px_rgba(255,255,255,0.2)]">
+               <span className="text-xl md:text-3xl font-bold text-white uppercase tracking-widest flex items-center gap-4">
+                 <Trophy className="w-8 h-8 text-yellow-400" />
+                 Abbinamento Confermato!
+                 <Trophy className="w-8 h-8 text-yellow-400" />
+               </span>
+             </div>
           </div>
         )}
 
