@@ -272,7 +272,7 @@ export const setEventModule = async (moduleId, specificContentId = null) => {
   }
 };
 
-export const getQuizCatalog = async () => {
+export const getQuizCatalog = async (venueId = null, daysThreshold = 30) => {
   const { data: catalog, error } = await supabase
     .from('quiz_catalog')
     .select('*')
@@ -281,6 +281,7 @@ export const getQuizCatalog = async () => {
 
   if (error) throw error;
 
+  // FILTRO 1: Domande già usate nello STESSO EVENTO (nasconde completamente)
   try {
       const pubCode = localStorage.getItem('neonpub_pub_code');
       if(pubCode) {
@@ -293,12 +294,39 @@ export const getQuizCatalog = async () => {
               if (usedQuizzes && usedQuizzes.length > 0) {
                   const usedQuestionsSet = new Set(usedQuizzes.map(q => q.question));
                   const filteredCatalog = catalog.filter(item => !usedQuestionsSet.has(item.question));
-                  return { data: filteredCatalog };
+                  catalog = filteredCatalog;
               }
           }
       }
   } catch (e) {
-      console.warn("Impossibile filtrare domande usate:", e);
+      console.warn("Impossibile filtrare domande usate nell'evento:", e);
+  }
+
+  // FILTRO 2: Domande usate negli ultimi 30 giorni in quel VENUE (mostra con badge)
+  if (venueId) {
+    try {
+      const thresholdDate = new Date();
+      thresholdDate.setDate(thresholdDate.getDate() - daysThreshold);
+      
+      const { data: usedQuestions } = await supabase
+        .from('quiz_usage_history')
+        .select('question_id, used_at')
+        .eq('venue_id', venueId)
+        .gte('used_at', thresholdDate.toISOString());
+      
+      const usedQuestionIds = new Set(usedQuestions?.map(q => q.question_id) || []);
+      
+      // Aggiungi flag recently_used
+      return { 
+        data: catalog.map(q => ({
+          ...q,
+          recently_used: usedQuestionIds.has(q.id),
+          last_used: usedQuestions?.find(uq => uq.question_id === q.id)?.used_at || null
+        }))
+      };
+    } catch (e) {
+      console.warn("Impossibile filtrare per venue:", e);
+    }
   }
 
   return { data: catalog || [] };
@@ -827,77 +855,45 @@ export const deleteVenue = async (venueId) => {
   return { data: 'ok' }
 }
 
-// ==================== QUIZ CATALOG con FILTRO VENUE ====================
-
-export const getQuizCatalogFiltered = async (venueId = null, daysThreshold = 30) => {
-  const event = await getAdminEvent()
-  
-  // Prendi tutto il catalogo dell'operatore
-  const { data: catalog, error } = await supabase
-    .from('quiz_catalog')
-    .select('*')
-    .eq('owner_id', event.owner_id)
-    .order('created_at', { ascending: false })
-  
-  if (error) throw error
-  
-  // Se non c'è venue selezionato, ritorna tutto il catalogo
-  if (!venueId) {
-    return { data: catalog }
-  }
-  
-  // Altrimenti filtra le domande usate recentemente in quel venue
-  const thresholdDate = new Date()
-  thresholdDate.setDate(thresholdDate.getDate() - daysThreshold)
-  
-  const { data: usedQuestions } = await supabase
-    .from('quiz_usage_history')
-    .select('question_id, used_at')
-    .eq('venue_id', venueId)
-    .gte('used_at', thresholdDate.toISOString())
-  
-  const usedQuestionIds = new Set(usedQuestions?.map(q => q.question_id) || [])
-  
-  // Aggiungi flag e timestamp all'output
-  const catalogWithHistory = catalog.map(q => ({
-    ...q,
-    recently_used: usedQuestionIds.has(q.id),
-    last_used: usedQuestions?.find(uq => uq.question_id === q.id)?.used_at || null
-  }))
-  
-  return { data: catalogWithHistory }
-}
-
 // ==================== TRACK QUIZ USAGE ====================
 
 export const trackQuizUsage = async (questionId, venueId) => {
-  const event = await getAdminEvent()
-  
-  if (!venueId) {
-    console.warn('No venue specified, skipping quiz tracking')
-    return { data: 'skipped' }
-  }
-  
-  const { data, error } = await supabase
-    .from('quiz_usage_history')
-    .insert({
-      venue_id: venueId,
-      question_id: questionId,
-      operator_id: event.owner_id,
-      event_id: event.id
-    })
-    .select()
-    .single()
-  
-  if (error) {
-    // Ignore duplicate errors (stessa domanda nello stesso evento)
-    if (error.code === '23505') {
-      return { data: 'already_tracked' }
+  try {
+    const pubCode = localStorage.getItem('neonpub_pub_code');
+    if (!pubCode || !venueId) return { data: 'skipped' };
+    
+    const { data: event } = await supabase
+      .from('events')
+      .select('id, owner_id')
+      .eq('code', pubCode.toUpperCase())
+      .single();
+    
+    if (!event) return { data: 'no_event' };
+    
+    const { data, error } = await supabase
+      .from('quiz_usage_history')
+      .insert({
+        venue_id: venueId,
+        question_id: questionId,
+        operator_id: event.owner_id,
+        event_id: event.id
+      })
+      .select()
+      .single();
+    
+    if (error) {
+      // Ignore duplicate errors
+      if (error.code === '23505') {
+        return { data: 'already_tracked' };
+      }
+      throw error;
     }
-    throw error
+    
+    return { data };
+  } catch (e) {
+    console.warn('Track quiz usage error:', e);
+    return { data: 'error' };
   }
-  
-  return { data }
 }
 
 export default {
@@ -915,7 +911,5 @@ export default {
   getActiveEventsForUser,
   deleteQuizQuestion,
   // Venues
-  getMyVenues, createVenue, updateVenue, deleteVenue,
-  // Quiz with venue filtering
-  getQuizCatalogFiltered, trackQuizUsage
+  getMyVenues, createVenue, updateVenue, deleteVenue, trackQuizUsage
 }
