@@ -62,58 +62,26 @@ export default function ClientApp() {
       
       const serverQuiz = quizRes.data;
       if (serverQuiz) {
-         if (serverQuiz.status === 'active' || serverQuiz.status === 'closed') {
-             setActiveQuiz(prev => { if (!prev || prev.id !== serverQuiz.id) { setQuizAnswer(null); setQuizResult(null); setPointsEarned(0); setShowQuizModal(true); } return serverQuiz; });
-         } else if (serverQuiz.status === 'showing_results' || serverQuiz.status === 'leaderboard') {
-             if (!quizResult) { const res = await api.getQuizResults(serverQuiz.id); setQuizResult(res.data); setActiveQuiz(serverQuiz); setShowQuizModal(true); } else { setActiveQuiz(serverQuiz); }
-         }
-      } else { 
-        // Quiz terminato: chiudi SEMPRE il modal e resetta tutto
-        if (activeQuiz) { 
-          setShowQuizModal(false); 
-          setActiveQuiz(null); 
-          setQuizResult(null);
-          setQuizAnswer(null);
-          setPointsEarned(0);
-        } 
-      }
-    } catch (error) { console.error(error); }
-  }, [user?.id, hasVoted, activeQuiz, quizResult]);
+        if (!activeQuiz || activeQuiz.id !== serverQuiz.id) { setQuizAnswer(null); setQuizResult(null); setPointsEarned(0); }
+        setActiveQuiz(serverQuiz);
+        if (serverQuiz.status !== 'active' && serverQuiz.status !== 'closed') { setShowQuizModal(false); }
+        if (serverQuiz.status === 'active' && !showQuizModal) { toast.success("📢 Nuovo Quiz!"); setShowQuizModal(true); }
+        if (serverQuiz.status === 'showing_results' && quizAnswer !== null && !quizResult) { setTimeout(async () => { const { data } = await api.getQuizResults(serverQuiz.id); setQuizResult(data); }, 500); }
+      } else { setActiveQuiz(null); setQuizResult(null); setShowQuizModal(false); }
+    } catch (error) { console.error("Errore caricamento:", error); }
+  }, [activeQuiz, showQuizModal, user, hasVoted, quizAnswer, quizResult]);
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      loadData(); pollIntervalRef.current = setInterval(loadData, 5000);
-      const channel = supabase.channel('client_realtime')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'performances', filter: `event_id=eq.${user?.event_id}` }, 
-            (payload) => { const newPerf = payload.new; if (newPerf.status === 'voting') { loadData(); } else { setCurrentPerformance(newPerf); } }
-        )
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes', filter: `event_id=eq.${user?.event_id}` }, 
-            async (payload) => {
-                const q = payload.new;
-                if (q.status === 'active') { setQuizAnswer(null); setQuizResult(null); setPointsEarned(0); setActiveQuiz(q); setShowQuizModal(true); toast.info("🎯 Quiz Iniziato!"); } 
-                else if (q.status === 'closed') { setActiveQuiz(prev => ({ ...prev, status: 'closed' })); toast.warning("🛑 Televoto Chiuso!"); }
-                else if (q.status === 'showing_results') { const res = await api.getQuizResults(q.id); setQuizResult(res.data); setActiveQuiz(q); }
-                else if (q.status === 'leaderboard') { setActiveQuiz(q); toast.info("🏆 Classifica sul maxischermo!"); }
-                else if (q.status === 'ended') { setShowQuizModal(false); setActiveQuiz(null); setQuizResult(null); }
-            }
-        ).subscribe();
-      return () => { clearInterval(pollIntervalRef.current); supabase.removeChannel(channel); };
-    }
-  }, [isAuthenticated, loadData, user?.event_id]);
+  useEffect(() => { loadData(); pollIntervalRef.current = setInterval(loadData, 3000); return () => clearInterval(pollIntervalRef.current); }, [loadData]);
 
-  const addFloatingReaction = (emoji) => {
-    const id = Date.now() + Math.random(); const left = Math.random() * 80 + 10;
-    setFloatingReactions(prev => [...prev, { id, emoji, left }]); setTimeout(() => setFloatingReactions(prev => prev.filter(r => r.id !== id)), 2000);
-  };
+  const addFloatingReaction = (emoji) => { const id = Date.now() + Math.random(); const left = Math.random() * 80 + 10; setFloatingReactions(prev => [...prev, { id, emoji, left }]); setTimeout(() => setFloatingReactions(prev => prev.filter(r => r.id !== id)), 2000); };
 
   const handleRequestSong = async (e) => {
-    e.preventDefault(); if (!songTitle.trim() || !songArtist.trim()) { toast.error("Inserisci titolo e artista"); return; }
-    try { await api.requestSong({ title: songTitle, artist: songArtist, youtube_url: songYoutubeUrl || null }); toast.success("Richiesta inviata!"); setShowRequestModal(false); setSongTitle(""); setSongArtist(""); setSongYoutubeUrl(""); loadData(); } catch (error) { toast.error("Errore invio"); }
+    e.preventDefault(); if (!songTitle || !songArtist) return toast.error("Inserisci titolo e artista!");
+    try { await api.requestSong({ title: songTitle, artist: songArtist, youtube_url: songYoutubeUrl }); toast.success("Richiesta inviata!"); setShowRequestModal(false); setSongTitle(""); setSongArtist(""); setSongYoutubeUrl(""); } catch (error) { toast.error("Errore richiesta"); }
   };
 
   const handleVote = async () => {
-    if (selectedStars === 0 || !currentPerformance) return;
-    try { await api.submitVote({ performance_id: currentPerformance.id, score: selectedStars }); toast.success(`Voto inviato!`); setHasVoted(true); setShowVoteModal(false); } catch (error) { toast.error("Errore voto"); setShowVoteModal(false); }
+    if (selectedStars === 0) return; try { await api.submitVote({ performance_id: currentPerformance.id, stars: selectedStars }); toast.success(`Hai votato ${selectedStars} stelle!`); setHasVoted(true); setShowVoteModal(false); } catch (error) { toast.error(error.message || "Errore voto"); }
   };
 
   const handleReaction = async (emoji) => {
@@ -123,7 +91,14 @@ export default function ClientApp() {
 
   const handleSendMessage = async () => {
     if (!messageText.trim()) return;
-    try { await api.sendMessage({ text: messageText }); toast.success("Messaggio inviato alla regia!"); setShowMessageModal(false); setMessageText(""); } catch (error) { toast.error("Errore invio"); }
+    try { 
+      await api.sendMessage({ text: messageText }); 
+      toast.success("Messaggio inviato alla regia! Attendi approvazione per vederlo sullo schermo."); 
+      setShowMessageModal(false); 
+      setMessageText(""); 
+    } catch (error) { 
+      toast.error("Errore invio"); 
+    }
   };
 
   const handleQuizAnswer = async (index) => {
