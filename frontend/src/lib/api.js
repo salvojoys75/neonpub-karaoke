@@ -710,8 +710,8 @@ export const getDisplayData = async (pubCode) => {
     supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
     // Messaggio REGIA
     supabase.from('messages').select('*').eq('event_id', event.id).is('participant_id', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle(),
-    // Messaggi UTENTI
-    supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).not('participant_id', 'is', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(10)
+    // Messaggi UTENTI SOLO
+    supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).not.is('participant_id', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(10)
   ])
 
   let currentPerformance = perf.data ? {...perf.data, user_nickname: perf.data.participants?.nickname, user_avatar: perf.data.participants?.avatar_url} : null;
