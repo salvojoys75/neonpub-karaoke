@@ -131,7 +131,7 @@ export const getPub = async (pubCode) => {
   return { data }
 }
 
-export const joinPub = async ({ pub_code, nickname }) => {
+export const joinPub = async ({ pub_code, nickname, avatar_url }) => {
   const { data: event, error: eventError } = await supabase.from('events').select('id, name, status, expires_at').eq('code', pub_code.toUpperCase()).single()
   
   if (eventError || !event) throw new Error("Evento non trovato");
@@ -139,10 +139,59 @@ export const joinPub = async ({ pub_code, nickname }) => {
       throw new Error("Evento scaduto o terminato");
   }
 
-  const { data: participant, error } = await supabase.from('participants').insert({ event_id: event.id, nickname: nickname }).select().single()
-  if (error) { if (error.code === '23505') throw new Error('Nickname già in uso'); throw error }
+  // Controlla se esiste già un partecipante con questo nickname in questo evento
+  const { data: existingParticipant } = await supabase
+    .from('participants')
+    .select('*')
+    .eq('event_id', event.id)
+    .eq('nickname', nickname)
+    .maybeSingle();
+
+  let participant;
+  
+  if (existingParticipant) {
+    // Re-login: aggiorna last_activity e avatar se fornito
+    const updateData = { last_activity: new Date().toISOString() };
+    if (avatar_url) updateData.avatar_url = avatar_url;
+    
+    const { data: updated, error: updateError } = await supabase
+      .from('participants')
+      .update(updateData)
+      .eq('id', existingParticipant.id)
+      .select()
+      .single();
+    
+    if (updateError) throw updateError;
+    participant = updated;
+  } else {
+    // Nuovo partecipante
+    const { data: newParticipant, error } = await supabase
+      .from('participants')
+      .insert({ 
+        event_id: event.id, 
+        nickname: nickname,
+        avatar_url: avatar_url || null
+      })
+      .select()
+      .single();
+    
+    if (error) throw error;
+    participant = newParticipant;
+  }
+  
   const token = btoa(JSON.stringify({ participant_id: participant.id, event_id: event.id, nickname: nickname, pub_name: event.name }))
   return { data: { token, user: { ...participant, pub_name: event.name } } }
+}
+
+export const uploadAvatar = async (file) => {
+  if (!file) throw new Error("Nessun file selezionato");
+  const fileExt = file.name.split('.').pop();
+  const cleanName = file.name.replace(/[^a-zA-Z0-9]/g, '_');
+  const fileName = `${Date.now()}_${cleanName}.${fileExt}`;
+  const { error: uploadError } = await supabase.storage.from('avatars').upload(fileName, file, { upsert: true });
+  if (uploadError) throw uploadError;
+  const { data } = supabase.storage.from('avatars').getPublicUrl(fileName);
+  return data.publicUrl;
 }
 
 export const adminLogin = async (data) => { return { data: { user: { email: data.email } } } }
@@ -534,6 +583,12 @@ export const rejectMessage = async (id) => {
   if (error) throw error; return {data:'ok'}
 }
 
+export const deleteEventMessages = async (eventId) => {
+  const { error } = await supabase.from('messages').delete().eq('event_id', eventId);
+  if (error) throw error;
+  return { data: 'ok' };
+}
+
 export const startQuiz = async (data) => {
   const event = await getAdminEvent()
   
@@ -682,14 +737,14 @@ export const getDisplayData = async (pubCode) => {
 }
 
 export default {
-  createPub, updateEventSettings, uploadLogo, getPub, joinPub, adminLogin, getMe,
+  createPub, updateEventSettings, uploadLogo, getPub, joinPub, uploadAvatar, adminLogin, getMe,
   getAllProfiles, updateProfileCredits, createOperatorProfile, toggleUserStatus,
   getEventState, setEventModule, getQuizCatalog, getChallengeCatalog, importQuizCatalog,
   requestSong, getSongQueue, getMyRequests, getAdminQueue, approveRequest, rejectRequest, deleteRequest,
   startPerformance, pausePerformance, resumePerformance, endPerformance, closeVoting, stopAndNext, restartPerformance, toggleMute,
   getCurrentPerformance, getAdminCurrentPerformance,
   submitVote, sendReaction,
-  sendMessage, getAdminPendingMessages, approveMessage, rejectMessage,
+  sendMessage, getAdminPendingMessages, approveMessage, rejectMessage, deleteEventMessages,
   startQuiz, endQuiz, answerQuiz, getActiveQuiz, closeQuizVoting, showQuizResults, showQuizLeaderboard,
   getQuizResults, getAdminLeaderboard,
   getLeaderboard, getDisplayData,
