@@ -47,25 +47,17 @@ export const createPub = async (data) => {
   const expiresAt = new Date();
   expiresAt.setHours(expiresAt.getHours() + 8);
 
-  // 🔧 FIX: Aggiunto supporto per venue_id
-  const eventData = {
-    owner_id: user.user.id,
-    name: data.name,
-    code: code,
-    event_type: 'mixed',
-    status: 'active',
-    active_module: 'karaoke',
-    expires_at: expiresAt.toISOString()
-  };
-
-  // Se è stato selezionato un venue, aggiungilo
-  if (data.venue_id) {
-    eventData.venue_id = data.venue_id;
-  }
-
   const { data: event, error } = await supabase
     .from('events')
-    .insert(eventData)
+    .insert({
+      owner_id: user.user.id,
+      name: data.name,
+      code: code,
+      event_type: 'mixed',
+      status: 'active',
+      active_module: 'karaoke',
+      expires_at: expiresAt.toISOString()
+    })
     .select()
     .single()
 
