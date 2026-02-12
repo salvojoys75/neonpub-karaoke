@@ -218,20 +218,21 @@ export const toggleUserStatus = async (id, isActive) => {
 }
 
 export const createOperatorProfile = async (email, name, password, initialCredits) => {
-    try {
-        const { data, error } = await supabase.functions.invoke('create-user', {
-            body: { email, password, name, credits: initialCredits }
-        });
+    const { data, error } = await supabase.functions.invoke('create-user', {
+        body: { email, password, name, credits: initialCredits }
+    });
 
-        if (error) {
-            console.warn("Edge function not found or error, falling back to profile stub. Please create user in Auth manually.");
-            return { data: 'Simulation: User creation requested. Setup Backend logic.' };
-        }
-        return data;
-
-    } catch (e) {
-        return { data: 'Mock success' };
+    if (error) {
+        console.error("Edge function error:", error);
+        throw new Error(error.message || 'Errore creazione operatore');
     }
+
+    if (!data || data.error) {
+        console.error("Function returned error:", data);
+        throw new Error(data?.error || 'Errore nella risposta della funzione');
+    }
+
+    return data;
 }
 
 export const getEventState = async () => {
