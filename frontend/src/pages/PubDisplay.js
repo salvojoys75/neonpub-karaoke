@@ -108,21 +108,9 @@ const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => {
 );};
 
 const AdminMessageOverlay = ({ message }) => {
-    const [visible, setVisible] = useState(false);
-    
-    useEffect(() => {
-        if (message) {
-            const created = new Date(message.created_at);
-            const now = new Date();
-            if ((now - created) < 15000) {
-                setVisible(true);
-                const timer = setTimeout(() => setVisible(false), 10000);
-                return () => clearTimeout(timer);
-            }
-        }
-    }, [message]);
-
-    if (!visible || !message) return null;
+    // Nessun timer: l'overlay resta visibile finché il messaggio esiste nel DB.
+    // La regia lo elimina manualmente dalla dashboard (bottone Trash).
+    if (!message) return null;
 
     return (
         <div className="absolute inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">

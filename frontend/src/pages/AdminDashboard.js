@@ -249,14 +249,29 @@ export default function AdminDashboard() {
       setCurrentPerformance(perfRes.data);
       setPendingMessages(msgRes.data || []);
       
-      // Load approved messages - FILTRA PER EVENTO
-      const approvedRes = await supabase.from('messages')
+      // Load approved messages - separati per tipo
+      // Messaggi UTENTI approvati (hanno participant_id)
+      const approvedUserMsgsRes = await supabase.from('messages')
         .select('*, participants(nickname)')
-        .eq('event_id', pubRes.data.id)  // ← FILTRO PER EVENTO!
+        .eq('event_id', pubRes.data.id)
         .eq('status', 'approved')
+        .not('participant_id', 'is', null)
         .order('created_at', {ascending: false})
         .limit(10);
-      setApprovedMessages(approvedRes.data?.map(m => ({...m, user_nickname: m.participants?.nickname})) || []);
+      // Messaggi REGIA approvati (participant_id null)
+      const approvedAdminMsgsRes = await supabase.from('messages')
+        .select('*')
+        .eq('event_id', pubRes.data.id)
+        .eq('status', 'approved')
+        .is('participant_id', null)
+        .order('created_at', {ascending: false})
+        .limit(5);
+      // Unione: prima i messaggi regia (con flag isAdmin), poi utenti
+      const allApproved = [
+        ...(approvedAdminMsgsRes.data || []).map(m => ({...m, user_nickname: 'Regia', isAdmin: true})),
+        ...(approvedUserMsgsRes.data || []).map(m => ({...m, user_nickname: m.participants?.nickname}))
+      ];
+      setApprovedMessages(allApproved);
       
       setQuizCatalog(quizCatRes.data || []);
       setChallenges(challRes.data || []);
@@ -825,12 +840,15 @@ export default function AdminDashboard() {
                        
                        <h3 className="text-xs font-bold text-green-500 uppercase mt-6">Approvati (Display)</h3>
                        {approvedMessages && approvedMessages.length > 0 ? approvedMessages.map(msg => (
-                           <div key={msg.id} className="bg-zinc-800 p-3 rounded border-l-2 border-green-500 flex items-start justify-between gap-3">
+                           <div key={msg.id} className={`bg-zinc-800 p-3 rounded flex items-start justify-between gap-3 border-l-2 ${msg.isAdmin ? 'border-cyan-500' : 'border-green-500'}`}>
                                <div className="flex-1">
-                                   <div className="flex gap-2 mb-1"><span className="font-bold text-sm text-green-400">{msg.user_nickname || 'Regia'}</span></div>
+                                   <div className="flex gap-2 mb-1 items-center">
+                                       <span className={`font-bold text-sm ${msg.isAdmin ? 'text-cyan-400' : 'text-green-400'}`}>{msg.user_nickname || 'Regia'}</span>
+                                       {msg.isAdmin && <span className="text-[10px] bg-cyan-900/50 text-cyan-300 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">REGIA • IN SOVRAIMPRESSIONE</span>}
+                                   </div>
                                    <p className="text-sm bg-black/20 p-2 rounded">{msg.text}</p>
                                </div>
-                               <Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-900/20 shrink-0" onClick={async()=>{await supabase.from('messages').delete().eq('id', msg.id); toast.success("Eliminato"); loadData();}}><Trash2 className="w-4 h-4"/></Button>
+                               <Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-900/20 shrink-0" onClick={async()=>{ try { await api.deleteAdminMessage(msg.id); toast.success(msg.isAdmin ? "Messaggio rimosso dagli schermi" : "Eliminato"); loadData(); } catch(e) { toast.error("Errore eliminazione"); }}}><Trash2 className="w-4 h-4"/></Button>
                            </div>
                        )) : <p className="text-xs text-zinc-600 italic">Nessun messaggio approvato</p>}
                    </div>
