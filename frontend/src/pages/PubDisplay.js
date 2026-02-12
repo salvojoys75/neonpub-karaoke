@@ -54,13 +54,7 @@ const STYLES = `
 `;
 
 const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => {
-  // Filtra SOLO messaggi UTENTI (con nickname), esclude messaggi regia
-  const userMessages = messages && messages.length > 0 
-    ? messages.filter(m => m.nickname) 
-    : [];
-  const messagesString = userMessages.length > 0 
-    ? userMessages.map(m => `${m.nickname}: ${m.text}`).join('   •   ') 
-    : '';
+  const messagesString = messages && messages.length > 0 ? messages.map(m => `${m.nickname}: ${m.text}`).join('   •   ') : '';
   
   return (
   <div className="absolute top-0 left-0 right-0 h-24 z-[100] flex items-center justify-between px-8 bg-gradient-to-b from-black/90 via-black/60 to-transparent">
@@ -168,17 +162,9 @@ const Sidebar = ({ pubCode, queue, leaderboard }) => (
               {queue && queue.length > 0 ? (
                   queue.slice(0, 1).map((s, i) => (
                       <div key={s.id} className="bg-white/5 backdrop-blur-sm p-4 rounded-2xl border border-white/10 hover:bg-white/10 transition-all flex items-center gap-4">
-                          {s.user_avatar ? (
-                              <img 
-                                  src={s.user_avatar} 
-                                  alt={s.user_nickname} 
-                                  className="w-12 h-12 rounded-full border-2 border-fuchsia-500 object-cover shrink-0 shadow-lg"
-                              />
-                          ) : (
-                              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-fuchsia-600 to-purple-600 flex items-center justify-center text-white font-black text-lg shadow-lg shrink-0">
-                                  {s.user_nickname?.charAt(0)?.toUpperCase() || '?'}
-                              </div>
-                          )}
+                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-fuchsia-600 to-purple-600 flex items-center justify-center text-white font-black text-lg shadow-lg shrink-0">
+                              {i + 1}
+                          </div>
                           <div className="flex-1 min-w-0">
                               <div className="text-white font-bold text-lg truncate">{s.user_nickname}</div>
                               <div className="text-white/60 text-sm truncate">{s.title || s.song_title || 'Canzone senza titolo'}</div>
@@ -202,13 +188,13 @@ const Sidebar = ({ pubCode, queue, leaderboard }) => (
           <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-thin scrollbar-thumb-yellow-500 scrollbar-track-transparent">
               {leaderboard && leaderboard.length > 0 ? (
                   leaderboard.slice(0, 10).map((player, i) => (
-                      <div key={player.id || i} className={`flex items-center gap-3 p-3 rounded-xl ${
+                      <div key={player.id || i} className={`flex items-center gap-3 p-2 rounded-xl ${
                           i === 0 ? 'bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/30' :
                           i === 1 ? 'bg-white/5 border border-gray-400/20' :
                           i === 2 ? 'bg-white/5 border border-amber-600/20' :
                           'bg-white/5'
                       }`}>
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm shrink-0 ${
+                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-sm shrink-0 ${
                               i === 0 ? 'bg-yellow-500 text-black' :
                               i === 1 ? 'bg-gray-400 text-black' :
                               i === 2 ? 'bg-amber-700 text-white' :
@@ -216,17 +202,6 @@ const Sidebar = ({ pubCode, queue, leaderboard }) => (
                           }`}>
                               {i+1}
                           </div>
-                          {player.avatar_url ? (
-                              <img 
-                                  src={player.avatar_url} 
-                                  alt={player.nickname} 
-                                  className="w-10 h-10 rounded-full border-2 border-yellow-500/50 object-cover shrink-0 shadow-md"
-                              />
-                          ) : (
-                              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-fuchsia-600 to-purple-600 flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-md">
-                                  {player.nickname?.charAt(0)?.toUpperCase() || '?'}
-                              </div>
-                          )}
                           <div className="flex-1 min-w-0">
                               <div className="text-white font-bold text-sm truncate">{player.nickname}</div>
                           </div>

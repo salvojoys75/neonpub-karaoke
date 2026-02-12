@@ -131,7 +131,7 @@ export const getPub = async (pubCode) => {
   return { data }
 }
 
-export const joinPub = async ({ pub_code, nickname, avatar_url }) => {
+export const joinPub = async ({ pub_code, nickname }) => {
   const { data: event, error: eventError } = await supabase.from('events').select('id, name, status, expires_at').eq('code', pub_code.toUpperCase()).single()
   
   if (eventError || !event) throw new Error("Evento non trovato");
@@ -139,59 +139,10 @@ export const joinPub = async ({ pub_code, nickname, avatar_url }) => {
       throw new Error("Evento scaduto o terminato");
   }
 
-  // Controlla se esiste già un partecipante con questo nickname in questo evento
-  const { data: existingParticipant } = await supabase
-    .from('participants')
-    .select('*')
-    .eq('event_id', event.id)
-    .eq('nickname', nickname)
-    .maybeSingle();
-
-  let participant;
-  
-  if (existingParticipant) {
-    // Re-login: aggiorna last_activity e avatar se fornito
-    const updateData = { last_activity: new Date().toISOString() };
-    if (avatar_url) updateData.avatar_url = avatar_url;
-    
-    const { data: updated, error: updateError } = await supabase
-      .from('participants')
-      .update(updateData)
-      .eq('id', existingParticipant.id)
-      .select()
-      .single();
-    
-    if (updateError) throw updateError;
-    participant = updated;
-  } else {
-    // Nuovo partecipante
-    const { data: newParticipant, error } = await supabase
-      .from('participants')
-      .insert({ 
-        event_id: event.id, 
-        nickname: nickname,
-        avatar_url: avatar_url || null
-      })
-      .select()
-      .single();
-    
-    if (error) throw error;
-    participant = newParticipant;
-  }
-  
+  const { data: participant, error } = await supabase.from('participants').insert({ event_id: event.id, nickname: nickname }).select().single()
+  if (error) { if (error.code === '23505') throw new Error('Nickname già in uso'); throw error }
   const token = btoa(JSON.stringify({ participant_id: participant.id, event_id: event.id, nickname: nickname, pub_name: event.name }))
   return { data: { token, user: { ...participant, pub_name: event.name } } }
-}
-
-export const uploadAvatar = async (file) => {
-  if (!file) throw new Error("Nessun file selezionato");
-  const fileExt = file.name.split('.').pop();
-  const cleanName = file.name.replace(/[^a-zA-Z0-9]/g, '_');
-  const fileName = `${Date.now()}_${cleanName}.${fileExt}`;
-  const { error: uploadError } = await supabase.storage.from('avatars').upload(fileName, file, { upsert: true });
-  if (uploadError) throw uploadError;
-  const { data } = supabase.storage.from('avatars').getPublicUrl(fileName);
-  return data.publicUrl;
 }
 
 export const adminLogin = async (data) => { return { data: { user: { email: data.email } } } }
@@ -583,12 +534,6 @@ export const rejectMessage = async (id) => {
   if (error) throw error; return {data:'ok'}
 }
 
-export const deleteEventMessages = async (eventId) => {
-  const { error } = await supabase.from('messages').delete().eq('event_id', eventId);
-  if (error) throw error;
-  return { data: 'ok' };
-}
-
 export const startQuiz = async (data) => {
   const event = await getAdminEvent()
   
@@ -704,17 +649,17 @@ export const getDisplayData = async (pubCode) => {
 
   // FIX: Filtri rigorosi per event_id su TUTTE le tabelle
   const [perf, queue, lb, activeQuiz, adminMsg, approvedMsgs] = await Promise.all([
-    supabase.from('performances').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).in('status', ['live','voting','paused','ended']).order('started_at', {ascending: false}).limit(1).maybeSingle(),
-    supabase.from('song_requests').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).eq('status', 'queued').limit(10), 
-    supabase.from('participants').select('nickname, score, avatar_url').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
+    supabase.from('performances').select('*, participants(nickname)').eq('event_id', event.id).in('status', ['live','voting','paused','ended']).order('started_at', {ascending: false}).limit(1).maybeSingle(),
+    supabase.from('song_requests').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'queued').limit(10), 
+    supabase.from('participants').select('nickname, score').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
     supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
-    // Messaggio REGIA (participant_id IS NULL)
+    // Messaggio REGIA
     supabase.from('messages').select('*').eq('event_id', event.id).is('participant_id', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle(),
-    // TUTTI i messaggi approvati (filtreremo nel frontend)
-    supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'approved').order('created_at', {ascending: false}).limit(20)
+    // Messaggi UTENTI
+    supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).not('participant_id', 'is', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(10)
   ])
 
-  let currentPerformance = perf.data ? {...perf.data, user_nickname: perf.data.participants?.nickname, user_avatar: perf.data.participants?.avatar_url} : null;
+  let currentPerformance = perf.data ? {...perf.data, user_nickname: perf.data.participants?.nickname} : null;
   if (currentPerformance && currentPerformance.status === 'ended') {
       const endedAt = new Date(currentPerformance.ended_at);
       const now = new Date();
@@ -727,25 +672,25 @@ export const getDisplayData = async (pubCode) => {
     data: {
       pub: event,
       current_performance: currentPerformance,
-      queue: queue.data?.map(q => ({...q, user_nickname: q.participants?.nickname, user_avatar: q.participants?.avatar_url})),
+      queue: queue.data?.map(q => ({...q, user_nickname: q.participants?.nickname})),
       leaderboard: lb.data,
       active_quiz: activeQuiz.data,
       admin_message: adminMsg.data,
-      // Filtra SOLO messaggi UTENTI (con participant_id NOT NULL)
-      approved_messages: approvedMsgs.data?.filter(m => m.participant_id !== null).map(m => ({text: m.text, nickname: m.participants?.nickname})) || []
+      // FILTRO: rimuove messaggi regia da approved_messages (solo utenti con nickname)
+      approved_messages: approvedMsgs.data?.filter(m => m.participants?.nickname).map(m => ({text: m.text, nickname: m.participants?.nickname})) || []
     }
   }
 }
 
 export default {
-  createPub, updateEventSettings, uploadLogo, getPub, joinPub, uploadAvatar, adminLogin, getMe,
+  createPub, updateEventSettings, uploadLogo, getPub, joinPub, adminLogin, getMe,
   getAllProfiles, updateProfileCredits, createOperatorProfile, toggleUserStatus,
   getEventState, setEventModule, getQuizCatalog, getChallengeCatalog, importQuizCatalog,
   requestSong, getSongQueue, getMyRequests, getAdminQueue, approveRequest, rejectRequest, deleteRequest,
   startPerformance, pausePerformance, resumePerformance, endPerformance, closeVoting, stopAndNext, restartPerformance, toggleMute,
   getCurrentPerformance, getAdminCurrentPerformance,
   submitVote, sendReaction,
-  sendMessage, getAdminPendingMessages, approveMessage, rejectMessage, deleteEventMessages,
+  sendMessage, getAdminPendingMessages, approveMessage, rejectMessage,
   startQuiz, endQuiz, answerQuiz, getActiveQuiz, closeQuizVoting, showQuizResults, showQuizLeaderboard,
   getQuizResults, getAdminLeaderboard,
   getLeaderboard, getDisplayData,
