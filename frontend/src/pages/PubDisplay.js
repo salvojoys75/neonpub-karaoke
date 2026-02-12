@@ -8,6 +8,7 @@ import { Music, Mic2, Star, Trophy, Users, MessageSquare, Disc, Zap, Megaphone }
 import KaraokePlayer from '@/components/KaraokePlayer';
 import QuizMediaFixed from '@/components/QuizMediaFixed';
 import FloatingReactions from '@/components/FloatingReactions';
+import ExtractionMode from '@/components/ExtractionMode';
 
 const STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800;900&family=JetBrains+Mono:wght@500&display=swap');
@@ -422,6 +423,9 @@ export default function PubDisplay() {
     const [isMuted, setIsMuted] = useState(false);
     const [quizResult, setQuizResult] = useState(null);
     const [newReaction, setNewReaction] = useState(null);
+    const [showExtraction, setShowExtraction] = useState(false);
+    const [extractionData, setExtractionData] = useState(null);
+    const lastExtractionTimestamp = useRef(null);
 
     const load = useCallback(async () => {
         try {
@@ -447,6 +451,14 @@ export default function PubDisplay() {
                     };
                 }
                 
+                // Gestione estrazione
+                if (finalData.extraction_data && 
+                    finalData.extraction_data.timestamp !== lastExtractionTimestamp.current) {
+                    lastExtractionTimestamp.current = finalData.extraction_data.timestamp;
+                    setExtractionData(finalData.extraction_data);
+                    setShowExtraction(true);
+                }
+                
                 setData(finalData);
             }
         } catch(e) { console.error(e); }
@@ -465,6 +477,16 @@ export default function PubDisplay() {
             
         return () => { clearInterval(int); supabase.removeChannel(ch); };
     }, [pubCode, load]);
+    
+    const handleExtractionComplete = useCallback(async () => {
+        setShowExtraction(false);
+        setExtractionData(null);
+        try {
+            await api.clearExtraction(pubCode);
+        } catch (e) {
+            console.error('Error clearing extraction:', e);
+        }
+    }, [pubCode]);
 
     if (!data) return (
         <div className="w-screen h-screen bg-black flex flex-col items-center justify-center">
@@ -490,7 +512,20 @@ export default function PubDisplay() {
     const isScore = !isQuiz && perf && perf.status === 'ended';
     
     let Content = null;
-    if (isQuiz) Content = <QuizMode quiz={quiz} result={quizResult} />;
+    
+    // PRIORITÀ MASSIMA: Estrazione (interrompe tutto)
+    if (showExtraction && extractionData) {
+        Content = (
+            <ExtractionMode 
+                extractionData={extractionData}
+                participants={leaderboard || []}
+                songs={queue?.map(q => ({ id: q.id, title: q.title, artist: q.artist })) || []}
+                onComplete={handleExtractionComplete}
+            />
+        );
+    }
+    // Poi tutto il resto come prima
+    else if (isQuiz) Content = <QuizMode quiz={quiz} result={quizResult} />;
     else if (isVoting) Content = <VotingMode perf={perf} />;
     else if (isScore) Content = <ScoreMode perf={perf} />;
     else if (isKaraoke) Content = <KaraokeMode perf={perf} isMuted={isMuted} />;

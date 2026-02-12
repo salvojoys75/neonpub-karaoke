@@ -788,6 +788,7 @@ export const getDisplayData = async (pubCode) => {
       leaderboard: lb.data,
       active_quiz: activeQuiz.data,
       admin_message: adminMsg.data,
+      extraction_data: event.extraction_data,
       // FILTRO: solo messaggi UTENTI (con participants.nickname)
       approved_messages: approvedMsgs.data?.filter(m => m.participants?.nickname).map(m => ({text: m.text, nickname: m.participants?.nickname})) || []
     }
@@ -1058,6 +1059,26 @@ export const extractRandomKaraoke = async (options = {}) => {
     
     if (reqError) throw reqError
     
+    // 4. Salva i dati dell'estrazione nell'evento per il display
+    const extractionData = {
+      participant: {
+        id: participant.id,
+        nickname: participant.nickname,
+        avatar_url: participant.avatar_url
+      },
+      song: {
+        id: song.id,
+        title: song.title,
+        artist: song.artist
+      },
+      timestamp: new Date().toISOString()
+    }
+    
+    await supabase
+      .from('events')
+      .update({ extraction_data: extractionData })
+      .eq('id', event.id)
+    
     return {
       data: {
         participant: {
@@ -1081,6 +1102,16 @@ export const extractRandomKaraoke = async (options = {}) => {
   }
 }
 
+export const clearExtraction = async (pubCode) => {
+  const { error } = await supabase
+    .from('events')
+    .update({ extraction_data: null })
+    .eq('code', pubCode.toUpperCase())
+  
+  if (error) throw error
+  return { data: 'ok' }
+}
+
 export default {
   createPub, updateEventSettings, uploadLogo, getPub, joinPub, uploadAvatar, adminLogin, getMe,
   getAllProfiles, updateProfileCredits, createOperatorProfile, toggleUserStatus,
@@ -1098,5 +1129,5 @@ export default {
   // Venues
   getMyVenues, createVenue, updateVenue, deleteVenue, trackQuizUsage,
   // Random Extraction
-  getRandomSongPool, addSongToPool, updateSongInPool, deleteSongFromPool, importSongsToPool, extractRandomKaraoke
+  getRandomSongPool, addSongToPool, updateSongInPool, deleteSongFromPool, importSongsToPool, extractRandomKaraoke, clearExtraction
 }
