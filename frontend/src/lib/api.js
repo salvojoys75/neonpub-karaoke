@@ -47,19 +47,25 @@ export const createPub = async (data) => {
   const expiresAt = new Date();
   expiresAt.setHours(expiresAt.getHours() + 8);
 
-  // MODIFICA: Aggiunto venue_id all'insert
+  // 🔧 FIX: Aggiunto supporto per venue_id
+  const eventData = {
+    owner_id: user.user.id,
+    name: data.name,
+    code: code,
+    event_type: 'mixed',
+    status: 'active',
+    active_module: 'karaoke',
+    expires_at: expiresAt.toISOString()
+  };
+
+  // Se è stato selezionato un venue, aggiungilo
+  if (data.venue_id) {
+    eventData.venue_id = data.venue_id;
+  }
+
   const { data: event, error } = await supabase
     .from('events')
-    .insert({
-      owner_id: user.user.id,
-      name: data.name,
-      code: code,
-      event_type: 'mixed',
-      status: 'active',
-      active_module: 'karaoke',
-      expires_at: expiresAt.toISOString(),
-      venue_id: data.venue_id || null // Salva il locale selezionato
-    })
+    .insert(eventData)
     .select()
     .single()
 
@@ -535,6 +541,8 @@ export const sendReaction = async (data) => {
 }
 
 export const sendMessage = async (data) => {
+  // PRIORITÀ 1: Controlla se è un UTENTE (ha neonpub_token)
+  // Questo controlla prima se c'è un token utente valido
   const userToken = localStorage.getItem('neonpub_token');
   if (userToken) {
     try {
@@ -544,15 +552,17 @@ export const sendMessage = async (data) => {
           event_id: participant.event_id,
           participant_id: participant.participant_id, 
           text: text, 
-          status: 'pending' 
+          status: 'pending'  // ← UTENTI: PENDING (devono essere approvati)
       }).select().single();
       if (error) throw error;
       return { data: message };
     } catch (e) {
+      // Se fallisce la validazione del token utente, continua al controllo admin
       console.error('Errore token utente:', e);
     }
   }
 
+  // PRIORITÀ 2: Controlla se è ADMIN (ha neonpub_pub_code ma NO token utente)
   const pubCode = localStorage.getItem('neonpub_pub_code');
   if (pubCode) {
       const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
@@ -560,9 +570,9 @@ export const sendMessage = async (data) => {
            const text = typeof data === 'string' ? data : (data.text || data.message);
            const { data: message, error } = await supabase.from('messages').insert({
                 event_id: event.id,
-                participant_id: null,
+                participant_id: null,  // ← ADMIN: null (nessun participant)
                 text: text, 
-                status: 'approved'
+                status: 'approved'     // ← ADMIN: APPROVED (approvazione automatica)
            }).select().single();
            if (error) throw error;
            return { data: message };
@@ -578,7 +588,7 @@ export const getAdminPendingMessages = async () => {
   
   const { data, error } = await supabase.from('messages')
       .select('*, participants(nickname)')
-      .eq('event_id', event.id) 
+      .eq('event_id', event.id) // FILTRO PER EVENTO
       .eq('status', 'pending') 
   
   if (error) throw error
@@ -701,7 +711,7 @@ export const deleteAdminMessage = async (id) => {
     .delete()
     .eq('id', id)
     .eq('event_id', event.id)
-    .is('participant_id', null); 
+    .is('participant_id', null); // sicurezza: solo messaggi regia
   if (error) throw error;
   return { data: 'ok' };
 }
@@ -729,12 +739,15 @@ export const getDisplayData = async (pubCode) => {
       return { data: null };
   }
 
+  // FIX: Filtri rigorosi per event_id su TUTTE le tabelle
   const [perf, queue, lb, activeQuiz, adminMsg, approvedMsgs] = await Promise.all([
     supabase.from('performances').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).in('status', ['live','voting','paused','ended']).order('started_at', {ascending: false}).limit(1).maybeSingle(),
     supabase.from('song_requests').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).eq('status', 'queued').limit(10), 
     supabase.from('participants').select('nickname, score, avatar_url').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
     supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
+    // Messaggio REGIA
     supabase.from('messages').select('*').eq('event_id', event.id).is('participant_id', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle(),
+    // Messaggi UTENTI
     supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).not('participant_id', 'is', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(10)
   ])
 
@@ -755,132 +768,10 @@ export const getDisplayData = async (pubCode) => {
       leaderboard: lb.data,
       active_quiz: activeQuiz.data,
       admin_message: adminMsg.data,
+      // FILTRO: solo messaggi UTENTI (con participants.nickname)
       approved_messages: approvedMsgs.data?.filter(m => m.participants?.nickname).map(m => ({text: m.text, nickname: m.participants?.nickname})) || []
     }
   }
-}
-
-export const getMyVenues = async () => {
-  const { data: user } = await supabase.auth.getUser()
-  if (!user?.user) throw new Error('Not authenticated')
-  
-  const { data, error } = await supabase
-    .from('venues')
-    .select('*')
-    .eq('operator_id', user.user.id)
-    .order('name')
-  
-  if (error) throw error
-  return { data }
-}
-
-export const createVenue = async (venueData) => {
-  const { data: user } = await supabase.auth.getUser()
-  if (!user?.user) throw new Error('Not authenticated')
-  
-  const { data, error } = await supabase
-    .from('venues')
-    .insert({
-      operator_id: user.user.id,
-      name: venueData.name,
-      city: venueData.city || null,
-      address: venueData.address || null
-    })
-    .select()
-    .single()
-  
-  if (error) throw error
-  return { data }
-}
-
-export const updateVenue = async (venueId, venueData) => {
-  const { data, error } = await supabase
-    .from('venues')
-    .update({
-      name: venueData.name,
-      city: venueData.city,
-      address: venueData.address
-    })
-    .eq('id', venueId)
-    .select()
-    .single()
-  
-  if (error) throw error
-  return { data }
-}
-
-export const deleteVenue = async (venueId) => {
-  const { error } = await supabase
-    .from('venues')
-    .delete()
-    .eq('id', venueId)
-  
-  if (error) throw error
-  return { data: 'ok' }
-}
-
-export const getQuizCatalogFiltered = async (venueId = null, daysThreshold = 30) => {
-  const event = await getAdminEvent()
-  
-  const { data: catalog, error } = await supabase
-    .from('quiz_catalog')
-    .select('*')
-    .eq('owner_id', event.owner_id)
-    .order('created_at', { ascending: false })
-  
-  if (error) throw error
-  
-  if (!venueId) {
-    return { data: catalog }
-  }
-  
-  const thresholdDate = new Date()
-  thresholdDate.setDate(thresholdDate.getDate() - daysThreshold)
-  
-  const { data: usedQuestions } = await supabase
-    .from('quiz_usage_history')
-    .select('question_id, used_at')
-    .eq('venue_id', venueId)
-    .gte('used_at', thresholdDate.toISOString())
-  
-  const usedQuestionIds = new Set(usedQuestions?.map(q => q.question_id) || [])
-  
-  const catalogWithHistory = catalog.map(q => ({
-    ...q,
-    recently_used: usedQuestionIds.has(q.id),
-    last_used: usedQuestions?.find(uq => uq.question_id === q.id)?.used_at || null
-  }))
-  
-  return { data: catalogWithHistory }
-}
-
-export const trackQuizUsage = async (questionId, venueId) => {
-  const event = await getAdminEvent()
-  
-  if (!venueId) {
-    console.warn('No venue specified, skipping quiz tracking')
-    return { data: 'skipped' }
-  }
-  
-  const { data, error } = await supabase
-    .from('quiz_usage_history')
-    .insert({
-      venue_id: venueId,
-      question_id: questionId,
-      operator_id: event.owner_id,
-      event_id: event.id
-    })
-    .select()
-    .single()
-  
-  if (error) {
-    if (error.code === '23505') {
-      return { data: 'already_tracked' }
-    }
-    throw error
-  }
-  
-  return { data }
 }
 
 export default {
@@ -896,7 +787,5 @@ export default {
   getQuizResults, getAdminLeaderboard,
   getLeaderboard, getDisplayData,
   getActiveEventsForUser,
-  deleteQuizQuestion,
-  getMyVenues, createVenue, updateVenue, deleteVenue,
-  getQuizCatalogFiltered, trackQuizUsage
+  deleteQuizQuestion
 }
