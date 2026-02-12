@@ -112,10 +112,7 @@ export default function AdminDashboard() {
   const [selectedParticipantId, setSelectedParticipantId] = useState(null);
   const [selectedSongId, setSelectedSongId] = useState(null);
   const [onlineParticipants, setOnlineParticipants] = useState([]);
-
-*/
-
-/* 
+ 
 
   const pollIntervalRef = useRef(null);
   const timerIntervalRef = useRef(null);
@@ -524,10 +521,7 @@ export default function AdminDashboard() {
       loadOnlineParticipants();
     }
   }, [appState, libraryTab]);
-
-*/
-
-/* 
+ 
 
   // --- DASHBOARD ACTIONS ---
   const handleOpenDisplay = () => {
@@ -869,10 +863,7 @@ export default function AdminDashboard() {
                      </TabsTrigger>
                      <TabsTrigger value="settings" className="text-xs px-1"><Settings className="w-3 h-3" /></TabsTrigger>
 <TabsTrigger value="extraction" className="text-xs px-1"><Dices className="w-3 h-3" /></TabsTrigger>
-
-*/
-
-/* 
+ 
                   </TabsList>
                </Tabs>
             </div>
@@ -1241,7 +1232,6 @@ export default function AdminDashboard() {
                    </div>
                )}
 
-*/
             </ScrollArea>
          </aside>
 
@@ -1484,8 +1474,6 @@ export default function AdminDashboard() {
               </div>
           </DialogContent>
       </Dialog>
-
-*/
     </div>
   );
 }
