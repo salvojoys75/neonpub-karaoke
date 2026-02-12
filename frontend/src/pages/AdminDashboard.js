@@ -249,8 +249,13 @@ export default function AdminDashboard() {
       setCurrentPerformance(perfRes.data);
       setPendingMessages(msgRes.data || []);
       
-      // Load approved messages
-      const approvedRes = await supabase.from('messages').select('*, participants(nickname)').eq('status', 'approved').order('created_at', {ascending: false}).limit(10);
+      // Load approved messages - FILTRA PER EVENTO
+      const approvedRes = await supabase.from('messages')
+        .select('*, participants(nickname)')
+        .eq('event_id', pubRes.data.id)  // ← FILTRO PER EVENTO!
+        .eq('status', 'approved')
+        .order('created_at', {ascending: false})
+        .limit(10);
       setApprovedMessages(approvedRes.data?.map(m => ({...m, user_nickname: m.participants?.nickname})) || []);
       
       setQuizCatalog(quizCatRes.data || []);
