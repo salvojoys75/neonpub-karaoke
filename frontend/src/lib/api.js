@@ -766,6 +766,140 @@ export const getDisplayData = async (pubCode) => {
   }
 }
 
+// ==================== VENUES (LOCALI) ====================
+
+export const getMyVenues = async () => {
+  const { data: user } = await supabase.auth.getUser()
+  if (!user?.user) throw new Error('Not authenticated')
+  
+  const { data, error } = await supabase
+    .from('venues')
+    .select('*')
+    .eq('operator_id', user.user.id)
+    .order('name')
+  
+  if (error) throw error
+  return { data }
+}
+
+export const createVenue = async (venueData) => {
+  const { data: user } = await supabase.auth.getUser()
+  if (!user?.user) throw new Error('Not authenticated')
+  
+  const { data, error } = await supabase
+    .from('venues')
+    .insert({
+      operator_id: user.user.id,
+      name: venueData.name,
+      city: venueData.city || null,
+      address: venueData.address || null
+    })
+    .select()
+    .single()
+  
+  if (error) throw error
+  return { data }
+}
+
+export const updateVenue = async (venueId, venueData) => {
+  const { data, error } = await supabase
+    .from('venues')
+    .update({
+      name: venueData.name,
+      city: venueData.city,
+      address: venueData.address
+    })
+    .eq('id', venueId)
+    .select()
+    .single()
+  
+  if (error) throw error
+  return { data }
+}
+
+export const deleteVenue = async (venueId) => {
+  const { error } = await supabase
+    .from('venues')
+    .delete()
+    .eq('id', venueId)
+  
+  if (error) throw error
+  return { data: 'ok' }
+}
+
+// ==================== QUIZ CATALOG con FILTRO VENUE ====================
+
+export const getQuizCatalogFiltered = async (venueId = null, daysThreshold = 30) => {
+  const event = await getAdminEvent()
+  
+  // Prendi tutto il catalogo dell'operatore
+  const { data: catalog, error } = await supabase
+    .from('quiz_catalog')
+    .select('*')
+    .eq('owner_id', event.owner_id)
+    .order('created_at', { ascending: false })
+  
+  if (error) throw error
+  
+  // Se non c'è venue selezionato, ritorna tutto il catalogo
+  if (!venueId) {
+    return { data: catalog }
+  }
+  
+  // Altrimenti filtra le domande usate recentemente in quel venue
+  const thresholdDate = new Date()
+  thresholdDate.setDate(thresholdDate.getDate() - daysThreshold)
+  
+  const { data: usedQuestions } = await supabase
+    .from('quiz_usage_history')
+    .select('question_id, used_at')
+    .eq('venue_id', venueId)
+    .gte('used_at', thresholdDate.toISOString())
+  
+  const usedQuestionIds = new Set(usedQuestions?.map(q => q.question_id) || [])
+  
+  // Aggiungi flag e timestamp all'output
+  const catalogWithHistory = catalog.map(q => ({
+    ...q,
+    recently_used: usedQuestionIds.has(q.id),
+    last_used: usedQuestions?.find(uq => uq.question_id === q.id)?.used_at || null
+  }))
+  
+  return { data: catalogWithHistory }
+}
+
+// ==================== TRACK QUIZ USAGE ====================
+
+export const trackQuizUsage = async (questionId, venueId) => {
+  const event = await getAdminEvent()
+  
+  if (!venueId) {
+    console.warn('No venue specified, skipping quiz tracking')
+    return { data: 'skipped' }
+  }
+  
+  const { data, error } = await supabase
+    .from('quiz_usage_history')
+    .insert({
+      venue_id: venueId,
+      question_id: questionId,
+      operator_id: event.owner_id,
+      event_id: event.id
+    })
+    .select()
+    .single()
+  
+  if (error) {
+    // Ignore duplicate errors (stessa domanda nello stesso evento)
+    if (error.code === '23505') {
+      return { data: 'already_tracked' }
+    }
+    throw error
+  }
+  
+  return { data }
+}
+
 export default {
   createPub, updateEventSettings, uploadLogo, getPub, joinPub, uploadAvatar, adminLogin, getMe,
   getAllProfiles, updateProfileCredits, createOperatorProfile, toggleUserStatus,
@@ -779,5 +913,9 @@ export default {
   getQuizResults, getAdminLeaderboard,
   getLeaderboard, getDisplayData,
   getActiveEventsForUser,
-  deleteQuizQuestion
+  deleteQuizQuestion,
+  // Venues
+  getMyVenues, createVenue, updateVenue, deleteVenue,
+  // Quiz with venue filtering
+  getQuizCatalogFiltered, trackQuizUsage
 }
