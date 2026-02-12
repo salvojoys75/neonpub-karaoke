@@ -848,7 +848,7 @@ export default function AdminDashboard() {
                                    </div>
                                    <p className="text-sm bg-black/20 p-2 rounded">{msg.text}</p>
                                </div>
-                               <Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-900/20 shrink-0" onClick={async()=>{ try { await api.deleteAdminMessage(msg.id); toast.success(msg.isAdmin ? "Messaggio rimosso dagli schermi" : "Eliminato"); loadData(); } catch(e) { toast.error("Errore eliminazione"); }}}><Trash2 className="w-4 h-4"/></Button>
+                               <Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-900/20 shrink-0" onClick={async()=>{ try { await api.deleteApprovedMessage(msg.id); toast.success("Eliminato"); loadData(); } catch(e) { toast.error("Errore eliminazione"); }}}><Trash2 className="w-4 h-4"/></Button>
                            </div>
                        )) : <p className="text-xs text-zinc-600 italic">Nessun messaggio approvato</p>}
                    </div>

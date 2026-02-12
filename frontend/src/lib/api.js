@@ -701,6 +701,16 @@ export const deleteAdminMessage = async (id) => {
   return { data: 'ok' };
 }
 
+export const deleteApprovedMessage = async (id) => {
+  const event = await getAdminEvent();
+  const { error } = await supabase.from('messages')
+    .delete()
+    .eq('id', id)
+    .eq('event_id', event.id);
+  if (error) throw error;
+  return { data: 'ok' };
+}
+
 export const getAdminLeaderboard = async () => {
   const event = await getAdminEvent()
   const { data, error } = await supabase.from('participants').select('id, nickname, score').eq('event_id', event.id).order('score', {ascending:false}).limit(20)
@@ -757,7 +767,7 @@ export default {
   startPerformance, pausePerformance, resumePerformance, endPerformance, closeVoting, stopAndNext, restartPerformance, toggleMute,
   getCurrentPerformance, getAdminCurrentPerformance,
   submitVote, sendReaction,
-  sendMessage, getAdminPendingMessages, approveMessage, rejectMessage, deleteAdminMessage,
+  sendMessage, getAdminPendingMessages, approveMessage, rejectMessage, deleteAdminMessage, deleteApprovedMessage,
   startQuiz, endQuiz, answerQuiz, getActiveQuiz, closeQuizVoting, showQuizResults, showQuizLeaderboard,
   getQuizResults, getAdminLeaderboard,
   getLeaderboard, getDisplayData,
