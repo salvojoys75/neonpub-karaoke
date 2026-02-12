@@ -60,7 +60,7 @@ const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => {
   <div className="absolute top-0 left-0 right-0 h-24 z-[100] flex items-center justify-between px-8 bg-gradient-to-b from-black/90 via-black/60 to-transparent">
       <div className="flex items-center gap-5">
           {logoUrl ? (
-            <img src={logoUrl} alt="Logo" className="w-16 h-16 rounded-xl border-2 border-white/20 shadow-lg object-cover bg-black" />
+            <img src={logoUrl} alt="Logo" className="w-16 h-16 rounded-xl border-2 border-white/20 shadow-lg object-contain bg-black p-1" />
           ) : (
             <div className="w-16 h-16 rounded-xl bg-fuchsia-600 flex items-center justify-center border-2 border-white/20 shadow-lg font-black text-xl">NP</div>
           )}
@@ -402,7 +402,7 @@ const IdleMode = ({ pub }) => (
         
         <div className="relative z-10 text-center mr-[350px]">
             {pub.logo_url ? (
-                 <img src={pub.logo_url} className="w-80 h-80 rounded-[3rem] mb-12 mx-auto shadow-[0_0_80px_rgba(0,0,0,0.8)] border-4 border-white/10 object-cover bg-black" alt="logo" />
+                 <img src={pub.logo_url} className="w-80 h-80 rounded-[3rem] mb-12 mx-auto shadow-[0_0_80px_rgba(0,0,0,0.8)] border-4 border-white/10 object-contain bg-black p-8" alt="logo" />
             ) : (
                  <div className="w-64 h-64 rounded-full bg-gradient-to-br from-zinc-800 to-black flex items-center justify-center mx-auto mb-10 border-4 border-white/10">
                     <Music className="w-32 h-32 text-white/20" />
