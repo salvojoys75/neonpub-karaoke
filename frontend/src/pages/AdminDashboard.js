@@ -94,6 +94,13 @@ export default function AdminDashboard() {
   const [creatingEvent, setCreatingEvent] = useState(false);
   const [activeEventsList, setActiveEventsList] = useState([]); // Lista eventi attivi dell'operatore
 
+  // --- VENUES (LOCALI) ---
+  const [myVenues, setMyVenues] = useState([]);
+  const [selectedVenueId, setSelectedVenueId] = useState(null);
+  const [showVenueModal, setShowVenueModal] = useState(false);
+  const [editingVenue, setEditingVenue] = useState(null);
+  const [venueFormData, setVenueFormData] = useState({ name: '', city: '', address: '' });
+
   const pollIntervalRef = useRef(null);
   const timerIntervalRef = useRef(null);
 
@@ -236,14 +243,16 @@ export default function AdminDashboard() {
       const stateData = await api.getEventState();
       if(stateData) setEventState(stateData);
 
-      const [qRes, perfRes, msgRes, activeQuizRes, quizCatRes, challRes] = await Promise.all([
+      const [qRes, perfRes, msgRes, activeQuizRes, challRes] = await Promise.all([
         api.getAdminQueue(),
         api.getAdminCurrentPerformance(),
         api.getAdminPendingMessages(),
         api.getActiveQuiz(),
-        api.getQuizCatalog(),
         api.getChallengeCatalog()
       ]);
+
+      // Carica quiz catalog con filtro venue
+      const quizCatRes = await api.getQuizCatalogFiltered(selectedVenueId, 30);
 
       setQueue(qRes.data || []);
       setCurrentPerformance(perfRes.data);
@@ -331,6 +340,62 @@ export default function AdminDashboard() {
         toast.error("Errore creazione: " + e.message);
       }
   };
+
+  // --- VENUES MANAGEMENT ---
+  const loadMyVenues = async () => {
+    try {
+      const { data } = await api.getMyVenues();
+      setMyVenues(data || []);
+    } catch (e) {
+      console.error("Errore caricamento locali:", e);
+    }
+  };
+
+  const handleOpenVenueModal = (venue = null) => {
+    if (venue) {
+      setEditingVenue(venue);
+      setVenueFormData({ name: venue.name, city: venue.city || '', address: venue.address || '' });
+    } else {
+      setEditingVenue(null);
+      setVenueFormData({ name: '', city: '', address: '' });
+    }
+    setShowVenueModal(true);
+  };
+
+  const handleSaveVenue = async () => {
+    if (!venueFormData.name) return toast.error("Nome locale obbligatorio");
+    try {
+      if (editingVenue) {
+        await api.updateVenue(editingVenue.id, venueFormData);
+        toast.success("Locale aggiornato");
+      } else {
+        await api.createVenue(venueFormData);
+        toast.success("Locale creato");
+      }
+      setShowVenueModal(false);
+      loadMyVenues();
+    } catch (e) {
+      toast.error("Errore: " + e.message);
+    }
+  };
+
+  const handleDeleteVenue = async (venueId) => {
+    if (!confirm("Eliminare questo locale? La cronologia quiz verrà mantenuta.")) return;
+    try {
+      await api.deleteVenue(venueId);
+      toast.success("Locale eliminato");
+      loadMyVenues();
+      if (selectedVenueId === venueId) setSelectedVenueId(null);
+    } catch (e) {
+      toast.error("Errore eliminazione: " + e.message);
+    }
+  };
+
+  useEffect(() => {
+    if (appState === 'dashboard') {
+      loadMyVenues();
+    }
+  }, [appState]);
 
   // --- DASHBOARD ACTIONS ---
   const handleOpenDisplay = () => {
@@ -436,6 +501,10 @@ export default function AdminDashboard() {
   const launchCatalogQuiz = async (item) => {
       if(window.confirm(`Lanciare: ${item.question}?`)) {
           await api.setEventModule('quiz', item.id);
+          // Traccia l'uso della domanda se c'è un venue selezionato
+          if (selectedVenueId) {
+              await api.trackQuizUsage(item.id, selectedVenueId);
+          }
           toast.success("Quiz Lanciato!");
           loadData();
       }
@@ -796,15 +865,21 @@ export default function AdminDashboard() {
                                 <div className="space-y-2 pb-20">
                                     {filteredCatalog.map((item, index) => (
                                         <div key={item.id || index} 
-                                            className="group relative bg-zinc-800 hover:bg-zinc-700 border border-transparent hover:border-yellow-500 rounded p-3 cursor-pointer transition-all"
+                                            className={`group relative bg-zinc-800 hover:bg-zinc-700 border rounded p-3 cursor-pointer transition-all ${item.recently_used ? 'border-orange-500/50 opacity-60' : 'border-transparent hover:border-yellow-500'}`}
                                             onClick={() => launchCatalogQuiz(item)}>
                                             <div className="absolute top-2 right-2 flex gap-1 z-10">
+                                                {item.recently_used && <span className="bg-orange-500/20 text-orange-500 px-2 py-1 rounded text-[10px] font-bold">🔄 USATA</span>}
                                                 {item.media_type === 'audio' && <span className="bg-yellow-500/20 text-yellow-500 p-1 rounded"><Music2 className="w-3 h-3"/></span>}
                                                 {item.media_type === 'video' && <span className="bg-blue-500/20 text-blue-500 p-1 rounded"><Film className="w-3 h-3"/></span>}
                                                 <Button size="icon" variant="ghost" className="h-6 w-6 bg-red-900/50 hover:bg-red-600 text-white rounded-full ml-1" onClick={(e) => handleDeleteQuestion(e, item)}><Trash2 className="w-3 h-3" /></Button>
                                             </div>
                                             <div className="text-[10px] font-bold text-fuchsia-500 uppercase tracking-wider mb-1 flex items-center gap-1">{item.category}</div>
                                             <div className="text-sm font-medium text-white pr-6 line-clamp-2">{item.question}</div>
+                                            {item.recently_used && item.last_used && (
+                                                <div className="text-[9px] text-orange-400 mt-1">
+                                                    Ultima volta: {new Date(item.last_used).toLocaleDateString('it-IT')}
+                                                </div>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
@@ -855,10 +930,49 @@ export default function AdminDashboard() {
                )}
 
                {libraryTab === 'settings' && (
-                   <div className="space-y-4 pt-2">
-                       <div className="space-y-2"><label className="text-xs text-zinc-500">Nome Locale</label><Input value={venueName} onChange={e=>setVenueName(e.target.value)} className="bg-zinc-800"/></div>
-                       <div className="space-y-2"><label className="text-xs text-zinc-500">Logo (File)</label><div className="flex gap-2"><Input type="file" onChange={handleLogoUpload} className="bg-zinc-800 text-xs" accept="image/*" disabled={uploadingLogo}/>{uploadingLogo && <span className="text-yellow-500 text-xs animate-pulse">...</span>}</div></div>
-                       <Button className="w-full bg-zinc-700" onClick={handleSaveSettings}><Save className="w-4 h-4 mr-2"/> Salva Impostazioni</Button>
+                   <div className="space-y-6 pt-2">
+                       {/* VENUES (LOCALI) */}
+                       <div className="border-b border-white/10 pb-4">
+                           <div className="flex justify-between items-center mb-3">
+                               <h3 className="text-sm font-bold text-white">🏠 I Miei Locali</h3>
+                               <Button size="sm" onClick={() => handleOpenVenueModal()} className="bg-blue-600 h-7">
+                                   <Plus className="w-3 h-3 mr-1"/> Nuovo
+                               </Button>
+                           </div>
+                           {myVenues.length > 0 ? (
+                               <div className="space-y-2">
+                                   {myVenues.map(venue => (
+                                       <div key={venue.id} className={`bg-zinc-800 p-3 rounded flex justify-between items-start border-2 ${selectedVenueId === venue.id ? 'border-green-500' : 'border-transparent'}`}>
+                                           <div className="flex-1" onClick={() => setSelectedVenueId(venue.id)} className="cursor-pointer">
+                                               <div className="font-bold text-sm text-white">{venue.name}</div>
+                                               {venue.city && <div className="text-xs text-zinc-500">📍 {venue.city}</div>}
+                                               {selectedVenueId === venue.id && <div className="text-xs text-green-500 mt-1">✓ Selezionato per questo evento</div>}
+                                           </div>
+                                           <div className="flex gap-1">
+                                               <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleOpenVenueModal(venue)}>
+                                                   <Settings className="w-3 h-3"/>
+                                               </Button>
+                                               <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => handleDeleteVenue(venue.id)}>
+                                                   <Trash2 className="w-3 h-3"/>
+                                               </Button>
+                                           </div>
+                                       </div>
+                                   ))}
+                               </div>
+                           ) : (
+                               <p className="text-xs text-zinc-600 italic">Nessun locale configurato. Crea il primo!</p>
+                           )}
+                       </div>
+
+                       {/* IMPOSTAZIONI EVENTO */}
+                       <div>
+                           <h3 className="text-sm font-bold text-white mb-3">⚙️ Impostazioni Evento</h3>
+                           <div className="space-y-3">
+                               <div className="space-y-2"><label className="text-xs text-zinc-500">Nome Evento</label><Input value={venueName} onChange={e=>setVenueName(e.target.value)} className="bg-zinc-800"/></div>
+                               <div className="space-y-2"><label className="text-xs text-zinc-500">Logo (File)</label><div className="flex gap-2"><Input type="file" onChange={handleLogoUpload} className="bg-zinc-800 text-xs" accept="image/*" disabled={uploadingLogo}/>{uploadingLogo && <span className="text-yellow-500 text-xs animate-pulse">...</span>}</div></div>
+                               <Button className="w-full bg-zinc-700" onClick={handleSaveSettings}><Save className="w-4 h-4 mr-2"/> Salva Impostazioni</Button>
+                           </div>
+                       </div>
                    </div>
                )}
             </ScrollArea>
@@ -971,6 +1085,44 @@ export default function AdminDashboard() {
                   <p className="text-[10px] text-zinc-600">Categorie: Indovina Intro, Indovina Videoclip, Completa il Testo, Chi Canta?, Indovina l'Anno, Cover o Originale?, Musica Generale</p>
                   <Textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder='Incolla JSON qui...' className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"/>
                   <Button className="w-full bg-blue-600 font-bold" onClick={handleImportScript}><Download className="w-4 h-4 mr-2"/> IMPORTA NEL CATALOGO</Button>
+              </div>
+          </DialogContent>
+      </Dialog>
+
+      <Dialog open={showVenueModal} onOpenChange={setShowVenueModal}>
+          <DialogContent className="bg-zinc-900 border-zinc-800">
+              <DialogHeader><DialogTitle>{editingVenue ? 'Modifica Locale' : 'Nuovo Locale'}</DialogTitle></DialogHeader>
+              <div className="space-y-4 pt-4">
+                  <div>
+                      <label className="text-xs text-zinc-500 mb-1 block">Nome Locale *</label>
+                      <Input 
+                          value={venueFormData.name} 
+                          onChange={e=>setVenueFormData({...venueFormData, name: e.target.value})} 
+                          placeholder="Es: Red Lion Pub" 
+                          className="bg-zinc-800"
+                      />
+                  </div>
+                  <div>
+                      <label className="text-xs text-zinc-500 mb-1 block">Città</label>
+                      <Input 
+                          value={venueFormData.city} 
+                          onChange={e=>setVenueFormData({...venueFormData, city: e.target.value})} 
+                          placeholder="Es: Milano" 
+                          className="bg-zinc-800"
+                      />
+                  </div>
+                  <div>
+                      <label className="text-xs text-zinc-500 mb-1 block">Indirizzo</label>
+                      <Input 
+                          value={venueFormData.address} 
+                          onChange={e=>setVenueFormData({...venueFormData, address: e.target.value})} 
+                          placeholder="Es: Via Roma 123" 
+                          className="bg-zinc-800"
+                      />
+                  </div>
+                  <Button className="w-full bg-green-600 font-bold" onClick={handleSaveVenue}>
+                      <Save className="w-4 h-4 mr-2"/> {editingVenue ? 'Aggiorna' : 'Crea'} Locale
+                  </Button>
               </div>
           </DialogContent>
       </Dialog>
