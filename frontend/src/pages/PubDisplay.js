@@ -8,7 +8,7 @@ import { Music, Mic2, Star, Trophy, Users, MessageSquare, Disc, Zap, Megaphone }
 import KaraokePlayer from '@/components/KaraokePlayer';
 import QuizMediaFixed from '@/components/QuizMediaFixed';
 import FloatingReactions from '@/components/FloatingReactions';
-
+import ExtractionMode from '@/components/ExtractionMode';
 const STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800;900&family=JetBrains+Mono:wght@500&display=swap');
   
