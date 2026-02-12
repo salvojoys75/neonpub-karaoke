@@ -419,7 +419,6 @@ const IdleMode = ({ pub }) => (
 
 export default function PubDisplay() {
     const { pubCode } = useParams();
-console.log('🔍 DEBUG:', { showExtraction, extractionData, data: data?.extraction_data });
     const [data, setData] = useState(null);
     const [isMuted, setIsMuted] = useState(false);
     const [quizResult, setQuizResult] = useState(null);
