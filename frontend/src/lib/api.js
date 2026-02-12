@@ -710,8 +710,8 @@ export const getDisplayData = async (pubCode) => {
     supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
     // Messaggio REGIA (participant_id IS NULL)
     supabase.from('messages').select('*').eq('event_id', event.id).is('participant_id', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle(),
-    // Messaggi UTENTI (participant_id NOT NULL)
-    supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).filter('participant_id', 'not.is', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(10)
+    // TUTTI i messaggi approvati (filtreremo nel frontend)
+    supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'approved').order('created_at', {ascending: false}).limit(20)
   ])
 
   let currentPerformance = perf.data ? {...perf.data, user_nickname: perf.data.participants?.nickname, user_avatar: perf.data.participants?.avatar_url} : null;
@@ -731,7 +731,8 @@ export const getDisplayData = async (pubCode) => {
       leaderboard: lb.data,
       active_quiz: activeQuiz.data,
       admin_message: adminMsg.data,
-      approved_messages: approvedMsgs.data?.map(m => ({text: m.text, nickname: m.participants?.nickname})) || []
+      // Filtra SOLO messaggi UTENTI (con participant_id NOT NULL)
+      approved_messages: approvedMsgs.data?.filter(m => m.participant_id !== null).map(m => ({text: m.text, nickname: m.participants?.nickname})) || []
     }
   }
 }
