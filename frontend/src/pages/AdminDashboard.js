@@ -863,15 +863,21 @@ export default function AdminDashboard() {
                                 <div className="space-y-2 pb-20">
                                     {filteredCatalog.map((item, index) => (
                                         <div key={item.id || index} 
-                                            className="group relative bg-zinc-800 hover:bg-zinc-700 border border-transparent hover:border-yellow-500 rounded p-3 cursor-pointer transition-all"
+                                            className={`group relative bg-zinc-800 hover:bg-zinc-700 border rounded p-3 cursor-pointer transition-all ${item.recently_used ? 'border-orange-500/50 opacity-75' : 'border-transparent hover:border-yellow-500'}`}
                                             onClick={() => launchCatalogQuiz(item)}>
                                             <div className="absolute top-2 right-2 flex gap-1 z-10">
+                                                {item.recently_used && <span className="bg-orange-500/20 text-orange-500 px-2 py-1 rounded text-[10px] font-bold">🔄 USATA</span>}
                                                 {item.media_type === 'audio' && <span className="bg-yellow-500/20 text-yellow-500 p-1 rounded"><Music2 className="w-3 h-3"/></span>}
                                                 {item.media_type === 'video' && <span className="bg-blue-500/20 text-blue-500 p-1 rounded"><Film className="w-3 h-3"/></span>}
                                                 <Button size="icon" variant="ghost" className="h-6 w-6 bg-red-900/50 hover:bg-red-600 text-white rounded-full ml-1" onClick={(e) => handleDeleteQuestion(e, item)}><Trash2 className="w-3 h-3" /></Button>
                                             </div>
                                             <div className="text-[10px] font-bold text-fuchsia-500 uppercase tracking-wider mb-1 flex items-center gap-1">{item.category}</div>
                                             <div className="text-sm font-medium text-white pr-6 line-clamp-2">{item.question}</div>
+                                            {item.recently_used && item.last_used && (
+                                                <div className="text-[9px] text-orange-400 mt-1">
+                                                    Usata: {new Date(item.last_used).toLocaleDateString('it-IT')}
+                                                </div>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
@@ -922,10 +928,49 @@ export default function AdminDashboard() {
                )}
 
                {libraryTab === 'settings' && (
-                   <div className="space-y-4 pt-2">
-                       <div className="space-y-2"><label className="text-xs text-zinc-500">Nome Locale</label><Input value={venueName} onChange={e=>setVenueName(e.target.value)} className="bg-zinc-800"/></div>
-                       <div className="space-y-2"><label className="text-xs text-zinc-500">Logo (File)</label><div className="flex gap-2"><Input type="file" onChange={handleLogoUpload} className="bg-zinc-800 text-xs" accept="image/*" disabled={uploadingLogo}/>{uploadingLogo && <span className="text-yellow-500 text-xs animate-pulse">...</span>}</div></div>
-                       <Button className="w-full bg-zinc-700" onClick={handleSaveSettings}><Save className="w-4 h-4 mr-2"/> Salva Impostazioni</Button>
+                   <div className="space-y-6 pt-2">
+                       {/* VENUES (LOCALI) */}
+                       <div className="border-b border-white/10 pb-4">
+                           <div className="flex justify-between items-center mb-3">
+                               <h3 className="text-sm font-bold text-white">🏠 I Miei Locali</h3>
+                               <Button size="sm" onClick={() => handleOpenVenueModal()} className="bg-blue-600 h-7">
+                                   <Plus className="w-3 h-3 mr-1"/> Nuovo
+                               </Button>
+                           </div>
+                           {myVenues.length > 0 ? (
+                               <div className="space-y-2">
+                                   {myVenues.map(venue => (
+                                       <div key={venue.id} className={`bg-zinc-800 p-3 rounded flex justify-between items-start border-2 transition cursor-pointer ${selectedVenueId === venue.id ? 'border-green-500' : 'border-transparent hover:border-zinc-600'}`}>
+                                           <div className="flex-1" onClick={() => setSelectedVenueId(selectedVenueId === venue.id ? null : venue.id)}>
+                                               <div className="font-bold text-sm text-white">{venue.name}</div>
+                                               {venue.city && <div className="text-xs text-zinc-500">📍 {venue.city}</div>}
+                                               {selectedVenueId === venue.id && <div className="text-xs text-green-500 mt-1">✓ Filtra domande per questo locale</div>}
+                                           </div>
+                                           <div className="flex gap-1">
+                                               <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={(e) => {e.stopPropagation(); handleOpenVenueModal(venue)}}>
+                                                   <Settings className="w-3 h-3"/>
+                                               </Button>
+                                               <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={(e) => {e.stopPropagation(); handleDeleteVenue(venue.id)}}>
+                                                   <Trash2 className="w-3 h-3"/>
+                                               </Button>
+                                           </div>
+                                       </div>
+                                   ))}
+                               </div>
+                           ) : (
+                               <p className="text-xs text-zinc-600 italic">Nessun locale configurato. Crea il primo!</p>
+                           )}
+                       </div>
+
+                       {/* IMPOSTAZIONI EVENTO */}
+                       <div>
+                           <h3 className="text-sm font-bold text-white mb-3">⚙️ Impostazioni Evento</h3>
+                           <div className="space-y-3">
+                               <div className="space-y-2"><label className="text-xs text-zinc-500">Nome Evento</label><Input value={venueName} onChange={e=>setVenueName(e.target.value)} className="bg-zinc-800"/></div>
+                               <div className="space-y-2"><label className="text-xs text-zinc-500">Logo (File)</label><div className="flex gap-2"><Input type="file" onChange={handleLogoUpload} className="bg-zinc-800 text-xs" accept="image/*" disabled={uploadingLogo}/>{uploadingLogo && <span className="text-yellow-500 text-xs animate-pulse">...</span>}</div></div>
+                               <Button className="w-full bg-zinc-700" onClick={handleSaveSettings}><Save className="w-4 h-4 mr-2"/> Salva Impostazioni</Button>
+                           </div>
+                       </div>
                    </div>
                )}
             </ScrollArea>
@@ -1038,6 +1083,44 @@ export default function AdminDashboard() {
                   <p className="text-[10px] text-zinc-600">Categorie: Indovina Intro, Indovina Videoclip, Completa il Testo, Chi Canta?, Indovina l'Anno, Cover o Originale?, Musica Generale</p>
                   <Textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder='Incolla JSON qui...' className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"/>
                   <Button className="w-full bg-blue-600 font-bold" onClick={handleImportScript}><Download className="w-4 h-4 mr-2"/> IMPORTA NEL CATALOGO</Button>
+              </div>
+          </DialogContent>
+      </Dialog>
+
+      <Dialog open={showVenueModal} onOpenChange={setShowVenueModal}>
+          <DialogContent className="bg-zinc-900 border-zinc-800">
+              <DialogHeader><DialogTitle>{editingVenue ? 'Modifica Locale' : 'Nuovo Locale'}</DialogTitle></DialogHeader>
+              <div className="space-y-4 pt-4">
+                  <div>
+                      <label className="text-xs text-zinc-500 mb-1 block">Nome Locale *</label>
+                      <Input 
+                          value={venueFormData.name} 
+                          onChange={e=>setVenueFormData({...venueFormData, name: e.target.value})} 
+                          placeholder="Es: Red Lion Pub" 
+                          className="bg-zinc-800"
+                      />
+                  </div>
+                  <div>
+                      <label className="text-xs text-zinc-500 mb-1 block">Città</label>
+                      <Input 
+                          value={venueFormData.city} 
+                          onChange={e=>setVenueFormData({...venueFormData, city: e.target.value})} 
+                          placeholder="Es: Milano" 
+                          className="bg-zinc-800"
+                      />
+                  </div>
+                  <div>
+                      <label className="text-xs text-zinc-500 mb-1 block">Indirizzo</label>
+                      <Input 
+                          value={venueFormData.address} 
+                          onChange={e=>setVenueFormData({...venueFormData, address: e.target.value})} 
+                          placeholder="Es: Via Roma 123" 
+                          className="bg-zinc-800"
+                      />
+                  </div>
+                  <Button className="w-full bg-green-600 font-bold" onClick={handleSaveVenue}>
+                      <Save className="w-4 h-4 mr-2"/> {editingVenue ? 'Aggiorna' : 'Crea'} Locale
+                  </Button>
               </div>
           </DialogContent>
       </Dialog>
