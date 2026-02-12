@@ -47,6 +47,7 @@ export const createPub = async (data) => {
   const expiresAt = new Date();
   expiresAt.setHours(expiresAt.getHours() + 8);
 
+  // MODIFICA: Aggiunto venue_id all'insert
   const { data: event, error } = await supabase
     .from('events')
     .insert({
@@ -56,7 +57,8 @@ export const createPub = async (data) => {
       event_type: 'mixed',
       status: 'active',
       active_module: 'karaoke',
-      expires_at: expiresAt.toISOString()
+      expires_at: expiresAt.toISOString(),
+      venue_id: data.venue_id || null // Salva il locale selezionato
     })
     .select()
     .single()
@@ -533,8 +535,6 @@ export const sendReaction = async (data) => {
 }
 
 export const sendMessage = async (data) => {
-  // PRIORITÀ 1: Controlla se è un UTENTE (ha neonpub_token)
-  // Questo controlla prima se c'è un token utente valido
   const userToken = localStorage.getItem('neonpub_token');
   if (userToken) {
     try {
@@ -544,17 +544,15 @@ export const sendMessage = async (data) => {
           event_id: participant.event_id,
           participant_id: participant.participant_id, 
           text: text, 
-          status: 'pending'  // ← UTENTI: PENDING (devono essere approvati)
+          status: 'pending' 
       }).select().single();
       if (error) throw error;
       return { data: message };
     } catch (e) {
-      // Se fallisce la validazione del token utente, continua al controllo admin
       console.error('Errore token utente:', e);
     }
   }
 
-  // PRIORITÀ 2: Controlla se è ADMIN (ha neonpub_pub_code ma NO token utente)
   const pubCode = localStorage.getItem('neonpub_pub_code');
   if (pubCode) {
       const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
@@ -562,9 +560,9 @@ export const sendMessage = async (data) => {
            const text = typeof data === 'string' ? data : (data.text || data.message);
            const { data: message, error } = await supabase.from('messages').insert({
                 event_id: event.id,
-                participant_id: null,  // ← ADMIN: null (nessun participant)
+                participant_id: null,
                 text: text, 
-                status: 'approved'     // ← ADMIN: APPROVED (approvazione automatica)
+                status: 'approved'
            }).select().single();
            if (error) throw error;
            return { data: message };
@@ -580,7 +578,7 @@ export const getAdminPendingMessages = async () => {
   
   const { data, error } = await supabase.from('messages')
       .select('*, participants(nickname)')
-      .eq('event_id', event.id) // FILTRO PER EVENTO
+      .eq('event_id', event.id) 
       .eq('status', 'pending') 
   
   if (error) throw error
@@ -703,7 +701,7 @@ export const deleteAdminMessage = async (id) => {
     .delete()
     .eq('id', id)
     .eq('event_id', event.id)
-    .is('participant_id', null); // sicurezza: solo messaggi regia
+    .is('participant_id', null); 
   if (error) throw error;
   return { data: 'ok' };
 }
@@ -731,15 +729,12 @@ export const getDisplayData = async (pubCode) => {
       return { data: null };
   }
 
-  // FIX: Filtri rigorosi per event_id su TUTTE le tabelle
   const [perf, queue, lb, activeQuiz, adminMsg, approvedMsgs] = await Promise.all([
     supabase.from('performances').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).in('status', ['live','voting','paused','ended']).order('started_at', {ascending: false}).limit(1).maybeSingle(),
     supabase.from('song_requests').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).eq('status', 'queued').limit(10), 
     supabase.from('participants').select('nickname, score, avatar_url').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
     supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
-    // Messaggio REGIA
     supabase.from('messages').select('*').eq('event_id', event.id).is('participant_id', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle(),
-    // Messaggi UTENTI
     supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).not('participant_id', 'is', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(10)
   ])
 
@@ -760,13 +755,10 @@ export const getDisplayData = async (pubCode) => {
       leaderboard: lb.data,
       active_quiz: activeQuiz.data,
       admin_message: adminMsg.data,
-      // FILTRO: solo messaggi UTENTI (con participants.nickname)
       approved_messages: approvedMsgs.data?.filter(m => m.participants?.nickname).map(m => ({text: m.text, nickname: m.participants?.nickname})) || []
     }
   }
 }
-
-// ==================== VENUES (LOCALI) ====================
 
 export const getMyVenues = async () => {
   const { data: user } = await supabase.auth.getUser()
@@ -827,12 +819,9 @@ export const deleteVenue = async (venueId) => {
   return { data: 'ok' }
 }
 
-// ==================== QUIZ CATALOG con FILTRO VENUE ====================
-
 export const getQuizCatalogFiltered = async (venueId = null, daysThreshold = 30) => {
   const event = await getAdminEvent()
   
-  // Prendi tutto il catalogo dell'operatore
   const { data: catalog, error } = await supabase
     .from('quiz_catalog')
     .select('*')
@@ -841,12 +830,10 @@ export const getQuizCatalogFiltered = async (venueId = null, daysThreshold = 30)
   
   if (error) throw error
   
-  // Se non c'è venue selezionato, ritorna tutto il catalogo
   if (!venueId) {
     return { data: catalog }
   }
   
-  // Altrimenti filtra le domande usate recentemente in quel venue
   const thresholdDate = new Date()
   thresholdDate.setDate(thresholdDate.getDate() - daysThreshold)
   
@@ -858,7 +845,6 @@ export const getQuizCatalogFiltered = async (venueId = null, daysThreshold = 30)
   
   const usedQuestionIds = new Set(usedQuestions?.map(q => q.question_id) || [])
   
-  // Aggiungi flag e timestamp all'output
   const catalogWithHistory = catalog.map(q => ({
     ...q,
     recently_used: usedQuestionIds.has(q.id),
@@ -867,8 +853,6 @@ export const getQuizCatalogFiltered = async (venueId = null, daysThreshold = 30)
   
   return { data: catalogWithHistory }
 }
-
-// ==================== TRACK QUIZ USAGE ====================
 
 export const trackQuizUsage = async (questionId, venueId) => {
   const event = await getAdminEvent()
@@ -890,7 +874,6 @@ export const trackQuizUsage = async (questionId, venueId) => {
     .single()
   
   if (error) {
-    // Ignore duplicate errors (stessa domanda nello stesso evento)
     if (error.code === '23505') {
       return { data: 'already_tracked' }
     }
@@ -914,8 +897,6 @@ export default {
   getLeaderboard, getDisplayData,
   getActiveEventsForUser,
   deleteQuizQuestion,
-  // Venues
   getMyVenues, createVenue, updateVenue, deleteVenue,
-  // Quiz with venue filtering
   getQuizCatalogFiltered, trackQuizUsage
 }

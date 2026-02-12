@@ -50,7 +50,7 @@ export default function AdminDashboard() {
   const [userList, setUserList] = useState([]);
   const [showCreateUserModal, setShowCreateUserModal] = useState(false);
   const [newUserEmail, setNewUserEmail] = useState("");
-  const [newUserPassword, setNewUserPassword] = useState(""); // Aggiunto stato password
+  const [newUserPassword, setNewUserPassword] = useState(""); 
   const [newUserName, setNewUserName] = useState("");
 
   // --- IMPOSTAZIONI EVENTO ---
@@ -92,7 +92,7 @@ export default function AdminDashboard() {
   // --- SETUP & MULTI EVENTO ---
   const [newEventName, setNewEventName] = useState("");
   const [creatingEvent, setCreatingEvent] = useState(false);
-  const [activeEventsList, setActiveEventsList] = useState([]); // Lista eventi attivi dell'operatore
+  const [activeEventsList, setActiveEventsList] = useState([]); 
 
   // --- VENUES (LOCALI) ---
   const [myVenues, setMyVenues] = useState([]);
@@ -102,7 +102,6 @@ export default function AdminDashboard() {
   const [venueFormData, setVenueFormData] = useState({ name: '', city: '', address: '' });
 
   const pollIntervalRef = useRef(null);
-  const timerIntervalRef = useRef(null);
 
   useEffect(() => { checkUserProfile(); }, [isAuthenticated]);
 
@@ -114,7 +113,6 @@ export default function AdminDashboard() {
       
       let { data: userProfile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
       
-      // LOGICA ADMIN: Se è l'admin, forza sempre il ruolo e lo stato attivo se non corretti
       if (user.email === 'admin@neonpub.com') {
           if (!userProfile || userProfile.role !== 'super_admin' || userProfile.is_active !== true) {
               const { error } = await supabase.from('profiles').upsert({ 
@@ -125,13 +123,11 @@ export default function AdminDashboard() {
                   is_active: true 
               });
               if(!error) {
-                  // Aggiorna l'oggetto locale dopo l'upsert
                   userProfile = { id: user.id, email: user.email, role: 'super_admin', credits: 9999, is_active: true };
               }
           }
       }
       
-      // CREAZIONE PROFILO STANDARD (Se non esiste)
       if (!userProfile) {
          const { data: newProfile } = await supabase.from('profiles').insert([{ 
              id: user.id, 
@@ -143,7 +139,6 @@ export default function AdminDashboard() {
          userProfile = newProfile;
       }
 
-      // CONTROLLO BAN (Solo se esplicitamente false, così se è null/undefined entra lo stesso)
       if (userProfile.is_active === false) {
           toast.error("Account disabilitato. Contatta l'amministratore.");
           logout();
@@ -152,17 +147,14 @@ export default function AdminDashboard() {
 
       setProfile(userProfile);
       
-      // ROUTING IN BASE AL RUOLO
       if (userProfile.role === 'super_admin') { 
           setAppState("super_admin"); 
           loadSuperAdminData(); 
       } else {
-        // Logica Operatore
         const storedCode = localStorage.getItem("neonpub_pub_code");
         
         if (storedCode) { 
             const pubData = await api.getPub(storedCode);
-            // Verifica validità evento
             if (pubData.data && (!pubData.data.expires_at || new Date(pubData.data.expires_at) > new Date())) {
                 setPubCode(storedCode); 
                 setAppState("dashboard"); 
@@ -170,10 +162,12 @@ export default function AdminDashboard() {
                 localStorage.removeItem("neonpub_pub_code");
                 setPubCode(null);
                 loadActiveEvents(); 
+                loadMyVenues(); // AGGIUNTO
                 setAppState("setup");
             }
         } else {
             loadActiveEvents();
+            loadMyVenues(); // AGGIUNTO
             setAppState("setup"); 
         }
       }
@@ -197,13 +191,15 @@ export default function AdminDashboard() {
 
     setCreatingEvent(true);
     try {
-        const { data: pubData } = await createPub({ name: newEventName });
+        // MODIFICA: Passa selectedVenueId
+        const { data: pubData } = await createPub({ 
+            name: newEventName, 
+            venue_id: selectedVenueId 
+        });
         localStorage.setItem("neonpub_pub_code", pubData.code);
         setPubCode(pubData.code);
         
-        // Aggiorna crediti locali per UI veloce
         setProfile(prev => ({...prev, credits: prev.credits - 1}));
-        
         setAppState("dashboard");
         toast.success("Evento Iniziato! (-1 Credito, Valido 8 ore)");
     } catch (error) { toast.error(error.message); } finally { setCreatingEvent(false); }
@@ -228,7 +224,6 @@ export default function AdminDashboard() {
           return;
       }
       
-      // Calcolo tempo rimanente
       const expires = new Date(pubRes.data.expires_at);
       const now = new Date();
       const diff = expires - now;
@@ -251,15 +246,12 @@ export default function AdminDashboard() {
         api.getChallengeCatalog()
       ]);
 
-      // Carica quiz catalog con filtro venue
       const quizCatRes = await api.getQuizCatalogFiltered(selectedVenueId, 30);
 
       setQueue(qRes.data || []);
       setCurrentPerformance(perfRes.data);
       setPendingMessages(msgRes.data || []);
       
-      // Load approved messages - separati per tipo
-      // Messaggi UTENTI approvati (hanno participant_id)
       const approvedUserMsgsRes = await supabase.from('messages')
         .select('*, participants(nickname)')
         .eq('event_id', pubRes.data.id)
@@ -267,7 +259,7 @@ export default function AdminDashboard() {
         .not('participant_id', 'is', null)
         .order('created_at', {ascending: false})
         .limit(10);
-      // Messaggi REGIA approvati (participant_id null)
+
       const approvedAdminMsgsRes = await supabase.from('messages')
         .select('*')
         .eq('event_id', pubRes.data.id)
@@ -275,7 +267,7 @@ export default function AdminDashboard() {
         .is('participant_id', null)
         .order('created_at', {ascending: false})
         .limit(5);
-      // Unione: prima i messaggi regia (con flag isAdmin), poi utenti
+
       const allApproved = [
         ...(approvedAdminMsgsRes.data || []).map(m => ({...m, user_nickname: 'Regia', isAdmin: true})),
         ...(approvedUserMsgsRes.data || []).map(m => ({...m, user_nickname: m.participants?.nickname}))
@@ -299,7 +291,7 @@ export default function AdminDashboard() {
          setActiveQuizId(null); setActiveQuizData(null); setQuizStatus(null); setQuizResults(null);
       }
     } catch (error) { console.error(error); }
-  }, [pubCode, appState, venueName]);
+  }, [pubCode, appState, venueName, selectedVenueId]);
 
   useEffect(() => {
     if (appState === 'dashboard') {
@@ -391,8 +383,9 @@ export default function AdminDashboard() {
     }
   };
 
+  // MODIFICA: Carica venues anche in setup state
   useEffect(() => {
-    if (appState === 'dashboard') {
+    if (appState === 'dashboard' || appState === 'setup') {
       loadMyVenues();
     }
   }, [appState]);
@@ -501,7 +494,6 @@ export default function AdminDashboard() {
   const launchCatalogQuiz = async (item) => {
       if(window.confirm(`Lanciare: ${item.question}?`)) {
           await api.setEventModule('quiz', item.id);
-          // Traccia l'uso della domanda se c'è un venue selezionato
           if (selectedVenueId) {
               await api.trackQuizUsage(item.id, selectedVenueId);
           }
@@ -643,7 +635,26 @@ export default function AdminDashboard() {
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <p className="text-xs text-zinc-400 text-center">Ogni nuovo evento costa 1 Credito e dura 8 ore.</p>
+                        
+                        {/* INPUT NOME */}
                         <Input placeholder="Nome Serata (es. Venerdì Karaoke)" value={newEventName} onChange={e=>setNewEventName(e.target.value)} className="bg-zinc-950 text-center h-12" />
+
+                        {/* SELETTORE LOCALE (NUOVO) */}
+                        <Select onValueChange={setSelectedVenueId} value={selectedVenueId}>
+                            <SelectTrigger className="w-full bg-zinc-950 h-12 text-center justify-center border-zinc-700">
+                                <SelectValue placeholder="Seleziona Locale (Opzionale)" />
+                            </SelectTrigger>
+                            <SelectContent className="bg-zinc-900 border-zinc-800">
+                                {myVenues.length > 0 ? (
+                                    myVenues.map(venue => (
+                                        <SelectItem key={venue.id} value={venue.id}>{venue.name}</SelectItem>
+                                    ))
+                                ) : (
+                                    <div className="p-2 text-xs text-zinc-500 text-center">Nessun locale salvato. <br/> Puoi crearne uno dopo.</div>
+                                )}
+                            </SelectContent>
+                        </Select>
+
                         <Button onClick={handleStartEvent} disabled={creatingEvent || (profile?.credits || 0) < 1} className="w-full bg-fuchsia-600 h-14 text-lg font-bold hover:bg-fuchsia-500">
                             {creatingEvent ? "Creazione..." : "LANCIA (-1 Credit)"}
                         </Button>
