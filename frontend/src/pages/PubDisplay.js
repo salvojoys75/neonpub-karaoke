@@ -461,6 +461,7 @@ export default function PubDisplay() {
             .on('postgres_changes', {event: 'INSERT', schema: 'public', table: 'reactions'}, p => setNewReaction(p.new))
             .on('postgres_changes', {event: '*', schema: 'public', table: 'performances'}, load)
             .on('postgres_changes', {event: '*', schema: 'public', table: 'quizzes'}, load)
+            .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'events'}, load)
             .subscribe();
             
         return () => { clearInterval(int); supabase.removeChannel(ch); };
@@ -473,7 +474,7 @@ export default function PubDisplay() {
         </div>
     );
 
-    const { pub, current_performance: perf, queue, active_quiz: quiz, admin_message, leaderboard, approved_messages } = data;
+    const { pub, current_performance: perf, queue, active_quiz: quiz, admin_message, leaderboard, approved_messages, extraction_data } = data;
 
     // DEBUG: Verifica messaggi
     console.log('🔍 DEBUG MESSAGGI:', {
@@ -505,6 +506,17 @@ export default function PubDisplay() {
             <TopBar pubName={pub.name} logoUrl={pub.logo_url} onlineCount={leaderboard?.length || 0} messages={recentMessages} isMuted={isMuted} />
             <FloatingReactions newReaction={newReaction} />
             <AdminMessageOverlay message={admin_message} />
+
+            {extraction_data && (
+                <div className="absolute inset-0 z-[300]">
+                    <ExtractionMode
+                        extractionData={extraction_data}
+                        participants={leaderboard || []}
+                        songs={extraction_data.song ? [extraction_data.song] : []}
+                        onComplete={() => api.clearExtraction(pubCode)}
+                    />
+                </div>
+            )}
             
             <div className="w-full h-full pt-24 pb-0 relative z-10">
                 {Content}
