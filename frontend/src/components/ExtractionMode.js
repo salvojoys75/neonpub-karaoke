@@ -1,161 +1,114 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Sparkles, Music2, Trophy, Mic2, Star } from 'lucide-react';
+import { Sparkles, Music, User, Zap, Radio } from 'lucide-react';
 
-// --- CONFIGURAZIONE ---
-const SPIN_DURATION = 3000; // Durata rotazione partecipante
-const SONG_DELAY = 1500;    // Ritardo partenza slot canzone
-const REVEAL_DELAY = 500;   // Pausa drammatica prima del flash finale
+// --- CONFIGURAZIONE TEMPI ---
+const COUNTDOWN_TIME = 3;       // Secondi di countdown
+const SPIN_DURATION_P = 2000;   // Quanto gira il partecipante
+const SPIN_DURATION_S = 3500;   // Quanto gira la canzone (finisce dopo il partecipante)
+const AUTO_CLOSE_DELAY = 4000;  // Secondi di attesa dopo il risultato prima di chiudere
 
-// --- GESTIONE AUDIO (Web Audio API per suoni senza file esterni) ---
-const audioCtxRef = { current: null };
-
-const initAudio = () => {
-  if (!audioCtxRef.current) {
-    audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
-  }
-  if (audioCtxRef.current.state === 'suspended') {
-    audioCtxRef.current.resume();
-  }
-  return audioCtxRef.current;
-};
-
-const playTickSound = () => {
-  const ctx = initAudio();
+// --- AUDIO ENGINE (Senza file esterni) ---
+const playSound = (type) => {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return;
+  const ctx = new AudioContext();
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
-  
   osc.connect(gain);
   gain.connect(ctx.destination);
-  
-  // Suono "Meccanico" tipo ruota della fortuna
-  osc.frequency.setValueAtTime(150, ctx.currentTime);
-  osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.05);
-  osc.type = 'triangle';
-  
-  gain.gain.setValueAtTime(0.3, ctx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.05);
-  
-  osc.start(ctx.currentTime);
-  osc.stop(ctx.currentTime + 0.05);
-};
 
-const playDrumRoll = (duration) => {
-  const ctx = initAudio();
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  
-  osc.connect(gain);
-  gain.connect(ctx.destination);
-  
-  osc.type = 'lowpass'; 
-  osc.frequency.value = 100;
-  
-  // Rumore bianco simulato per rullante (semplificato)
-  const bufferSize = ctx.sampleRate * duration;
-  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < bufferSize; i++) {
-    data[i] = Math.random() * 2 - 1;
-  }
-  
-  const noise = ctx.createBufferSource();
-  noise.buffer = buffer;
-  const noiseGain = ctx.createGain();
-  noise.connect(noiseGain);
-  noiseGain.connect(ctx.destination);
-  
-  noiseGain.gain.setValueAtTime(0.1, ctx.currentTime);
-  noiseGain.gain.linearRampToValueAtTime(0.5, ctx.currentTime + duration - 0.5);
-  noiseGain.gain.linearRampToValueAtTime(0, ctx.currentTime + duration);
-  
-  noise.start(ctx.currentTime);
-};
+  const now = ctx.currentTime;
 
-const playVictorySound = () => {
-  const ctx = initAudio();
-  
-  // Accordo trionfale
-  [261.63, 329.63, 392.00, 523.25].forEach((freq, i) => { // C Major
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    
-    osc.type = 'sawtooth';
-    osc.frequency.value = freq;
-    
-    const now = ctx.currentTime;
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0.2, now + 0.1);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 2);
-    
+  if (type === 'tick') {
+    // Click meccanico veloce
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(150, now);
+    osc.frequency.exponentialRampToValueAtTime(40, now + 0.05);
+    gain.gain.setValueAtTime(0.1, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
     osc.start(now);
-    osc.stop(now + 2);
-  });
+    osc.stop(now + 0.05);
+  } else if (type === 'lock') {
+    // Suono basso di "stop"
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(200, now);
+    osc.frequency.exponentialRampToValueAtTime(50, now + 0.3);
+    gain.gain.setValueAtTime(0.5, now);
+    gain.gain.linearRampToValueAtTime(0, now + 0.3);
+    osc.start(now);
+    osc.stop(now + 0.3);
+  } else if (type === 'win') {
+    // Fanfara sintetica
+    const frequencies = [523.25, 659.25, 783.99, 1046.50]; // Do Magg
+    frequencies.forEach((f, i) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.type = 'triangle';
+      o.frequency.value = f;
+      g.gain.setValueAtTime(0, now);
+      g.gain.linearRampToValueAtTime(0.2, now + 0.1 + (i*0.05));
+      g.gain.exponentialRampToValueAtTime(0.001, now + 2);
+      o.start(now);
+      o.stop(now + 2);
+    });
+  }
 };
 
-// --- COMPONENTI UI ---
-
-const SlotCard = ({ title, icon: Icon, item, isSpinning, isRevealed, colorClass, delay = 0 }) => {
-  const [displayItem, setDisplayItem] = useState(item);
-  
+// --- COMPONENTE CARTA ---
+const ExtractionCard = ({ label, icon: Icon, data, isSpinning, isLocked, delayIndex }) => {
   return (
     <div className={`
-      relative group flex flex-col items-center justify-center p-6 
-      rounded-3xl border-2 transition-all duration-500 overflow-hidden
-      w-full max-w-md mx-auto h-full min-h-[250px]
-      ${isRevealed 
-        ? `bg-black/60 border-${colorClass}-400 shadow-[0_0_50px_rgba(var(--${colorClass}-rgb),0.5)] scale-105` 
-        : 'bg-black/30 border-white/10 scale-100'}
+      relative flex-1 w-full max-w-md mx-auto
+      flex flex-col items-center justify-center
+      p-6 rounded-2xl border transition-all duration-500
+      ${isLocked 
+        ? 'bg-gradient-to-br from-indigo-900/80 to-blue-900/80 border-blue-400 shadow-[0_0_40px_rgba(59,130,246,0.6)] transform scale-105' 
+        : 'bg-black/40 border-white/10 scale-100'}
     `}>
-      {/* Background Glow */}
-      <div className={`absolute inset-0 bg-gradient-to-b from-${colorClass}-500/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700`} />
-      
-      {/* Icona Header */}
-      <div className="absolute top-4 left-0 right-0 flex justify-center">
-        <div className={`px-4 py-1 rounded-full bg-${colorClass}-500/20 border border-${colorClass}-500/50 backdrop-blur-md flex items-center gap-2`}>
-          <Icon className={`w-4 h-4 text-${colorClass}-300`} />
-          <span className={`text-xs font-bold uppercase tracking-widest text-${colorClass}-200`}>{title}</span>
-        </div>
+      {/* Etichetta in alto */}
+      <div className="absolute -top-3 bg-black border border-white/20 px-4 py-1 rounded-full flex items-center gap-2 shadow-lg z-10">
+        <Icon className={`w-4 h-4 ${isLocked ? 'text-blue-400' : 'text-gray-400'}`} />
+        <span className={`text-xs font-bold uppercase tracking-wider ${isLocked ? 'text-white' : 'text-gray-400'}`}>
+          {label}
+        </span>
       </div>
 
-      {/* Contenuto Principale */}
-      <div className="relative z-10 flex flex-col items-center justify-center w-full mt-6 space-y-4">
-        {/* Avatar / Icona */}
+      {/* Contenuto */}
+      <div className="flex flex-col items-center gap-4 mt-2 text-center w-full">
+        {/* Cerchio Avatar/Icona */}
         <div className={`
-          relative w-32 h-32 md:w-40 md:h-40 rounded-full border-4 
-          flex items-center justify-center shadow-2xl overflow-hidden bg-gray-900
-          transition-all duration-300
-          ${isSpinning ? 'border-white/30 animate-pulse' : `border-${colorClass}-500 shadow-[0_0_30px_rgba(var(--${colorClass}-rgb),0.6)]`}
+          w-28 h-28 md:w-40 md:h-40 rounded-full border-4 flex items-center justify-center overflow-hidden bg-gray-900 relative
+          ${isSpinning ? 'border-white/20' : isLocked ? 'border-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.5)]' : 'border-gray-700'}
         `}>
           {isSpinning ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center animate-spin-fast blur-sm opacity-50">
-               <Icon className="w-12 h-12 text-white/50" />
+            <div className="animate-spin duration-700">
+              <Zap className="w-10 h-10 text-white/30" />
             </div>
           ) : (
-            displayItem?.avatar_url ? (
-               <img src={displayItem.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+            data.avatar_url ? (
+              <img src={data.avatar_url} alt="" className="w-full h-full object-cover animate-fade-in" />
             ) : (
-               <div className={`text-4xl md:text-5xl font-black text-white`}>
-                 {displayItem?.nickname?.charAt(0).toUpperCase() || <Icon className="w-16 h-16" />}
-               </div>
+              <div className="text-4xl font-black text-white">{data.nickname?.charAt(0) || <Icon />}</div>
             )
           )}
+          
+          {/* Effetto Flash quando si ferma */}
+          {isLocked && <div className="absolute inset-0 bg-white/50 animate-ping-once rounded-full" />}
         </div>
 
         {/* Testo */}
-        <div className="text-center w-full px-2">
+        <div className="w-full min-h-[5rem] flex flex-col items-center justify-center">
           <h2 className={`
-            font-black text-white uppercase tracking-tight leading-none
-            transition-all duration-300 drop-shadow-lg
-            ${isSpinning ? 'text-2xl blur-[2px] opacity-70' : 'text-3xl md:text-4xl scale-110'}
+            font-black uppercase tracking-tight leading-none transition-all duration-300
+            ${isSpinning ? 'text-3xl text-white/50 blur-[2px]' : 'text-4xl md:text-5xl text-white drop-shadow-xl'}
           `}>
-            {isSpinning ? '...' : (displayItem?.nickname || displayItem?.title || '???')}
+            {isSpinning ? '...' : (data.nickname || data.title)}
           </h2>
-          {!isSpinning && displayItem?.artist && (
-            <p className={`text-${colorClass}-300 font-medium text-lg mt-1 animate-fadeIn`}>
-              {displayItem.artist}
+          {!isSpinning && data.artist && (
+            <p className="text-blue-300 font-medium text-lg mt-1 animate-slide-up">
+              {data.artist}
             </p>
           )}
         </div>
@@ -164,239 +117,202 @@ const SlotCard = ({ title, icon: Icon, item, isSpinning, isRevealed, colorClass,
   );
 };
 
-export default function ExtractionModeTV({ extractionData, participants, songs, onComplete }) {
-  const [phase, setPhase] = useState('intro'); // intro, spinning, locked, reveal
-  const [countdown, setCountdown] = useState(3);
+export default function BroadcastExtraction({ extractionData, participants, songs, onComplete }) {
+  const [phase, setPhase] = useState('countdown'); // countdown, spinning, lock1, lock2, end
+  const [count, setCount] = useState(COUNTDOWN_TIME);
   
-  // Stati visuali temporanei per l'animazione
-  const [tempParticipant, setTempParticipant] = useState(participants?.[0]);
-  const [tempSong, setTempSong] = useState(songs?.[0]);
-  
-  const [pSpinning, setPSpinning] = useState(false);
-  const [sSpinning, setSSpinning] = useState(false);
-  const [showConfetti, setShowConfetti] = useState(false);
+  // Dati temporanei per l'animazione
+  const [tempParticipant, setTempParticipant] = useState(participants[0]);
+  const [tempSong, setTempSong] = useState(songs[0]);
 
-  // Helper per scegliere elemento random durante lo spin
-  const getRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
-
+  // Gestione stato animazione
   useEffect(() => {
-    let intervalP, intervalS;
+    let timer;
+    let spinIntervalP;
+    let spinIntervalS;
 
-    // FASE 1: Countdown
-    if (phase === 'intro') {
-      const timer = setInterval(() => {
-        setCountdown((prev) => {
+    // --- FASE 1: COUNTDOWN ---
+    if (phase === 'countdown') {
+      timer = setInterval(() => {
+        setCount((prev) => {
           if (prev <= 1) {
             clearInterval(timer);
             setPhase('spinning');
             return 0;
           }
-          playTickSound();
+          playSound('tick');
           return prev - 1;
         });
       }, 1000);
-      return () => clearInterval(timer);
     }
 
-    // FASE 2: Spinning
+    // --- FASE 2: SPINNING ---
     if (phase === 'spinning') {
-      setPSpinning(true);
-      setSSpinning(true);
-      playDrumRoll(SPIN_DURATION / 1000);
-
-      // Loop visivo veloce Partecipante
-      intervalP = setInterval(() => {
-        setTempParticipant(getRandom(participants));
+      // Slot 1 (Partecipante) gira veloce
+      spinIntervalP = setInterval(() => {
+        setTempParticipant(participants[Math.floor(Math.random() * participants.length)]);
+      }, 80);
+      
+      // Slot 2 (Canzone) gira veloce
+      spinIntervalS = setInterval(() => {
+        setTempSong(songs[Math.floor(Math.random() * songs.length)]);
       }, 80);
 
-      // Loop visivo veloce Canzone
-      intervalS = setInterval(() => {
-        setTempSong(getRandom(songs));
-      }, 80);
-
-      // Stop Partecipante
+      // Ferma Partecipante
       setTimeout(() => {
-        clearInterval(intervalP);
+        clearInterval(spinIntervalP);
         setTempParticipant(extractionData.participant);
-        setPSpinning(false);
-        playTickSound(); // Suono "Lock"
-        
-        // Stop Canzone dopo ritardo
-        setTimeout(() => {
-          clearInterval(intervalS);
-          setTempSong(extractionData.song);
-          setSSpinning(false);
-          setPhase('locked');
-        }, SONG_DELAY);
-        
-      }, SPIN_DURATION);
+        setPhase('lock1');
+        playSound('lock');
+      }, SPIN_DURATION_P);
     }
 
-    // FASE 3: Locked -> Reveal (Flash)
-    if (phase === 'locked') {
+    // --- FASE 3: BLOCCA PARTECIPANTE, ASPETTA CANZONE ---
+    if (phase === 'lock1') {
+      // La canzone sta ancora girando (spinIntervalS è ancora attivo nel cleanup del 'spinning' effect? 
+      // No, in React dobbiamo gestire l'intervallo in modo persistente o ricrearlo.
+      // Soluzione più pulita: ricreare l'intervallo solo per la canzone qui o usare refs. 
+      // Per semplicità, qui facciamo ripartire un intervallo solo per la canzone.
+      spinIntervalS = setInterval(() => {
+        setTempSong(songs[Math.floor(Math.random() * songs.length)]);
+      }, 80);
+
       setTimeout(() => {
-        setPhase('reveal');
-        playVictorySound();
-        setShowConfetti(true);
-      }, REVEAL_DELAY);
+        clearInterval(spinIntervalS);
+        setTempSong(extractionData.song);
+        setPhase('lock2'); // Tutto fermo
+        playSound('lock');
+      }, SPIN_DURATION_S - SPIN_DURATION_P);
     }
-    
-    // FASE 4: Completamento
-    if (phase === 'reveal') {
-       const endTimer = setTimeout(() => {
-         if (onComplete) onComplete();
-       }, 5000);
-       return () => clearTimeout(endTimer);
+
+    // --- FASE 4: VITTORIA & CHIUSURA ---
+    if (phase === 'lock2') {
+      setTimeout(() => {
+        setPhase('end');
+        playSound('win');
+        
+        // Timer per chiusura automatica (come richiesto)
+        setTimeout(() => {
+          if (onComplete) onComplete();
+        }, AUTO_CLOSE_DELAY);
+
+      }, 500);
     }
 
     return () => {
-      if (intervalP) clearInterval(intervalP);
-      if (intervalS) clearInterval(intervalS);
+      clearInterval(timer);
+      clearInterval(spinIntervalP);
+      clearInterval(spinIntervalS);
     };
   }, [phase, participants, songs, extractionData, onComplete]);
 
+  // Calcolo stati booleani per render
+  const isSpinningP = phase === 'spinning';
+  const isSpinningS = phase === 'spinning' || phase === 'lock1';
+  const isLockedP = phase === 'lock1' || phase === 'lock2' || phase === 'end';
+  const isLockedS = phase === 'lock2' || phase === 'end';
+  const isCelebration = phase === 'end';
+
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center overflow-hidden bg-black text-white font-sans">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black overflow-hidden font-sans">
       <style>{`
-        /* Variabili colore dinamiche per Tailwind JIT o custom */
-        :root {
-          --fuchsia-rgb: 217, 70, 239;
-          --cyan-rgb: 34, 211, 238;
+        @keyframes scanline {
+          0% { transform: translateY(-100%); }
+          100% { transform: translateY(100%); }
         }
-        @keyframes spotlight {
-          0% { transform: rotate(45deg) translateX(-20%); opacity: 0.4; }
-          50% { transform: rotate(35deg) translateX(0%); opacity: 0.8; }
-          100% { transform: rotate(45deg) translateX(-20%); opacity: 0.4; }
+        .animate-ping-once {
+          animation: ping 0.5s cubic-bezier(0, 0, 0.2, 1) forwards;
         }
-        @keyframes spotlight-r {
-          0% { transform: rotate(-45deg) translateX(20%); opacity: 0.4; }
-          50% { transform: rotate(-35deg) translateX(0%); opacity: 0.8; }
-          100% { transform: rotate(-45deg) translateX(20%); opacity: 0.4; }
-        }
-        @keyframes spin-fast {
-          0% { transform: translateY(-10%); }
-          100% { transform: translateY(10%); }
-        }
-        .animate-spin-fast {
-          animation: spin-fast 0.1s linear infinite alternate;
-        }
-        .bg-grid-pattern {
-          background-image: linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-          background-size: 40px 40px;
+        .bg-grid-tech {
+          background-size: 50px 50px;
+          background-image: 
+            linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
         }
       `}</style>
 
-      {/* --- BACKGROUND LAYER --- */}
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-indigo-900 via-black to-black"></div>
-      <div className="absolute inset-0 bg-grid-pattern opacity-20"></div>
+      {/* BACKGROUND TECH */}
+      <div className="absolute inset-0 bg-gradient-to-b from-gray-900 via-black to-blue-950"></div>
+      <div className="absolute inset-0 bg-grid-tech opacity-30"></div>
       
-      {/* Riflettori */}
-      <div className="absolute top-[-50%] left-[-20%] w-[80vh] h-[200vh] bg-white/5 blur-[80px] origin-top animate-[spotlight_8s_ease-in-out_infinite]" />
-      <div className="absolute top-[-50%] right-[-20%] w-[80vh] h-[200vh] bg-fuchsia-500/10 blur-[80px] origin-top animate-[spotlight-r_8s_ease-in-out_infinite]" />
-      
-      {/* Confetti (Semplificati CSS) */}
-      {showConfetti && (
-        <div className="absolute inset-0 pointer-events-none">
-          {Array.from({ length: 50 }).map((_, i) => (
-            <div 
-              key={i}
-              className="absolute w-2 h-2 bg-yellow-400 rounded-full animate-pulse"
-              style={{
-                top: '-10px',
-                left: `${Math.random() * 100}%`,
-                animation: `fall ${2 + Math.random() * 3}s linear forwards`,
-                backgroundColor: ['#FFD700', '#FF00FF', '#00FFFF'][Math.floor(Math.random() * 3)]
-              }}
-            />
-          ))}
-          <style>{`
-            @keyframes fall {
-              to { transform: translateY(110vh) rotate(720deg); }
-            }
-          `}</style>
-        </div>
-      )}
+      {/* SCANLINE EFFECT (TV VECCHIA) */}
+      <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-transparent via-white/5 to-transparent h-1/4 animate-[scanline_4s_linear_infinite] opacity-30"></div>
 
-      {/* --- CONTENT LAYER --- */}
-      <div className="relative z-10 w-full max-w-7xl h-full flex flex-col justify-center items-center px-4 py-6 md:py-12">
+      {/* HEADER LIVE */}
+      <div className="absolute top-6 left-0 right-0 flex justify-center z-20">
+        <div className="flex items-center gap-3 bg-black/60 backdrop-blur border border-white/10 px-6 py-2 rounded-full">
+          <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse shadow-[0_0_10px_red]"></div>
+          <span className="text-white font-bold tracking-widest text-sm">LIVE MATCH</span>
+          <Radio className="w-4 h-4 text-gray-400" />
+        </div>
+      </div>
+
+      {/* MAIN STAGE */}
+      <div className="relative z-10 w-full max-w-5xl px-4 flex flex-col md:flex-row items-center justify-center gap-8 md:gap-12">
         
-        {/* Header Logo */}
-        <div className="absolute top-6 md:top-12 flex flex-col items-center">
-          <div className="flex items-center gap-3 mb-2">
-            <Star className="w-6 h-6 text-yellow-400 fill-yellow-400 animate-spin-slow" />
-            <h1 className="text-2xl md:text-3xl font-black tracking-[0.5em] uppercase text-transparent bg-clip-text bg-gradient-to-r from-yellow-200 via-yellow-400 to-yellow-200 drop-shadow-sm">
-              Talent Show
-            </h1>
-            <Star className="w-6 h-6 text-yellow-400 fill-yellow-400 animate-spin-slow" />
+        {phase === 'countdown' ? (
+          <div className="scale-150 transform transition-all duration-300">
+             <div className="text-[10rem] md:text-[15rem] font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-600 leading-none">
+               {count}
+             </div>
           </div>
-          <div className="h-1 w-32 bg-gradient-to-r from-transparent via-yellow-500 to-transparent"></div>
-        </div>
-
-        {/* FASE COUNTDOWN */}
-        {phase === 'intro' && (
-          <div className="flex items-center justify-center scale-150">
-            <div className="text-[12rem] md:text-[20rem] font-black text-white leading-none relative">
-              <span className="absolute inset-0 blur-3xl text-fuchsia-600 animate-pulse">{countdown}</span>
-              <span className="relative bg-gradient-to-b from-white to-gray-400 bg-clip-text text-transparent">
-                {countdown}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* FASE ESTRAZIONE */}
-        {phase !== 'intro' && (
-          <div className="w-full flex flex-col md:flex-row items-center justify-center gap-6 md:gap-12 mt-12 md:mt-0 flex-1">
-            
+        ) : (
+          <>
             {/* Slot Partecipante */}
-            <div className="w-full h-[40vh] md:h-auto md:flex-1 flex justify-center">
-              <SlotCard 
-                title="Concorrente"
-                icon={Mic2}
-                item={tempParticipant}
-                isSpinning={pSpinning}
-                isRevealed={phase === 'reveal'}
-                colorClass="fuchsia"
-              />
-            </div>
+            <ExtractionCard 
+              label="Player"
+              icon={User}
+              data={tempParticipant}
+              isSpinning={isSpinningP}
+              isLocked={isLockedP}
+            />
 
-            {/* VS Badge (Desktop) / Divider (Mobile) */}
-            <div className="shrink-0 flex items-center justify-center">
-               <div className="w-12 h-12 md:w-16 md:h-16 rounded-full bg-gradient-to-br from-yellow-400 to-orange-600 flex items-center justify-center shadow-[0_0_30px_rgba(234,179,8,0.6)] border-4 border-black z-20">
-                 <span className="font-black text-black text-xl md:text-2xl italic">VS</span>
-               </div>
+            {/* Elemento Centrale VS */}
+            <div className="flex flex-col items-center justify-center shrink-0">
+              <div className={`
+                w-12 h-12 rounded-full border-2 flex items-center justify-center bg-black
+                transition-all duration-500
+                ${isCelebration ? 'border-yellow-400 scale-125 shadow-[0_0_30px_yellow]' : 'border-gray-700 text-gray-500'}
+              `}>
+                <span className="font-black text-sm italic">VS</span>
+              </div>
             </div>
 
             {/* Slot Canzone */}
-            <div className="w-full h-[40vh] md:h-auto md:flex-1 flex justify-center">
-              <SlotCard 
-                title="Canzone Assegnata"
-                icon={Music2}
-                item={tempSong}
-                isSpinning={sSpinning}
-                isRevealed={phase === 'reveal'}
-                colorClass="cyan" // Usa un colore diverso per contrasto
-              />
-            </div>
-
-          </div>
+            <ExtractionCard 
+              label="Track"
+              icon={Music}
+              data={tempSong}
+              isSpinning={isSpinningS}
+              isLocked={isLockedS}
+            />
+          </>
         )}
+      </div>
 
-        {/* MESSAGGIO VITTORIA */}
-        {phase === 'reveal' && (
-          <div className="absolute bottom-10 md:bottom-20 animate-bounce-in">
-             <div className="bg-white/10 backdrop-blur-md border border-white/20 px-8 py-4 rounded-full shadow-[0_0_50px_rgba(255,255,255,0.2)]">
-               <span className="text-xl md:text-3xl font-bold text-white uppercase tracking-widest flex items-center gap-4">
-                 <Trophy className="w-8 h-8 text-yellow-400" />
-                 Abbinamento Confermato!
-                 <Trophy className="w-8 h-8 text-yellow-400" />
-               </span>
+      {/* OVERLAY VITTORIA (PARTICELLE/LUCE) */}
+      {isCelebration && (
+        <div className="absolute inset-0 pointer-events-none z-0">
+          <div className="absolute inset-0 bg-blue-500/10 mix-blend-overlay animate-pulse"></div>
+          {/* Semplici particelle CSS */}
+          {Array.from({ length: 20 }).map((_, i) => (
+            <div 
+              key={i}
+              className="absolute w-1 h-1 bg-white rounded-full"
+              style={{
+                top: `${Math.random() * 100}%`,
+                left: `${Math.random() * 100}%`,
+                animation: `pulse 1s infinite ${Math.random()}s`
+              }}
+            />
+          ))}
+          <div className="absolute bottom-10 left-0 right-0 text-center animate-bounce">
+             <div className="inline-flex items-center gap-2 px-6 py-2 bg-yellow-400/20 border border-yellow-400/50 rounded-full text-yellow-200 uppercase text-sm font-bold tracking-widest shadow-[0_0_20px_rgba(250,204,21,0.3)]">
+               <Sparkles className="w-4 h-4" /> Match Found <Sparkles className="w-4 h-4" />
              </div>
           </div>
-        )}
-
-      </div>
+        </div>
+      )}
     </div>
   );
 }
