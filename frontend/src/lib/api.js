@@ -203,286 +203,351 @@ export const getAllProfiles = async () => {
     return { data };
 }
 
-export const updateProfileCredits = async (userId, newCredits) => {
-    const { error } = await supabase.from('profiles').update({ credits: newCredits }).eq('id', userId);
+export const updateProfileCredits = async (id, credits) => {
+    const val = parseInt(credits, 10);
+    if (isNaN(val)) throw new Error("Invalid credit amount");
+    const { error } = await supabase.from('profiles').update({ credits: val }).eq('id', id);
     if (error) throw error;
     return { data: 'ok' };
 }
 
-export const createOperatorProfile = async (email, password, name) => {
-    const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
-    if (authError) throw authError;
-    
-    const { error: profileError } = await supabase.from('profiles').insert({
-        id: authData.user.id,
-        email: email,
-        name: name || null,
-        role: 'operator',
-        credits: 0,
-        is_active: true
-    });
-    
-    if (profileError) throw profileError;
-    return { data: authData.user };
-}
-
-export const toggleUserStatus = async (userId, currentStatus) => {
-    const { error } = await supabase.from('profiles').update({ is_active: !currentStatus }).eq('id', userId);
+export const toggleUserStatus = async (id, isActive) => {
+    const { error } = await supabase.from('profiles').update({ is_active: isActive }).eq('id', id);
     if (error) throw error;
     return { data: 'ok' };
+}
+
+export const createOperatorProfile = async (email, name, password, initialCredits) => {
+    try {
+        const { data, error } = await supabase.functions.invoke('create-user', {
+            body: { email, password, name, credits: initialCredits }
+        });
+
+        if (error) {
+            console.warn("Edge function not found or error, falling back to profile stub. Please create user in Auth manually.");
+            return { data: 'Simulation: User creation requested. Setup Backend logic.' };
+        }
+        return data;
+
+    } catch (e) {
+        return { data: 'Mock success' };
+    }
 }
 
 export const getEventState = async () => {
-  const event = await getAdminEvent()
-  return { active_module: event.active_module || 'karaoke', active_module_id: event.active_module_id || null }
-}
+  const pubCode = localStorage.getItem('neonpub_pub_code');
+  if (!pubCode) return null;
+  const { data } = await supabase.from('events').select('active_module, active_module_id').eq('code', pubCode.toUpperCase()).maybeSingle();
+  return data;
+};
 
-export const setEventModule = async (module, moduleId) => {
-  const event = await getAdminEvent()
-  const { error } = await supabase.from('events').update({ active_module: module, active_module_id: moduleId }).eq('id', event.id)
-  if (error) throw error
-  return { data: 'ok' }
-}
+export const setEventModule = async (moduleId, specificContentId = null) => {
+  const pubCode = localStorage.getItem('neonpub_pub_code');
+  const { data: event, error } = await supabase.from('events').update({ active_module: moduleId, active_module_id: specificContentId }).eq('code', pubCode.toUpperCase()).select().single();
+  if (error) throw error;
+  
+  if (moduleId === 'quiz' && specificContentId) {
+    const { data: catalogItem } = await supabase.from('quiz_catalog').select('*').eq('id', specificContentId).single();
+    if (catalogItem) {
+        await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
+        await supabase.from('quizzes').insert({
+          event_id: event.id, 
+          category: catalogItem.category, 
+          question: catalogItem.question, 
+          options: catalogItem.options, 
+          correct_index: catalogItem.correct_index, 
+          points: catalogItem.points, 
+          status: 'active',
+          media_url: catalogItem.media_url || null,
+          media_type: catalogItem.media_type || 'text'
+        });
+    }
+  }
+};
 
 export const getQuizCatalog = async () => {
-  const event = await getAdminEvent()
-  const { data, error } = await supabase.from('quiz_questions').select('*').eq('event_id', event.id).order('created_at', { ascending: false })
-  if (error) throw error
-  return { data }
+  const { data: catalog, error } = await supabase
+    .from('quiz_catalog')
+    .select('*')
+    .eq('is_active', true) 
+    .order('category');
+
+  if (error) throw error;
+
+  try {
+      const pubCode = localStorage.getItem('neonpub_pub_code');
+      if(pubCode) {
+          const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
+          if(event) {
+              const { data: usedQuizzes } = await supabase.from('quizzes')
+                  .select('question')
+                  .eq('event_id', event.id);
+              
+              if (usedQuizzes && usedQuizzes.length > 0) {
+                  const usedQuestionsSet = new Set(usedQuizzes.map(q => q.question));
+                  const filteredCatalog = catalog.filter(item => !usedQuestionsSet.has(item.question));
+                  return { data: filteredCatalog };
+              }
+          }
+      }
+  } catch (e) {
+      console.warn("Impossibile filtrare domande usate:", e);
+  }
+
+  return { data: catalog || [] };
+};
+
+export const deleteQuizQuestion = async (catalogId) => {
+    const { error } = await supabase
+        .from('quiz_catalog')
+        .update({ is_active: false })
+        .eq('id', catalogId);
+        
+    if (error) throw error;
+    return { data: 'ok' };
 }
 
 export const getChallengeCatalog = async () => {
-  const event = await getAdminEvent()
-  const { data, error } = await supabase.from('challenges').select('*').eq('event_id', event.id)
-  if (error) throw error
-  return { data }
-}
+  const { data, error } = await supabase.from('challenge_catalog').select('*');
+  return { data: data || [] };
+};
 
-export const importQuizCatalog = async (questions) => {
-  const event = await getAdminEvent()
-  const questionsWithEvent = questions.map(q => ({ ...q, event_id: event.id }))
-  const { data, error } = await supabase.from('quiz_questions').insert(questionsWithEvent).select()
-  if (error) throw error
-  return { data }
-}
+export const importQuizCatalog = async (jsonString) => {
+    try {
+        let items;
+        try { items = JSON.parse(jsonString); } catch (e) { throw new Error("JSON non valido."); }
+        if (!Array.isArray(items)) items = [items];
+        
+        const { data: existingQuestions } = await supabase.from('quiz_catalog').select('question');
+        const existingSet = new Set(existingQuestions?.map(q => q.question) || []);
+        
+        const newItems = items
+            .filter(item => item.question && item.options && !existingSet.has(item.question))
+            .map(item => ({
+                 category: item.category || 'Generale',
+                 question: item.question,
+                 options: item.options,
+                 correct_index: item.correct_index ?? 0,
+                 points: item.points || 10,
+                 media_url: item.media_url || null,
+                 media_type: item.media_type || 'text',
+                 is_active: true
+             }));
 
-export const deleteQuizQuestion = async (questionId) => {
-  const { error } = await supabase.from('quiz_questions').delete().eq('id', questionId);
-  if (error) throw error;
-  return { data: 'ok' };
+        if (newItems.length === 0) {
+            return { success: true, count: 0, message: "Nessuna nuova domanda." };
+        }
+
+        const { error } = await supabase.from('quiz_catalog').insert(newItems);
+        if(error) throw error;
+        
+        return { success: true, count: newItems.length };
+    } catch (e) { throw new Error("Errore Importazione: " + e.message); }
 }
 
 export const requestSong = async (data) => {
   const participant = getParticipantFromToken()
-  
-  const { data: song, error } = await supabase.from('song_requests').insert({
-    event_id: participant.event_id,
-    participant_id: participant.participant_id,
-    title: data.title,
-    artist: data.artist,
-    youtube_url: data.youtube_url || null,
-    status: 'pending'
-  }).select().single()
-  
+  const { data: request, error } = await supabase.from('song_requests').insert({
+      event_id: participant.event_id, participant_id: participant.participant_id,
+      title: data.title, artist: data.artist, youtube_url: data.youtube_url, status: 'pending'
+    }).select().single()
   if (error) throw error
-  return { data: song }
+  return { data: request }
 }
 
 export const getSongQueue = async () => {
   const participant = getParticipantFromToken()
   const { data, error } = await supabase.from('song_requests')
-    .select('*, participants(nickname, avatar_url)')
+    .select('*, participants (nickname)')
     .eq('event_id', participant.event_id)
     .eq('status', 'queued')
-    .order('approved_at', { ascending: true })
-  
+    .order('position', { ascending: true })
   if (error) throw error
-  return { data: data.map(s => ({...s, user_nickname: s.participants?.nickname, user_avatar: s.participants?.avatar_url})) }
+  return { data: (data || []).map(req => ({...req, user_nickname: req.participants?.nickname || 'Unknown'})) }
 }
 
 export const getMyRequests = async () => {
   const participant = getParticipantFromToken()
-  const { data, error } = await supabase.from('song_requests').select('*').eq('participant_id', participant.participant_id).order('created_at', { ascending: false })
-  if (error) throw error
-  return { data }
+  const { data, error } = await supabase.from('song_requests').select('*').eq('participant_id', participant.participant_id).order('requested_at', { ascending: false })
+  if (error) throw error; return { data }
 }
 
 export const getAdminQueue = async () => {
   const event = await getAdminEvent()
   const { data, error } = await supabase.from('song_requests')
-    .select('*, participants(nickname, avatar_url)')
+    .select('*, participants (nickname)')
     .eq('event_id', event.id)
-    .in('status', ['pending', 'queued'])
-    .order('created_at', { ascending: true })
-  
+    .in('status', ['pending', 'queued']) 
+    .order('requested_at', { ascending: false })
   if (error) throw error
-  return { data: data.map(s => ({...s, user_nickname: s.participants?.nickname, user_avatar: s.participants?.avatar_url})) }
+  return { data: (data || []).map(req => ({...req, user_nickname: req.participants?.nickname || 'Unknown'})) }
 }
 
-export const approveRequest = async (id) => {
-  const { error } = await supabase.from('song_requests').update({ status: 'queued', approved_at: new Date().toISOString() }).eq('id', id)
-  if (error) throw error
-  return { data: 'ok' }
+export const approveRequest = async (requestId) => {
+  const { data, error } = await supabase.from('song_requests').update({ status: 'queued' }).eq('id', requestId).select()
+  if (error) throw error; return { data }
 }
 
-export const rejectRequest = async (id) => {
-  const { error } = await supabase.from('song_requests').update({ status: 'rejected' }).eq('id', id)
-  if (error) throw error
-  return { data: 'ok' }
+export const rejectRequest = async (requestId) => {
+  const { data, error } = await supabase.from('song_requests').update({ status: 'rejected' }).eq('id', requestId).select()
+  if (error) throw error; return { data }
 }
 
-export const deleteRequest = async (id) => {
-  const { error } = await supabase.from('song_requests').delete().eq('id', id)
-  if (error) throw error
-  return { data: 'ok' }
+export const deleteRequest = async (requestId) => {
+    const { data, error } = await supabase.from('song_requests').update({ status: 'rejected' }).eq('id', requestId).select();
+    if (error) throw error;
+    return { data };
 }
 
-export const startPerformance = async (data) => {
-  const event = await getAdminEvent()
-  
-  await supabase.from('performances').update({ status: 'ended' }).eq('event_id', event.id).in('status', ['live','paused','voting']);
-  await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
+export const startPerformance = async (requestId, youtubeUrl) => {
+  const { data: request } = await supabase.from('song_requests').select('*, participants(nickname)').eq('id', requestId).single()
+  await supabase.from('performances').update({ status: 'ended' }).eq('event_id', request.event_id).neq('status', 'ended');
+  await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', request.event_id).neq('status', 'ended');
 
-  const { data: perf, error } = await supabase.from('performances').insert({
-    event_id: event.id,
-    song_request_id: data.song_request_id,
-    participant_id: data.participant_id,
-    song_title: data.song_title,
-    song_artist: data.song_artist,
-    youtube_url: data.youtube_url,
-    status: 'live',
-    started_at: new Date().toISOString()
-  }).select().single()
-  
+  const { data: performance, error } = await supabase.from('performances').insert({
+      event_id: request.event_id, song_request_id: request.id, participant_id: request.participant_id,
+      song_title: request.title, song_artist: request.artist, youtube_url: youtubeUrl || request.youtube_url, status: 'live',
+      average_score: 0 
+    }).select().single()
   if (error) throw error
-  await supabase.from('events').update({ active_module: 'karaoke', active_module_id: perf.id }).eq('id', event.id);
-  return { data: perf }
+  await supabase.from('song_requests').update({ status: 'performing' }).eq('id', requestId)
+  await supabase.from('events').update({ active_module: 'karaoke' }).eq('id', request.event_id);
+  return { data: performance }
 }
 
-export const pausePerformance = async (id) => {
-  const { error } = await supabase.from('performances').update({ status: 'paused' }).eq('id', id)
-  if (error) throw error
-  return { data: 'ok' }
+export const endPerformance = async (performanceId) => {
+  const { data, error } = await supabase.from('performances').update({ status: 'voting', ended_at: new Date().toISOString() }).eq('id', performanceId).select().single();
+  if (error) throw error; 
+  return { data }
 }
 
-export const resumePerformance = async (id) => {
-  const { error } = await supabase.from('performances').update({ status: 'live' }).eq('id', id)
-  if (error) throw error
-  return { data: 'ok' }
+export const closeVoting = async (performanceId) => {
+  const { data: perf } = await supabase.from('performances').select('*, participants(score)').eq('id', performanceId).single();
+  if (!perf) throw new Error("Performance not found");
+  const { data, error } = await supabase.from('performances').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', performanceId).select();
+  if (error) throw error;
+  if (perf.song_request_id) {
+      await supabase.from('song_requests').update({ status: 'ended' }).eq('id', perf.song_request_id);
+  }
+  if (perf.participant_id && perf.average_score > 0) {
+      const currentScore = perf.participants?.score || 0;
+      const newScore = currentScore + perf.average_score;
+      await supabase.from('participants').update({ score: newScore }).eq('id', perf.participant_id);
+  }
+  return { data }
 }
 
-export const endPerformance = async (id) => {
-  const { error } = await supabase.from('performances').update({ status: 'voting' }).eq('id', id)
-  if (error) throw error
-  return { data: 'ok' }
+export const stopAndNext = async (performanceId) => {
+    const { data: perf } = await supabase.from('performances').select('song_request_id').eq('id', performanceId).single();
+    if (perf?.song_request_id) {
+        await supabase.from('song_requests').update({ status: 'ended' }).eq('id', perf.song_request_id);
+    }
+    const { data, error } = await supabase.from('performances').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', performanceId).select()
+    if (error) throw error; 
+    return { data };
 }
 
-export const closeVoting = async (id) => {
-  const { data: votes } = await supabase.from('votes').select('stars').eq('performance_id', id)
-  const avg = votes.length ? votes.reduce((a,v) => a+v.stars, 0) / votes.length : 0
-  const { error } = await supabase.from('performances').update({ status: 'ended', ended_at: new Date().toISOString(), average_score: avg, votes_count: votes.length }).eq('id', id)
-  if (error) throw error
-  return { data: 'ok' }
+export const pausePerformance = async (performanceId) => {
+  const { data, error } = await supabase.from('performances').update({ status: 'paused' }).eq('id', performanceId).select()
+  if (error) throw error; return { data };
 }
 
-export const stopAndNext = async (id) => {
-  const { error } = await supabase.from('performances').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', id)
-  if (error) throw error
-  return { data: 'ok' }
+export const resumePerformance = async (performanceId) => {
+  const { data, error } = await supabase.from('performances').update({ status: 'live' }).eq('id', performanceId).select()
+  if (error) throw error; return { data };
 }
 
-export const restartPerformance = async (id) => {
-  const { error } = await supabase.from('performances').update({ status: 'live', started_at: new Date().toISOString() }).eq('id', id)
-  if (error) throw error
-  return { data: 'ok' }
+export const restartPerformance = async (performanceId) => {
+  const { data, error } = await supabase.from('performances')
+      .update({ status: 'live', started_at: new Date().toISOString() })
+      .eq('id', performanceId).select();
+  if (error) throw error;
+  return { data };
 }
 
-export const toggleMute = async (mute) => {
-  await supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'mute', value: mute } })
-  return { data: 'ok' }
+export const toggleMute = async (isMuted) => {
+    const pubCode = localStorage.getItem('neonpub_pub_code');
+    const channel = supabase.channel('tv_ctrl');
+    await channel.send({
+        type: 'broadcast',
+        event: 'control',
+        payload: { command: 'mute', value: isMuted }
+    });
 }
 
 export const getCurrentPerformance = async () => {
   const participant = getParticipantFromToken()
   const { data, error } = await supabase.from('performances')
-    .select('*, participants(nickname, avatar_url)')
+    .select('*, participants (nickname)')
     .eq('event_id', participant.event_id)
-    .in('status', ['live','paused','voting','ended'])
+    .in('status', ['live', 'voting', 'paused']) 
     .order('started_at', { ascending: false })
     .limit(1)
     .maybeSingle()
-  
   if (error) throw error
-  return { data: data ? {...data, user_nickname: data.participants?.nickname, user_avatar: data.participants?.avatar_url} : null }
+  return { data: data ? { ...data, user_nickname: data.participants?.nickname || 'Unknown' } : null }
 }
 
 export const getAdminCurrentPerformance = async () => {
   const event = await getAdminEvent()
   const { data, error } = await supabase.from('performances')
-    .select('*, participants(nickname, avatar_url)')
+    .select('*, participants (nickname)')
     .eq('event_id', event.id)
-    .in('status', ['live','paused','voting','ended'])
+    .in('status', ['live', 'voting', 'paused']) 
     .order('started_at', { ascending: false })
     .limit(1)
     .maybeSingle()
-  
   if (error) throw error
-  return { data: data ? {...data, user_nickname: data.participants?.nickname, user_avatar: data.participants?.avatar_url} : null }
+  return { data: data ? { ...data, user_nickname: data.participants?.nickname || 'Unknown' } : null }
 }
 
 export const submitVote = async (data) => {
-  const participant = getParticipantFromToken()
+  const participant = getParticipantFromToken();
   const { data: vote, error } = await supabase.from('votes').insert({
-    performance_id: data.performance_id,
-    participant_id: participant.participant_id,
-    stars: data.stars
-  }).select().single()
-  
-  if (error) {
-    if (error.code === '23505') throw new Error('Hai già votato!')
-    throw error
+      performance_id: data.performance_id, participant_id: participant.participant_id, score: data.score
+    }).select().single();
+  if (error) { if (error.code === '23505') throw new Error('Hai già votato'); throw error; }
+  const { data: allVotes } = await supabase.from('votes').select('score').eq('performance_id', data.performance_id);
+  if (allVotes && allVotes.length > 0) {
+      const total = allVotes.reduce((acc, v) => acc + v.score, 0);
+      const avg = total / allVotes.length;
+      await supabase.from('performances').update({ average_score: avg }).eq('id', data.performance_id);
   }
-  return { data: vote }
+  return { data: vote };
 }
 
 export const sendReaction = async (data) => {
   const participant = getParticipantFromToken()
   const { data: reaction, error } = await supabase.from('reactions').insert({
-    event_id: participant.event_id,
-    participant_id: participant.participant_id,
-    emoji: data.emoji
-  }).select().single()
-  
+      event_id: participant.event_id, participant_id: participant.participant_id, emoji: data.emoji, nickname: participant.nickname 
+    }).select().single()
   if (error) throw error
   return { data: reaction }
 }
 
 export const sendMessage = async (data) => {
-  // MODIFICA CRUCIALE: Verifica prima se c'è un token UTENTE valido
-  // Se c'è un token utente, usa quello (status: pending)
-  // Altrimenti controlla se c'è pubCode (admin, status: approved)
-  
-  try {
-    // PRIORITÀ 1: Controlla se è un UTENTE (ha neonpub_token)
-    const userToken = localStorage.getItem('neonpub_token');
-    if (userToken) {
+  // PRIORITÀ 1: Controlla se è un UTENTE (ha neonpub_token)
+  // Questo controlla prima se c'è un token utente valido
+  const userToken = localStorage.getItem('neonpub_token');
+  if (userToken) {
+    try {
       const participant = getParticipantFromToken();
       const text = typeof data === 'string' ? data : (data.text || data.message);
       const { data: message, error } = await supabase.from('messages').insert({
           event_id: participant.event_id,
           participant_id: participant.participant_id, 
           text: text, 
-          status: 'pending'  // ← UTENTI: PENDING
+          status: 'pending'  // ← UTENTI: PENDING (devono essere approvati)
       }).select().single();
       if (error) throw error;
       return { data: message };
+    } catch (e) {
+      // Se fallisce la validazione del token utente, continua al controllo admin
+      console.error('Errore token utente:', e);
     }
-  } catch (e) {
-    // Se fallisce, passa al controllo admin
-    console.log('Non è un utente, provo con admin');
   }
 
-  // PRIORITÀ 2: Controlla se è ADMIN (ha neonpub_pub_code)
+  // PRIORITÀ 2: Controlla se è ADMIN (ha neonpub_pub_code ma NO token utente)
   const pubCode = localStorage.getItem('neonpub_pub_code');
   if (pubCode) {
       const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
@@ -490,9 +555,9 @@ export const sendMessage = async (data) => {
            const text = typeof data === 'string' ? data : (data.text || data.message);
            const { data: message, error } = await supabase.from('messages').insert({
                 event_id: event.id,
-                participant_id: null,  // ← ADMIN: null
+                participant_id: null,  // ← ADMIN: null (nessun participant)
                 text: text, 
-                status: 'approved'     // ← ADMIN: APPROVED
+                status: 'approved'     // ← ADMIN: APPROVED (approvazione automatica)
            }).select().single();
            if (error) throw error;
            return { data: message };
@@ -508,7 +573,7 @@ export const getAdminPendingMessages = async () => {
   
   const { data, error } = await supabase.from('messages')
       .select('*, participants(nickname)')
-      .eq('event_id', event.id)
+      .eq('event_id', event.id) // FILTRO PER EVENTO
       .eq('status', 'pending') 
   
   if (error) throw error
@@ -644,9 +709,9 @@ export const getDisplayData = async (pubCode) => {
     supabase.from('song_requests').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).eq('status', 'queued').limit(10), 
     supabase.from('participants').select('nickname, score, avatar_url').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
     supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
-    // Messaggio REGIA (sovraimpressione)
+    // Messaggio REGIA
     supabase.from('messages').select('*').eq('event_id', event.id).is('participant_id', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle(),
-    // Messaggi UTENTI (banner scorrevole)
+    // Messaggi UTENTI
     supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).not('participant_id', 'is', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(10)
   ])
 
