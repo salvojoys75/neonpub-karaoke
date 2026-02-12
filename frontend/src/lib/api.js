@@ -218,8 +218,14 @@ export const toggleUserStatus = async (id, isActive) => {
 }
 
 export const createOperatorProfile = async (email, name, password, initialCredits) => {
+    // Get the current user's session token
+    const { data: { session } } = await supabase.auth.getSession();
+    
     const { data, error } = await supabase.functions.invoke('create-user', {
-        body: { email, password, name, credits: initialCredits }
+        body: { email, password, name, credits: initialCredits },
+        headers: {
+            Authorization: `Bearer ${session?.access_token}`
+        }
     });
 
     if (error) {
