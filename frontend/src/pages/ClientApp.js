@@ -81,7 +81,7 @@ export default function ClientApp() {
   };
 
   const handleVote = async () => {
-    if (selectedStars === 0) return; try { await api.submitVote({ performance_id: currentPerformance.id, stars: selectedStars }); toast.success(`Hai votato ${selectedStars} stelle!`); setHasVoted(true); setShowVoteModal(false); } catch (error) { toast.error(error.message || "Errore voto"); }
+    if (selectedStars === 0) return; try { await api.submitVote({ performance_id: currentPerformance.id, score: selectedStars }); toast.success(`Hai votato ${selectedStars} stelle!`); setHasVoted(true); setShowVoteModal(false); } catch (error) { toast.error(error.message || "Errore voto"); }
   };
 
   const handleReaction = async (emoji) => {
