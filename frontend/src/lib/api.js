@@ -1049,8 +1049,8 @@ export const extractRandomKaraoke = async (options = {}) => {
       .insert({
         event_id: event.id,
         participant_id: participant.id,
-        song_title: song.title,
-        song_artist: song.artist,
+        title: song.title,
+        artist: song.artist,
         status: 'queued'
       })
       .select('*, participants(nickname, avatar_url)')
