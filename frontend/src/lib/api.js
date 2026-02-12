@@ -704,9 +704,9 @@ export const getDisplayData = async (pubCode) => {
 
   // FIX: Filtri rigorosi per event_id su TUTTE le tabelle
   const [perf, queue, lb, activeQuiz, adminMsg, approvedMsgs] = await Promise.all([
-    supabase.from('performances').select('*, participants(nickname)').eq('event_id', event.id).in('status', ['live','voting','paused','ended']).order('started_at', {ascending: false}).limit(1).maybeSingle(),
-    supabase.from('song_requests').select('*, participants(nickname)').eq('event_id', event.id).eq('status', 'queued').limit(10), 
-    supabase.from('participants').select('nickname, score').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
+    supabase.from('performances').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).in('status', ['live','voting','paused','ended']).order('started_at', {ascending: false}).limit(1).maybeSingle(),
+    supabase.from('song_requests').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).eq('status', 'queued').limit(10), 
+    supabase.from('participants').select('nickname, score, avatar_url').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
     supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
     // Messaggio REGIA
     supabase.from('messages').select('*').eq('event_id', event.id).is('participant_id', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle(),
@@ -714,7 +714,7 @@ export const getDisplayData = async (pubCode) => {
     supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).not('participant_id', 'is', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(10)
   ])
 
-  let currentPerformance = perf.data ? {...perf.data, user_nickname: perf.data.participants?.nickname} : null;
+  let currentPerformance = perf.data ? {...perf.data, user_nickname: perf.data.participants?.nickname, user_avatar: perf.data.participants?.avatar_url} : null;
   if (currentPerformance && currentPerformance.status === 'ended') {
       const endedAt = new Date(currentPerformance.ended_at);
       const now = new Date();
@@ -727,7 +727,7 @@ export const getDisplayData = async (pubCode) => {
     data: {
       pub: event,
       current_performance: currentPerformance,
-      queue: queue.data?.map(q => ({...q, user_nickname: q.participants?.nickname})),
+      queue: queue.data?.map(q => ({...q, user_nickname: q.participants?.nickname, user_avatar: q.participants?.avatar_url})),
       leaderboard: lb.data,
       active_quiz: activeQuiz.data,
       admin_message: adminMsg.data,
