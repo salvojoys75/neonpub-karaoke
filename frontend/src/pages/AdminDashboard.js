@@ -612,14 +612,15 @@ export default function AdminDashboard() {
   const launchCustomQuiz = async () => {
       try {
           await api.startQuiz({
-              category: quizCategory, 
-              question: quizQuestion, 
-              options: quizOptions, 
-              correct_index: quizCorrectIndex, 
-              points: 10,
-              media_url: quizMediaUrl || null,
-              media_type: quizMediaType
-          });
+    category: item.category,
+    question: item.question,
+    options: item.options,
+    correct_index: item.correct_index,
+    points: item.points || 10,
+    media_url: item.media_url || null,
+    media_type: item.media_type || 'text',
+    quiz_catalog_id: item.id
+});
           setShowCustomQuizModal(false); toast.success("Quiz Custom Lanciato!"); loadData();
       } catch(e) { toast.error("Errore quiz custom: " + e.message); }
   };
