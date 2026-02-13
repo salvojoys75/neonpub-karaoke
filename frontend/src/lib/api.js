@@ -288,14 +288,14 @@ export const getQuizCatalog = async (venueId = null, daysThreshold = 30) => {
           const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
           if(event) {
               const { data: usedQuizzes } = await supabase.from('quizzes')
-                  .select('question')
-                  .eq('event_id', event.id);
-              
-              if (usedQuizzes && usedQuizzes.length > 0) {
-                  const usedQuestionsSet = new Set(usedQuizzes.map(q => q.question));
-                  const filteredCatalog = catalog.filter(item => !usedQuestionsSet.has(item.question));
-                  catalog = filteredCatalog;
-              }
+    .select('quiz_catalog_id')
+    .eq('event_id', event.id)
+    .not('quiz_catalog_id', 'is', null);
+
+if (usedQuizzes && usedQuizzes.length > 0) {
+    const usedQuizIds = new Set(usedQuizzes.map(q => q.quiz_catalog_id));
+    catalog = catalog.filter(item => !usedQuizIds.has(item.id));
+}
           }
       }
   } catch (e) {
