@@ -640,7 +640,8 @@ export const startQuiz = async (data) => {
     points: data.points, 
     status: 'active',
     media_url: data.media_url || null,
-    media_type: data.media_type || 'text'
+    media_type: data.media_type || 'text',
+    quiz_catalog_id: data.quiz_catalog_id || null
   }).select().single()
   
   if (error) throw error; 
