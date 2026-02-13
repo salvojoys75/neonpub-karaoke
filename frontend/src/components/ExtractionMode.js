@@ -1,527 +1,410 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Sparkles, Music2, Trophy, Mic2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Sparkles, Zap, Music2, Mic2 } from 'lucide-react';
 
-// ─── AUDIO ───────────────────────────────────────────────────────────────────
+// --- CONFIGURAZIONE ---
+const SPIN_DURATION = 4000;      // Durata totale tensione
+const REVEAL_STAGGER = 1500;     // Ritardo tra concorrente e canzone
+const AUTO_CLOSE_DELAY = 6000;   // Tempo per godersi la vittoria prima di chiudere
 
-const ctx = () => new (window.AudioContext || window.webkitAudioContext)();
+// --- AUDIO ENGINE (CINEMATIC) ---
+// Genera suoni profondi e riverberati via codice
+const playCinematicSound = (type) => {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return;
+  const ctx = new AudioContext();
+  const now = ctx.currentTime;
 
-const playTick = () => {
-  try {
-    const a = ctx(); const o = a.createOscillator(); const g = a.createGain();
-    o.connect(g); g.connect(a.destination);
-    o.frequency.value = 600 + Math.random() * 400; o.type = 'sine';
-    g.gain.setValueAtTime(0.15, a.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + 0.04);
-    o.start(a.currentTime); o.stop(a.currentTime + 0.04);
-  } catch {}
-};
-
-const playReveal = () => {
-  try {
-    const a = ctx();
-    [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
-      const o = a.createOscillator(); const g = a.createGain();
-      o.connect(g); g.connect(a.destination);
-      o.frequency.value = freq; o.type = 'sine';
-      const t = a.currentTime + i * 0.12;
-      g.gain.setValueAtTime(0.3, t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
-      o.start(t); o.stop(t + 0.4);
-    });
-  } catch {}
-};
-
-// ─── CONFETTI ─────────────────────────────────────────────────────────────────
-
-const Confetti = () => {
-  const pieces = useMemo(() => Array.from({ length: 60 }, (_, i) => ({
-    id: i,
-    left: Math.random() * 100,
-    delay: Math.random() * 2.5,
-    duration: 3 + Math.random() * 3,
-    size: 8 + Math.random() * 10,
-    color: ['#d946ef','#a855f7','#ec4899','#f59e0b','#10b981','#3b82f6'][Math.floor(Math.random() * 6)]
-  })), []);
-  return (
-    <div style={{ position:'absolute', inset:0, pointerEvents:'none', overflow:'hidden', zIndex:50 }}>
-      {pieces.map(p => (
-        <div key={p.id} style={{
-          position:'absolute', left:`${p.left}%`, top:'-20px',
-          width:p.size, height:p.size, borderRadius:'2px',
-          backgroundColor:p.color,
-          animation:`confetti-fall ${p.duration}s ${p.delay}s linear forwards`
-        }}/>
-      ))}
-    </div>
-  );
-};
-
-// ─── WHEEL ────────────────────────────────────────────────────────────────────
-
-const Wheel = ({ items, isSpinning, finalIndex, onStop }) => {
-  const canvasRef = useRef(null);
-  const angleRef = useRef(0);
-  const velRef = useRef(0);
-  const rafRef = useRef(null);
-  const stoppedRef = useRef(false);
-  const tickAccRef = useRef(0);
-  const prevAngleRef = useRef(0);
-
-  const colors = [
-    '#7c3aed','#c026d3','#db2777','#0891b2',
-    '#059669','#d97706','#dc2626','#4f46e5',
-    '#0d9488','#9333ea','#e11d48','#2563eb'
-  ];
-
-  const draw = (angle) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx2 = canvas.getContext('2d');
-    const W = canvas.width; const H = canvas.height;
-    const cx = W / 2; const cy = H / 2;
-    const R = Math.min(cx, cy) - 4;
-    const n = items.length;
-    if (n === 0) return;
-    const slice = (Math.PI * 2) / n;
-
-    ctx2.clearRect(0, 0, W, H);
-
-    // Ombre esterne
-    ctx2.save();
-    ctx2.shadowColor = 'rgba(217,70,239,0.6)';
-    ctx2.shadowBlur = 40;
-    ctx2.beginPath();
-    ctx2.arc(cx, cy, R, 0, Math.PI * 2);
-    ctx2.fillStyle = '#1a0030';
-    ctx2.fill();
-    ctx2.restore();
-
-    // Fette
-    items.forEach((item, i) => {
-      const startAngle = angle + i * slice;
-      const endAngle = startAngle + slice;
-      const color = colors[i % colors.length];
-
-      ctx2.beginPath();
-      ctx2.moveTo(cx, cy);
-      ctx2.arc(cx, cy, R, startAngle, endAngle);
-      ctx2.closePath();
-      ctx2.fillStyle = color;
-      ctx2.fill();
-      ctx2.strokeStyle = 'rgba(0,0,0,0.4)';
-      ctx2.lineWidth = 2;
-      ctx2.stroke();
-
-      // Testo
-      ctx2.save();
-      ctx2.translate(cx, cy);
-      ctx2.rotate(startAngle + slice / 2);
-      ctx2.textAlign = 'right';
-      ctx2.fillStyle = 'white';
-      const label = item.nickname || item.title || '?';
-      const maxLen = 14;
-      const text = label.length > maxLen ? label.substring(0, maxLen) + '\u2026' : label;
-      const fontSize = Math.max(10, Math.min(18, R * 0.09));
-      ctx2.font = `900 ${fontSize}px Montserrat, sans-serif`;
-      ctx2.shadowColor = 'rgba(0,0,0,0.8)';
-      ctx2.shadowBlur = 4;
-      ctx2.fillText(text, R - 14, fontSize * 0.4);
-      ctx2.restore();
-    });
-
-    // Cerchio centrale
-    ctx2.beginPath();
-    ctx2.arc(cx, cy, R * 0.12, 0, Math.PI * 2);
-    const grad = ctx2.createRadialGradient(cx, cy, 0, cx, cy, R * 0.12);
-    grad.addColorStop(0, '#f0abfc');
-    grad.addColorStop(1, '#7c3aed');
-    ctx2.fillStyle = grad;
-    ctx2.shadowColor = 'rgba(217,70,239,0.8)';
-    ctx2.shadowBlur = 20;
-    ctx2.fill();
-    ctx2.strokeStyle = 'white';
-    ctx2.lineWidth = 3;
-    ctx2.stroke();
-
-    // Bordo esterno
-    ctx2.beginPath();
-    ctx2.arc(cx, cy, R, 0, Math.PI * 2);
-    ctx2.strokeStyle = 'rgba(217,70,239,0.7)';
-    ctx2.lineWidth = 5;
-    ctx2.shadowColor = 'rgba(217,70,239,0.9)';
-    ctx2.shadowBlur = 20;
-    ctx2.stroke();
+  const createOsc = (freq, type, duration, vol) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, now);
+    gain.gain.setValueAtTime(vol, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+    osc.start(now);
+    osc.stop(now + duration);
+    return osc;
   };
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const resize = () => {
-      const parent = canvas.parentElement;
-      const size = Math.min(parent.clientWidth, parent.clientHeight) * 0.95;
-      canvas.width = size;
-      canvas.height = size;
-      draw(angleRef.current);
-    };
-    resize();
-    window.addEventListener('resize', resize);
-    return () => window.removeEventListener('resize', resize);
-  }, [items]);
-
-  useEffect(() => {
-    if (items.length === 0) return;
-    const n = items.length;
-    const slice = (Math.PI * 2) / n;
-
-    if (isSpinning) {
-      stoppedRef.current = false;
-      velRef.current = 0.22 + Math.random() * 0.12;
-      tickAccRef.current = 0;
-      prevAngleRef.current = angleRef.current;
-
-      const animate = () => {
-        angleRef.current += velRef.current;
-        const delta = Math.abs(angleRef.current - prevAngleRef.current);
-        tickAccRef.current += delta;
-        if (tickAccRef.current >= slice) {
-          playTick();
-          tickAccRef.current = 0;
-        }
-        prevAngleRef.current = angleRef.current;
-        draw(angleRef.current);
-        rafRef.current = requestAnimationFrame(animate);
-      };
-      rafRef.current = requestAnimationFrame(animate);
-      return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-
-    } else {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      if (stoppedRef.current) return;
-
-      // Calcola angolo target: la fetta finalIndex punta verso il puntatore (top = -π/2)
-      const targetAngle = -Math.PI / 2 - (finalIndex * slice + slice / 2);
-      const fullSpins = Math.PI * 2 * (4 + Math.floor(Math.random() * 3));
-      const currentNorm = ((angleRef.current % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-      const targetNorm = ((targetAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-      let delta = targetNorm - currentNorm;
-      if (delta <= 0) delta += Math.PI * 2;
-      const totalDelta = fullSpins + delta;
-      const duration = 2400;
-      const start = performance.now();
-      const startAngle = angleRef.current;
-      tickAccRef.current = 0;
-      prevAngleRef.current = startAngle;
-
-      const decelerate = (now) => {
-        const elapsed = Math.min(now - start, duration);
-        const progress = elapsed / duration;
-        const eased = 1 - Math.pow(1 - progress, 3);
-        angleRef.current = startAngle + totalDelta * eased;
-
-        const d = Math.abs(angleRef.current - prevAngleRef.current);
-        tickAccRef.current += d;
-        if (tickAccRef.current >= slice * 0.7) { playTick(); tickAccRef.current = 0; }
-        prevAngleRef.current = angleRef.current;
-
-        draw(angleRef.current);
-
-        if (progress < 1) {
-          rafRef.current = requestAnimationFrame(decelerate);
-        } else {
-          stoppedRef.current = true;
-          angleRef.current = startAngle + totalDelta;
-          draw(angleRef.current);
-          if (onStop) onStop();
-        }
-      };
-      rafRef.current = requestAnimationFrame(decelerate);
-      return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-    }
-  }, [isSpinning, finalIndex, items]);
-
-  return (
-    <div style={{ position:'relative', width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}>
-      <canvas ref={canvasRef} style={{ display:'block', maxWidth:'100%', maxHeight:'100%', borderRadius:'50%' }} />
-      {/* Puntatore */}
-      <div style={{
-        position:'absolute', top:'2%', left:'50%',
-        transform:'translateX(-50%)',
-        width:0, height:0,
-        borderLeft:'clamp(10px,1.8vw,22px) solid transparent',
-        borderRight:'clamp(10px,1.8vw,22px) solid transparent',
-        borderTop:'clamp(22px,3.5vh,46px) solid #facc15',
-        filter:'drop-shadow(0 0 10px rgba(250,204,21,0.9))',
-        zIndex:10
-      }}/>
-    </div>
-  );
+  if (type === 'tick') {
+    // Tick metallico ad alta frequenza
+    createOsc(800, 'square', 0.05, 0.05);
+  } else if (type === 'impact') {
+    // "BOOM" profondo (impatto tipo trailer)
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(150, now);
+    osc.frequency.exponentialRampToValueAtTime(40, now + 0.5);
+    gain.gain.setValueAtTime(1, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 1);
+    osc.start(now);
+    osc.stop(now + 1);
+  } else if (type === 'win') {
+    // Accordo trionfale etereo
+    [261.63, 329.63, 392.00, 523.25, 783.99].forEach((f, i) => {
+      setTimeout(() => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'triangle';
+        osc.frequency.value = f;
+        gain.gain.setValueAtTime(0, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + 0.1);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 4);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 4);
+      }, i * 50);
+    });
+  }
 };
 
-// ─── REVEAL CARD ──────────────────────────────────────────────────────────────
-
-const RevealCard = ({ item, icon, label, color }) => (
-  <div style={{
-    display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
-    gap:'clamp(8px,2vh,20px)', animation:'reveal-pop 0.7s cubic-bezier(0.34,1.56,0.64,1) forwards'
-  }}>
-    <div style={{
-      fontSize:'clamp(0.75rem,1.6vw,1.3rem)', fontWeight:900, textTransform:'uppercase',
-      letterSpacing:'0.25em', color:'rgba(255,255,255,0.5)', display:'flex', alignItems:'center', gap:'8px'
-    }}>
-      {icon} {label}
-    </div>
-    {item.avatar_url ? (
-      <img src={item.avatar_url} alt={item.nickname}
-        style={{ width:'clamp(80px,13vw,150px)', height:'clamp(80px,13vw,150px)',
-          borderRadius:'50%', border:`clamp(3px,0.4vw,6px) solid ${color}`,
-          boxShadow:`0 0 40px ${color}80`, objectFit:'cover' }}
+// --- PARTICELLE DORATE ---
+const GoldDust = () => (
+  <div className="absolute inset-0 pointer-events-none overflow-hidden">
+    {Array.from({ length: 40 }).map((_, i) => (
+      <div
+        key={i}
+        className="absolute rounded-full bg-gradient-to-r from-yellow-200 to-yellow-600 animate-float-dust"
+        style={{
+          width: Math.random() * 4 + 1 + 'px',
+          height: Math.random() * 4 + 1 + 'px',
+          top: Math.random() * 100 + '%',
+          left: Math.random() * 100 + '%',
+          opacity: Math.random() * 0.5 + 0.2,
+          animationDuration: Math.random() * 10 + 5 + 's',
+          animationDelay: Math.random() * 5 + 's',
+        }}
       />
-    ) : item.title ? (
-      <div style={{ width:'clamp(80px,13vw,150px)', height:'clamp(80px,13vw,150px)',
-        borderRadius:'clamp(12px,2vw,24px)', background:'linear-gradient(135deg,#c026d3,#7c3aed)',
-        display:'flex', alignItems:'center', justifyContent:'center',
-        border:`clamp(3px,0.4vw,6px) solid ${color}`, boxShadow:`0 0 40px ${color}80` }}>
-        <Music2 style={{ width:'50%', height:'50%', color:'white' }}/>
-      </div>
-    ) : (
-      <div style={{ width:'clamp(80px,13vw,150px)', height:'clamp(80px,13vw,150px)',
-        borderRadius:'50%', background:'linear-gradient(135deg,#c026d3,#7c3aed)',
-        display:'flex', alignItems:'center', justifyContent:'center',
-        border:`clamp(3px,0.4vw,6px) solid ${color}`, boxShadow:`0 0 40px ${color}80`,
-        fontSize:'clamp(2rem,5vw,4.5rem)', fontWeight:900, color:'white' }}>
-        {(item.nickname||'?').charAt(0).toUpperCase()}
-      </div>
-    )}
-    <div style={{
-      fontSize:'clamp(1.6rem,4.5vw,4.5rem)', fontWeight:900, color:'white',
-      textShadow:`0 0 30px ${color}`, lineHeight:1.1, textAlign:'center',
-      maxWidth:'80vw', wordBreak:'break-word'
-    }}>
-      {item.nickname || item.title || '???'}
-    </div>
-    {item.artist && (
-      <div style={{ fontSize:'clamp(0.9rem,2.2vw,2rem)', fontWeight:700, color, textAlign:'center' }}>
-        {item.artist}
-      </div>
-    )}
+    ))}
   </div>
 );
 
-// ─── MAIN ─────────────────────────────────────────────────────────────────────
+// --- COMPONENTE CARTA "STAGE" ---
+const StageCard = ({ label, value, subValue, isSpinning, isLocked, delay = 0, icon: Icon }) => {
+  return (
+    <div className={`
+      relative w-full max-w-[500px] aspect-[4/5] md:aspect-[3/4] mx-auto
+      flex flex-col items-center justify-center
+      transition-all duration-300 transform perspective-1000
+      ${isLocked ? 'scale-105 z-20' : 'scale-100 z-10'}
+    `}>
+      
+      {/* GLOW EFFECT DIETRO LA CARTA */}
+      {isLocked && (
+        <div className="absolute inset-0 bg-blue-500/30 blur-[60px] animate-pulse-slow rounded-full" />
+      )}
 
-export default function ExtractionMode({ extractionData, participants, songs, onComplete }) {
-  const [phase, setPhase] = useState('participant-spin');
-  const [participantSpinning, setParticipantSpinning] = useState(true);
-  const [songSpinning, setSongSpinning] = useState(false);
+      {/* CORPO DELLA CARTA (VETRO SCURO) */}
+      <div className={`
+        relative w-full h-full rounded-2xl overflow-hidden
+        border-2 backdrop-blur-xl transition-all duration-500
+        flex flex-col items-center justify-between p-6
+        ${isLocked 
+          ? 'bg-black/60 border-blue-400 shadow-[0_0_50px_rgba(59,130,246,0.5)]' 
+          : 'bg-black/40 border-white/10'}
+      `}>
+        
+        {/* Label in alto */}
+        <div className="w-full flex justify-between items-center border-b border-white/10 pb-4">
+          <span className="text-xs font-black tracking-[0.2em] text-white/40 uppercase flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${isLocked ? 'bg-red-500 animate-ping' : 'bg-gray-600'}`} />
+            LIVE CAM 0{delay + 1}
+          </span>
+          <Icon className={`w-5 h-5 ${isLocked ? 'text-blue-400' : 'text-white/20'}`} />
+        </div>
 
-  const participant = extractionData?.participant;
-  const song = extractionData?.song;
+        {/* CONTENUTO CENTRALE */}
+        <div className="flex-1 w-full flex flex-col items-center justify-center relative">
+          
+          {/* Immagine / Avatar con Cerchio Neon */}
+          <div className={`
+            relative w-32 h-32 md:w-48 md:h-48 rounded-full mb-6
+            flex items-center justify-center bg-black
+            border-4 transition-all duration-300
+            ${isSpinning ? 'border-white/10' : isLocked ? 'border-blue-500 shadow-[0_0_30px_#3b82f6]' : 'border-white/5'}
+          `}>
+             {/* Cerchio rotante durante lo spin */}
+             {isSpinning && (
+               <div className="absolute inset-[-10px] rounded-full border-t-4 border-blue-500 animate-spin" />
+             )}
 
-  const participantIndex = useMemo(() => {
-    if (!participants || !participant) return 0;
-    const i = participants.findIndex(p => p.id === participant.id || p.nickname === participant.nickname);
-    return i !== -1 ? i : 0;
-  }, [participants, participant]);
+             {/* Immagine */}
+             <div className="w-full h-full rounded-full overflow-hidden bg-gray-900 relative z-10">
+               {isSpinning ? (
+                 <div className="w-full h-full flex items-center justify-center animate-pulse">
+                   <Zap className="w-12 h-12 text-white/20" />
+                 </div>
+               ) : value?.avatar_url ? (
+                 <img src={value.avatar_url} className="w-full h-full object-cover animate-zoom-in" alt="" />
+               ) : (
+                 <div className="w-full h-full flex items-center justify-center text-4xl font-bold text-white">
+                    {value?.nickname?.charAt(0) || '?'}
+                 </div>
+               )}
+             </div>
+          </div>
 
-  const songIndex = useMemo(() => {
-    if (!songs || !song) return 0;
-    const i = songs.findIndex(s => s.id === song.id || s.title === song.title);
-    return i !== -1 ? i : 0;
-  }, [songs, song]);
+          {/* Testo Principale (Nome) */}
+          <div className="relative w-full h-20 flex items-center justify-center overflow-hidden">
+             <h2 className={`
+               text-center font-black uppercase tracking-tighter text-white leading-none
+               transition-all duration-100
+               ${isSpinning ? 'text-4xl blur-[2px] opacity-70 translate-y-1' : 'text-4xl md:text-5xl drop-shadow-[0_2px_10px_rgba(0,0,0,1)] scale-110'}
+             `}>
+               {isSpinning ? 'SCANNING...' : (value?.nickname || value?.title)}
+             </h2>
+          </div>
 
-  // Stop ruota partecipante dopo 3.5s
-  useEffect(() => {
-    if (phase !== 'participant-spin') return;
-    const t = setTimeout(() => setParticipantSpinning(false), 3500);
-    return () => clearTimeout(t);
-  }, [phase]);
+          {/* Sottotitolo (Artista) */}
+          <div className="h-8 flex items-center justify-center">
+            {!isSpinning && subValue && (
+               <span className="text-blue-300 font-bold tracking-widest text-lg uppercase animate-fade-in-up">
+                 {subValue}
+               </span>
+            )}
+          </div>
+        </div>
 
-  const handleParticipantStopped = () => {
-    playReveal();
-    setPhase('participant-reveal');
-    setTimeout(() => setPhase('transition'), 2500);
+        {/* Footer Tech */}
+        <div className="w-full flex justify-between items-end border-t border-white/10 pt-4">
+           <div className="flex gap-1">
+             {[1,2,3,4].map(i => (
+               <div key={i} className={`w-1 h-3 rounded-full ${isLocked ? 'bg-blue-500' : 'bg-gray-800'}`} />
+             ))}
+           </div>
+           <div className="text-[10px] text-white/30 font-mono">
+             ID: {Math.random().toString(36).substr(2, 6).toUpperCase()}
+           </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default function PrimeTimeExtraction({ extractionData, participants, songs, onComplete }) {
+  const [phase, setPhase] = useState('countdown'); // countdown, spin_all, lock_p, lock_s, celebration
+  const [count, setCount] = useState(3);
+  const [tempP, setTempP] = useState(participants[0]);
+  const [tempS, setTempS] = useState(songs[0]);
+  
+  // Effetti visivi globali
+  const [shake, setShake] = useState(false);
+  const [flash, setFlash] = useState(false);
+
+  // Trigger shake effect
+  const triggerImpact = () => {
+    setShake(true);
+    setFlash(true);
+    playCinematicSound('impact');
+    setTimeout(() => {
+      setShake(false);
+      setFlash(false);
+    }, 300);
   };
 
   useEffect(() => {
-    if (phase !== 'transition') return;
-    const t = setTimeout(() => {
-      setPhase('song-spin');
-      setSongSpinning(true);
-      setTimeout(() => setSongSpinning(false), 3500);
-    }, 900);
-    return () => clearTimeout(t);
-  }, [phase]);
+    let timer, loopP, loopS;
 
-  const handleSongStopped = () => {
-    playReveal();
-    setPhase('song-reveal');
-    setTimeout(() => setPhase('celebration'), 2500);
-  };
+    // 1. COUNTDOWN
+    if (phase === 'countdown') {
+      timer = setInterval(() => {
+        setCount(prev => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            setPhase('spin_all');
+            return 0;
+          }
+          playCinematicSound('tick');
+          return prev - 1;
+        });
+      }, 1000);
+    }
 
-  useEffect(() => {
-    if (phase !== 'celebration') return;
-    const t = setTimeout(() => { if (onComplete) onComplete(); }, 3500);
-    return () => clearTimeout(t);
-  }, [phase, onComplete]);
+    // 2. SPINNING (Tutto gira)
+    if (phase === 'spin_all') {
+      loopP = setInterval(() => setTempP(participants[Math.floor(Math.random() * participants.length)]), 60);
+      loopS = setInterval(() => setTempS(songs[Math.floor(Math.random() * songs.length)]), 60);
 
-  const isSongPhase = ['song-spin','song-reveal','celebration'].includes(phase);
-  const isTransition = phase === 'transition';
+      // Ferma Partecipante
+      setTimeout(() => {
+        clearInterval(loopP);
+        setTempP(extractionData.participant);
+        setPhase('lock_p');
+        triggerImpact();
+      }, SPIN_DURATION);
+    }
+
+    // 3. LOCK PARTECIPANTE (La canzone gira ancora)
+    if (phase === 'lock_p') {
+      // Dobbiamo mantenere il loop della canzone attivo, o ricrearlo se React ha pulito
+      loopS = setInterval(() => setTempS(songs[Math.floor(Math.random() * songs.length)]), 60);
+      
+      setTimeout(() => {
+        clearInterval(loopS);
+        setTempS(extractionData.song);
+        setPhase('lock_s'); // Vittoria
+        triggerImpact();
+        playCinematicSound('win');
+      }, REVEAL_STAGGER);
+    }
+
+    // 4. CELEBRATION
+    if (phase === 'lock_s') {
+      const closeTimer = setTimeout(() => {
+        if (onComplete) onComplete();
+      }, AUTO_CLOSE_DELAY);
+      return () => clearTimeout(closeTimer);
+    }
+
+    return () => {
+      clearInterval(timer);
+      if (loopP) clearInterval(loopP);
+      if (loopS) clearInterval(loopS);
+    };
+  }, [phase, participants, songs, extractionData, onComplete]);
+
+  const isSpinP = phase === 'spin_all';
+  const isSpinS = phase === 'spin_all' || phase === 'lock_p';
+  const isLockedP = phase !== 'countdown' && phase !== 'spin_all';
+  const isLockedS = phase === 'lock_s';
+  const isWinner = phase === 'lock_s';
 
   return (
-    <div style={{
-      position:'absolute', inset:0, display:'flex', flexDirection:'column',
-      alignItems:'center', justifyContent:'center', overflow:'hidden',
-      background:'radial-gradient(ellipse at center, #1a0030 0%, #080010 60%, #000 100%)'
-    }}>
+    <div className="fixed inset-0 z-[999] bg-black text-white font-sans overflow-hidden">
       <style>{`
-        @keyframes confetti-fall {
-          0%   { transform: translateY(0) rotate(0deg); opacity:1; }
-          100% { transform: translateY(105vh) rotate(720deg); opacity:0; }
-        }
-        @keyframes reveal-pop {
-          0%   { transform: scale(0.3) rotate(-10deg); opacity:0; }
-          60%  { transform: scale(1.08) rotate(2deg); }
-          100% { transform: scale(1) rotate(0deg); opacity:1; }
-        }
-        @keyframes slide-in-right {
-          from { transform: translateX(110%); opacity:0; }
-          to   { transform: translateX(0);    opacity:1; }
-        }
-        @keyframes fade-pulse {
-          0%,100% { opacity:0.6; }
-          50%      { opacity:1; }
-        }
-        @keyframes spin-ring {
+        @keyframes spotlight-rotate {
+          from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
+        }
+        @keyframes camera-shake {
+          0% { transform: translate(1px, 1px) rotate(0deg); }
+          10% { transform: translate(-1px, -2px) rotate(-1deg); }
+          20% { transform: translate(-3px, 0px) rotate(1deg); }
+          30% { transform: translate(3px, 2px) rotate(0deg); }
+          40% { transform: translate(1px, -1px) rotate(1deg); }
+          50% { transform: translate(-1px, 2px) rotate(-1deg); }
+          60% { transform: translate(-3px, 1px) rotate(0deg); }
+          70% { transform: translate(3px, 1px) rotate(-1deg); }
+          80% { transform: translate(-1px, -1px) rotate(1deg); }
+          90% { transform: translate(1px, 2px) rotate(0deg); }
+          100% { transform: translate(1px, -2px) rotate(-1deg); }
+        }
+        .animate-shake {
+          animation: camera-shake 0.3s cubic-bezier(.36,.07,.19,.97) both;
+        }
+        .animate-zoom-in {
+          animation: zoomIn 0.5s ease-out forwards;
+        }
+        @keyframes zoomIn {
+          from { transform: scale(1.5); opacity: 0; }
+          to { transform: scale(1); opacity: 1; }
+        }
+        @keyframes float-dust {
+          0%, 100% { transform: translateY(0) translateX(0); opacity: 0; }
+          50% { opacity: 1; }
+          100% { transform: translateY(-100px) translateX(20px); opacity: 0; }
         }
       `}</style>
 
-      {/* BG glow */}
-      <div style={{
-        position:'absolute', top:'50%', left:'50%',
-        transform:'translate(-50%,-50%)',
-        width:'70vw', height:'70vw', maxWidth:800, maxHeight:800,
-        background:'rgba(124,58,237,0.15)', borderRadius:'50%',
-        filter:'blur(100px)', pointerEvents:'none',
-        animation:'fade-pulse 3s ease-in-out infinite'
-      }}/>
-
-      {phase === 'celebration' && <Confetti />}
-
-      {/* ── SCHERMATA PARTECIPANTE ── */}
-      {!isSongPhase && !isTransition && (
-        <div style={{
-          position:'absolute', inset:0, display:'flex', flexDirection:'column',
-          alignItems:'center', justifyContent:'center',
-          padding:'clamp(12px,2vh,28px) clamp(16px,3vw,40px)', gap:'clamp(8px,2vh,20px)'
-        }}>
-          <div style={{
-            display:'flex', alignItems:'center', gap:'clamp(6px,1.2vw,14px)',
-            padding:'clamp(6px,1vh,12px) clamp(14px,2.2vw,28px)',
-            background:'rgba(217,70,239,0.15)', backdropFilter:'blur(20px)',
-            borderRadius:9999, border:'2px solid rgba(217,70,239,0.6)', flexShrink:0
-          }}>
-            <Trophy style={{ width:'clamp(16px,2.2vw,28px)', height:'clamp(16px,2.2vw,28px)', color:'#facc15' }}/>
-            <span style={{ fontSize:'clamp(0.8rem,1.8vw,1.5rem)', fontWeight:900, color:'white', textTransform:'uppercase', letterSpacing:'0.25em' }}>
-              Chi canta?
-            </span>
-            <Trophy style={{ width:'clamp(16px,2.2vw,28px)', height:'clamp(16px,2.2vw,28px)', color:'#facc15' }}/>
-          </div>
-
-          {phase === 'participant-spin' && (
-            <div style={{ width:'min(62vw,62vh)', height:'min(62vw,62vh)', flexShrink:0 }}>
-              <Wheel
-                items={participants || []}
-                isSpinning={participantSpinning}
-                finalIndex={participantIndex}
-                onStop={handleParticipantStopped}
-              />
-            </div>
-          )}
-
-          {phase === 'participant-reveal' && participant && (
-            <RevealCard item={participant} label="Il Cantante" icon={<Mic2 style={{width:'1em',height:'1em'}}/>} color="#d946ef" />
-          )}
+      {/* --- BACKGROUND CINEMATICO --- */}
+      <div className={`absolute inset-0 transition-transform duration-100 ${shake ? 'animate-shake' : ''}`}>
+        
+        {/* Gradiente Base Profondo */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-900 via-[#050510] to-black" />
+        
+        {/* "Fari" rotanti (Spotlights) */}
+        <div className="absolute top-[-50%] left-[-50%] w-[200%] h-[200%] opacity-30 animate-[spotlight-rotate_20s_linear_infinite]">
+          <div className="absolute inset-0 bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0deg,rgba(59,130,246,0.1)_60deg,transparent_100deg,transparent_180deg,rgba(59,130,246,0.1)_240deg,transparent_280deg)]" />
         </div>
-      )}
 
-      {/* ── TRANSIZIONE ── */}
-      {isTransition && (
-        <div style={{
-          position:'absolute', inset:0, display:'flex', alignItems:'center',
-          justifyContent:'center', flexDirection:'column', gap:'clamp(10px,2.5vh,24px)'
-        }}>
-          <div style={{
-            width:'clamp(36px,6vw,72px)', height:'clamp(36px,6vw,72px)',
-            border:'clamp(3px,0.4vw,6px) solid rgba(217,70,239,0.3)',
-            borderTop:'clamp(3px,0.4vw,6px) solid #d946ef',
-            borderRadius:'50%', animation:'spin-ring 0.7s linear infinite'
-          }}/>
-          <div style={{
-            fontSize:'clamp(0.9rem,2.2vw,1.8rem)', fontWeight:900,
-            color:'rgba(255,255,255,0.6)', textTransform:'uppercase',
-            letterSpacing:'0.3em', animation:'fade-pulse 0.8s ease-in-out infinite'
-          }}>
-            E la canzone è...
-          </div>
-        </div>
-      )}
+        {/* Effetto Flash Bianco all'impatto */}
+        <div className={`absolute inset-0 bg-white mix-blend-overlay transition-opacity duration-300 ${flash ? 'opacity-40' : 'opacity-0'}`} />
+        
+        {/* Particelle (solo alla fine) */}
+        {isWinner && <GoldDust />}
+      </div>
 
-      {/* ── SCHERMATA CANZONE ── */}
-      {isSongPhase && (
-        <div style={{
-          position:'absolute', inset:0, display:'flex', flexDirection:'column',
-          alignItems:'center', justifyContent:'center',
-          padding:'clamp(12px,2vh,28px) clamp(16px,3vw,40px)', gap:'clamp(8px,2vh,20px)',
-          animation:'slide-in-right 0.5s cubic-bezier(0.34,1.2,0.64,1) forwards'
-        }}>
-          <div style={{
-            display:'flex', alignItems:'center', gap:'clamp(6px,1.2vw,14px)',
-            padding:'clamp(6px,1vh,12px) clamp(14px,2.2vw,28px)',
-            background:'rgba(168,85,247,0.15)', backdropFilter:'blur(20px)',
-            borderRadius:9999, border:'2px solid rgba(168,85,247,0.6)', flexShrink:0
-          }}>
-            <Music2 style={{ width:'clamp(16px,2.2vw,28px)', height:'clamp(16px,2.2vw,28px)', color:'#e879f9' }}/>
-            <span style={{ fontSize:'clamp(0.8rem,1.8vw,1.5rem)', fontWeight:900, color:'white', textTransform:'uppercase', letterSpacing:'0.25em' }}>
-              La Canzone
-            </span>
-            <Music2 style={{ width:'clamp(16px,2.2vw,28px)', height:'clamp(16px,2.2vw,28px)', color:'#e879f9' }}/>
-          </div>
+      {/* --- CONTENUTO CENTRALE --- */}
+      <div className="relative z-10 w-full h-full flex flex-col items-center justify-center p-4">
+        
+        {/* Countdown Gigante */}
+        {phase === 'countdown' ? (
+           <div className="relative flex items-center justify-center scale-150 md:scale-[3]">
+             <div className="absolute inset-0 bg-blue-500 blur-[80px] animate-pulse opacity-50" />
+             <span className="relative text-[12rem] font-black text-white tracking-tighter" 
+                   style={{ textShadow: '0 0 50px rgba(255,255,255,0.8)' }}>
+               {count}
+             </span>
+           </div>
+        ) : (
+          /* Griglia Carte */
+          <div className={`
+             w-full max-w-6xl grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-8 items-center
+             transition-transform duration-300 ${shake ? 'scale-[1.02]' : 'scale-100'}
+          `}>
+            
+            {/* 1. PARTECIPANTE */}
+            <StageCard 
+              label="The Voice"
+              icon={Mic2}
+              value={tempP}
+              isSpinning={isSpinP}
+              isLocked={isLockedP}
+              delay={0}
+            />
 
-          {phase === 'song-spin' && (
-            <div style={{ width:'min(62vw,62vh)', height:'min(62vw,62vh)', flexShrink:0 }}>
-              <Wheel
-                items={songs || []}
-                isSpinning={songSpinning}
-                finalIndex={songIndex}
-                onStop={handleSongStopped}
-              />
+            {/* ELEMENTO "VS" (Divider) */}
+            <div className="hidden md:flex flex-col items-center justify-center relative z-0">
+               <div className="h-32 w-[1px] bg-gradient-to-b from-transparent via-white/20 to-transparent" />
+               <div className={`
+                 w-16 h-16 rounded-full border-2 flex items-center justify-center
+                 backdrop-blur-md transition-all duration-500 my-4
+                 ${isWinner 
+                   ? 'border-yellow-400 bg-yellow-400/20 shadow-[0_0_40px_rgba(250,204,21,0.5)] scale-125' 
+                   : 'border-white/20 bg-black/50'}
+               `}>
+                 <span className={`text-xl font-black italic ${isWinner ? 'text-yellow-400' : 'text-white/50'}`}>VS</span>
+               </div>
+               <div className="h-32 w-[1px] bg-gradient-to-b from-transparent via-white/20 to-transparent" />
             </div>
-          )}
 
-          {(phase === 'song-reveal' || phase === 'celebration') && song && (
-            <RevealCard item={song} label="La Canzone" icon={<Music2 style={{width:'1em',height:'1em'}}/>} color="#a855f7" />
-          )}
+            {/* 2. CANZONE */}
+            <StageCard 
+              label="The Song"
+              icon={Music2}
+              value={tempS}
+              subValue={tempS?.artist}
+              isSpinning={isSpinS}
+              isLocked={isLockedS}
+              delay={1}
+            />
 
-          {phase === 'celebration' && participant && (
-            <div style={{
-              flexShrink:0,
-              display:'inline-flex', alignItems:'center', gap:'clamp(6px,1.2vw,18px)',
-              padding:'clamp(8px,1.5vh,16px) clamp(14px,2.5vw,36px)',
-              background:'linear-gradient(to right,#c026d3,#7c3aed)',
-              borderRadius:9999, border:'3px solid rgba(255,255,255,0.25)',
-              boxShadow:'0 0 60px rgba(217,70,239,0.7)',
-              animation:'reveal-pop 0.6s cubic-bezier(0.34,1.56,0.64,1) forwards'
-            }}>
-              <Sparkles style={{ width:'clamp(14px,2vw,28px)', height:'clamp(14px,2vw,28px)', color:'#fde047', animation:'fade-pulse 1s ease-in-out infinite' }}/>
-              <span style={{ fontSize:'clamp(0.8rem,2.2vw,2rem)', fontWeight:900, color:'white', textTransform:'uppercase', letterSpacing:'0.08em' }}>
-                {participant.nickname} — Preparati a cantare! 🎤
-              </span>
-              <Sparkles style={{ width:'clamp(14px,2vw,28px)', height:'clamp(14px,2vw,28px)', color:'#fde047', animation:'fade-pulse 1s ease-in-out infinite' }}/>
-            </div>
-          )}
-        </div>
-      )}
+          </div>
+        )}
+
+        {/* OVERLAY VITTORIA */}
+        {isWinner && (
+          <div className="absolute bottom-10 md:bottom-20 animate-[zoomIn_0.5s_ease-out_both]">
+             <div className="flex flex-col items-center gap-2">
+               <div className="bg-gradient-to-r from-blue-600 via-blue-400 to-blue-600 h-[1px] w-64 md:w-96" />
+               <h3 className="text-3xl md:text-5xl font-black uppercase tracking-[0.2em] text-transparent bg-clip-text bg-gradient-to-b from-white to-blue-200 drop-shadow-2xl">
+                 Official Match
+               </h3>
+               <div className="flex items-center gap-2 text-blue-300 text-sm font-mono tracking-widest mt-2">
+                 <Sparkles className="w-4 h-4 animate-spin-slow" />
+                 SAVING RESULT TO DATABASE...
+                 <Sparkles className="w-4 h-4 animate-spin-slow" />
+               </div>
+             </div>
+          </div>
+        )}
+
+      </div>
     </div>
   );
 }
