@@ -273,7 +273,7 @@ export const setEventModule = async (moduleId, specificContentId = null) => {
 };
 
 export const getQuizCatalog = async (venueId = null, daysThreshold = 30) => {
-  const { data: catalog, error } = await supabase
+  let { data: catalog, error } = await supabase
     .from('quiz_catalog')
     .select('*')
     .eq('is_active', true) 
