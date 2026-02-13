@@ -624,27 +624,28 @@ export default function AdminDashboard() {
       } catch(e) { toast.error("Errore quiz custom: " + e.message); }
   };
 
-const launchCatalogQuiz = async (item) => {
-    if(window.confirm(`Lanciare: ${item.question}?`)) {
-        // Lancia quiz con tutti i dati dal catalogo
-        await api.startQuiz({
-            category: item.category,
-            question: item.question,
-            options: item.options,
-            correct_index: item.correct_index,
-            points: item.points || 10,
-            media_url: item.media_url || null,
-            media_type: item.media_type || 'text',
-            quiz_catalog_id: item.id
-        });
-        
-        if (selectedVenueId) {
-            await api.trackQuizUsage(item.id, selectedVenueId);
-        }
-        toast.success("Quiz Lanciato!");
-        loadData();
-    }
-};
+  const launchCatalogQuiz = async (item) => {
+      if(window.confirm(`Lanciare: ${item.question}?`)) {
+          // Lancia quiz con tutti i dati dal catalogo (incluso media_url!)
+          await api.startQuiz({
+              category: item.category,
+              question: item.question,
+              options: item.options,
+              correct_index: item.correct_index,
+              points: item.points || 10,
+              media_url: item.media_url || null,
+              media_type: item.media_type || 'text',
+              quiz_catalog_id: item.id
+          });
+          
+          // Traccia l'uso se c'è un venue selezionato
+          if (selectedVenueId) {
+              await api.trackQuizUsage(item.id, selectedVenueId);
+          }
+          toast.success("Quiz Lanciato!");
+          loadData();
+      }
+  };
 
   const handleDeleteQuestion = async (e, item) => {
       e.stopPropagation();
