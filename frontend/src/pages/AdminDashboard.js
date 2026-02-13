@@ -944,7 +944,7 @@ export default function AdminDashboard() {
                             </Button>
                         </div>
 
-                        {/* DEBUG INFO */}
+                        {/* INFO */}
                         <div className="mb-2 p-2 bg-zinc-950 rounded text-[10px]">
                             <div className="text-zinc-500">Debug Info:</div>
                             <div className="text-yellow-500">Locale: {selectedVenueId ? '✅ Selezionato' : '❌ Nessuno'}</div>
