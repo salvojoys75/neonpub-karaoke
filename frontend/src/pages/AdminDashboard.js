@@ -627,24 +627,36 @@ export default function AdminDashboard() {
 
   const launchCatalogQuiz = async (item) => {
       if(window.confirm(`Lanciare: ${item.question}?`)) {
-          // Lancia quiz con tutti i dati dal catalogo (incluso media_url!)
-          await api.startQuiz({
-              category: item.category,
-              question: item.question,
-              options: item.options,
-              correct_index: item.correct_index,
-              points: item.points || 10,
-              media_url: item.media_url || null,
-              media_type: item.media_type || 'text',
-              quiz_catalog_id: item.id
-          });
-          
-          // Traccia l'uso se c'è un venue selezionato
-          if (selectedVenueId) {
-              await api.trackQuizUsage(item.id, selectedVenueId);
+          try {
+              // Lancia quiz con tutti i dati dal catalogo (incluso media_url!)
+              await api.startQuiz({
+                  category: item.category,
+                  question: item.question,
+                  options: item.options,
+                  correct_index: item.correct_index,
+                  points: item.points || 10,
+                  media_url: item.media_url || null,
+                  media_type: item.media_type || 'text',
+                  quiz_catalog_id: item.id
+              });
+              
+              // SEMPRE traccia l'uso, anche senza venue (usa null come venue_id)
+              const venueToTrack = selectedVenueId || null;
+              console.log('🔍 Tracking quiz usage:', { 
+                  questionId: item.id, 
+                  venueId: venueToTrack,
+                  hasVenue: !!selectedVenueId 
+              });
+              
+              const trackResult = await api.trackQuizUsage(item.id, venueToTrack);
+              console.log('✅ Track result:', trackResult);
+              
+              toast.success("Quiz Lanciato!");
+              loadData();
+          } catch (e) {
+              console.error('❌ Error launching quiz:', e);
+              toast.error("Errore: " + e.message);
           }
-          toast.success("Quiz Lanciato!");
-          loadData();
       }
   };
 
@@ -932,6 +944,15 @@ export default function AdminDashboard() {
                             </Button>
                         </div>
 
+                        {/* DEBUG INFO */}
+                        <div className="mb-2 p-2 bg-zinc-950 rounded text-[10px]">
+                            <div className="text-zinc-500">Debug Info:</div>
+                            <div className="text-yellow-500">Locale: {selectedVenueId ? '✅ Selezionato' : '❌ Nessuno'}</div>
+                            <div className="text-cyan-500">Totale domande: {quizCatalog.length}</div>
+                            <div className="text-orange-500">Con badge usata: {quizCatalog.filter(q => q.recently_used).length}</div>
+                            {selectedVenueId && <div className="text-green-500">Venue ID: {selectedVenueId}</div>}
+                        </div>
+
                         {selectedVenueId && quizCatalog.filter(q => q.recently_used).length > 0 && (
                             <Button 
                                 variant="outline" 
@@ -941,16 +962,18 @@ export default function AdminDashboard() {
                                     const usedCount = quizCatalog.filter(q => q.recently_used).length;
                                     if(confirm(`Resettare le ${usedCount} domande usate negli ultimi 30 giorni per questo locale?`)) {
                                         try {
+                                            console.log('🔄 Resetting venue:', selectedVenueId);
                                             await api.resetQuizUsageForVenue(selectedVenueId);
                                             toast.success("Domande venue resettate!");
                                             loadData();
                                         } catch(e) {
+                                            console.error('❌ Reset error:', e);
                                             toast.error("Errore reset: " + e.message);
                                         }
                                     }
                                 }}
                             >
-                                <RotateCcw className="w-3 h-3 mr-1"/> Reset Domande Venue (ultimi 30gg)
+                                <RotateCcw className="w-3 h-3 mr-1"/> Reset Domande Venue ({quizCatalog.filter(q => q.recently_used).length})
                             </Button>
                         )}
 
@@ -1021,9 +1044,9 @@ export default function AdminDashboard() {
                         <div className="flex-1 overflow-hidden flex flex-col">
                             <h3 className="text-xs font-bold text-zinc-500 uppercase mb-2 flex justify-between items-center">
                                 <span>Catalogo ({filteredCatalog.length})</span>
-                                {selectedVenueId && quizCatalog.some(q => q.recently_used) && (
+                                {quizCatalog.filter(q => q.recently_used).length > 0 && (
                                     <span className="text-[10px] text-orange-400 font-normal flex items-center gap-1">
-                                        <RotateCcw className="w-3 h-3"/> {quizCatalog.filter(q => q.recently_used).length} usate 30gg
+                                        🔄 {quizCatalog.filter(q => q.recently_used).length} usate 30gg
                                     </span>
                                 )}
                             </h3>

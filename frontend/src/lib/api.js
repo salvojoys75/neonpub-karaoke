@@ -861,47 +861,76 @@ export const deleteVenue = async (venueId) => {
 
 export const trackQuizUsage = async (questionId, venueId) => {
   try {
-    const pubCode = localStorage.getItem('neonpub_pub_code');
-    if (!pubCode || !venueId) return { data: 'skipped' };
+    console.log('📊 trackQuizUsage chiamata:', { questionId, venueId });
     
-    const { data: event } = await supabase
+    const pubCode = localStorage.getItem('neonpub_pub_code');
+    if (!pubCode) {
+      console.warn('⚠️ Nessun pub code trovato');
+      return { data: 'no_pubcode' };
+    }
+    
+    const { data: event, error: eventError } = await supabase
       .from('events')
       .select('id, owner_id')
       .eq('code', pubCode.toUpperCase())
       .single();
     
-    if (!event) return { data: 'no_event' };
+    if (eventError || !event) {
+      console.error('❌ Evento non trovato:', eventError);
+      return { data: 'no_event' };
+    }
+    
+    console.log('✅ Evento trovato:', event.id);
+    
+    // Prepara i dati per l'insert
+    const insertData = {
+      question_id: questionId,
+      operator_id: event.owner_id,
+      event_id: event.id
+    };
+    
+    // Aggiungi venue_id solo se non è null
+    if (venueId) {
+      insertData.venue_id = venueId;
+    }
+    
+    console.log('📝 Inserisco in quiz_usage_history:', insertData);
     
     const { data, error } = await supabase
       .from('quiz_usage_history')
-      .insert({
-        venue_id: venueId,
-        question_id: questionId,
-        operator_id: event.owner_id,
-        event_id: event.id
-      })
+      .insert(insertData)
       .select()
       .single();
     
     if (error) {
       // Ignore duplicate errors
       if (error.code === '23505') {
+        console.log('ℹ️ Domanda già tracciata (duplicato ignorato)');
         return { data: 'already_tracked' };
       }
+      console.error('❌ Errore insert:', error);
       throw error;
     }
     
+    console.log('✅ Tracciamento completato:', data);
     return { data };
   } catch (e) {
-    console.warn('Track quiz usage error:', e);
-    return { data: 'error' };
+    console.error('❌ Track quiz usage error:', e);
+    return { data: 'error', error: e.message };
   }
 }
 
 export const resetQuizUsageForVenue = async (venueId) => {
   try {
+    console.log('🔄 resetQuizUsageForVenue chiamata per venue:', venueId);
+    
     const { data: user } = await supabase.auth.getUser()
-    if (!user?.user) throw new Error('Not authenticated')
+    if (!user?.user) {
+      console.error('❌ Utente non autenticato');
+      throw new Error('Not authenticated');
+    }
+    
+    console.log('✅ Utente autenticato:', user.user.id);
     
     // Cancella tutti i record quiz_usage_history per questo venue e operatore
     const { error, count } = await supabase
@@ -910,14 +939,20 @@ export const resetQuizUsageForVenue = async (venueId) => {
       .eq('venue_id', venueId)
       .eq('operator_id', user.user.id)
     
-    if (error) throw error
+    if (error) {
+      console.error('❌ Errore delete:', error);
+      throw error;
+    }
+    
+    console.log(`✅ Cancellati ${count || 0} record da quiz_usage_history`);
     
     return { data: { deleted_count: count || 0 } }
   } catch (e) {
-    console.error('Reset quiz usage error:', e)
+    console.error('❌ Reset quiz usage error:', e)
     throw e
   }
 }
+
 
 // ==================== RANDOM SONG POOL ====================
 
