@@ -898,6 +898,27 @@ export const trackQuizUsage = async (questionId, venueId) => {
   }
 }
 
+export const resetQuizUsageForVenue = async (venueId) => {
+  try {
+    const { data: user } = await supabase.auth.getUser()
+    if (!user?.user) throw new Error('Not authenticated')
+    
+    // Cancella tutti i record quiz_usage per questo venue e operatore
+    const { error, count } = await supabase
+      .from('quiz_usage')
+      .delete()
+      .eq('venue_id', venueId)
+      .eq('operator_id', user.user.id)
+    
+    if (error) throw error
+    
+    return { data: { deleted_count: count || 0 } }
+  } catch (e) {
+    console.error('Reset quiz usage error:', e)
+    throw e
+  }
+}
+
 // ==================== RANDOM SONG POOL ====================
 
 export const getRandomSongPool = async () => {
@@ -1128,7 +1149,7 @@ export default {
   getActiveEventsForUser,
   deleteQuizQuestion,
   // Venues
-  getMyVenues, createVenue, updateVenue, deleteVenue, trackQuizUsage,
+  getMyVenues, createVenue, updateVenue, deleteVenue, trackQuizUsage, resetQuizUsageForVenue,
   // Random Extraction
   getRandomSongPool, addSongToPool, updateSongInPool, deleteSongFromPool, importSongsToPool, extractRandomKaraoke, clearExtraction
 }
