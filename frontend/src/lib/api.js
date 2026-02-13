@@ -903,9 +903,9 @@ export const resetQuizUsageForVenue = async (venueId) => {
     const { data: user } = await supabase.auth.getUser()
     if (!user?.user) throw new Error('Not authenticated')
     
-    // Cancella tutti i record quiz_usage per questo venue e operatore
+    // Cancella tutti i record quiz_usage_history per questo venue e operatore
     const { error, count } = await supabase
-      .from('quiz_usage')
+      .from('quiz_usage_history')
       .delete()
       .eq('venue_id', venueId)
       .eq('operator_id', user.user.id)

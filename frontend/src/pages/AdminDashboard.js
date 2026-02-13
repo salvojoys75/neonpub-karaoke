@@ -695,12 +695,6 @@ export default function AdminDashboard() {
   ];
 
   const filteredCatalog = quizCatalog.filter(item => {
-      // PRIMO FILTRO: Escludi domande già usate se c'è un locale selezionato
-      if (selectedVenueId && item.recently_used) {
-          return false; // Nasconde completamente le domande già usate
-      }
-      
-      // SECONDO FILTRO: Filtra per categoria
       if (quizCategoryFilter === 'all') return true;
       const cat = (item.category || '').toLowerCase();
       if (quizCategoryFilter === 'intro' && (cat.includes('intro') || cat.includes('indovina') || item.media_type === 'audio')) return true;
@@ -929,7 +923,7 @@ export default function AdminDashboard() {
 
                {libraryTab === 'quiz' && (
                     <div className="flex flex-col h-full">
-                        <div className="grid grid-cols-2 gap-2 mb-2">
+                        <div className="grid grid-cols-2 gap-2 mb-4">
                             <Button className="bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-xs" onClick={()=>setShowCustomQuizModal(true)}>
                                 <Plus className="w-3 h-3 mr-1"/> Crea Manuale
                             </Button>
@@ -937,15 +931,18 @@ export default function AdminDashboard() {
                                 <Download className="w-3 h-3 mr-1"/> Importa JSON
                             </Button>
                         </div>
+
                         {selectedVenueId && quizCatalog.filter(q => q.recently_used).length > 0 && (
                             <Button 
                                 variant="outline" 
-                                className="mb-4 text-xs border-orange-500 text-orange-500 hover:bg-orange-500/10" 
+                                size="sm"
+                                className="mb-3 text-xs border-orange-500 text-orange-500 hover:bg-orange-500/10 w-full" 
                                 onClick={async () => {
-                                    if(confirm(`Resettare tutte le ${quizCatalog.filter(q => q.recently_used).length} domande già usate per questo locale? Torneranno disponibili.`)) {
+                                    const usedCount = quizCatalog.filter(q => q.recently_used).length;
+                                    if(confirm(`Resettare le ${usedCount} domande usate negli ultimi 30 giorni per questo locale?`)) {
                                         try {
                                             await api.resetQuizUsageForVenue(selectedVenueId);
-                                            toast.success("Domande resettate!");
+                                            toast.success("Domande venue resettate!");
                                             loadData();
                                         } catch(e) {
                                             toast.error("Errore reset: " + e.message);
@@ -953,7 +950,7 @@ export default function AdminDashboard() {
                                     }
                                 }}
                             >
-                                <RotateCcw className="w-3 h-3 mr-1"/> Reset Domande Usate
+                                <RotateCcw className="w-3 h-3 mr-1"/> Reset Domande Venue (ultimi 30gg)
                             </Button>
                         )}
 
@@ -1024,9 +1021,9 @@ export default function AdminDashboard() {
                         <div className="flex-1 overflow-hidden flex flex-col">
                             <h3 className="text-xs font-bold text-zinc-500 uppercase mb-2 flex justify-between items-center">
                                 <span>Catalogo ({filteredCatalog.length})</span>
-                                {selectedVenueId && (
-                                    <span className="text-[10px] text-green-500 font-normal">
-                                        ✓ {quizCatalog.filter(q => !q.recently_used).length} disponibili / {quizCatalog.filter(q => q.recently_used).length} già usate
+                                {selectedVenueId && quizCatalog.some(q => q.recently_used) && (
+                                    <span className="text-[10px] text-orange-400 font-normal flex items-center gap-1">
+                                        <RotateCcw className="w-3 h-3"/> {quizCatalog.filter(q => q.recently_used).length} usate 30gg
                                     </span>
                                 )}
                             </h3>
