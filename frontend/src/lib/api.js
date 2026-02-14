@@ -273,33 +273,56 @@ export const setEventModule = async (moduleId, specificContentId = null) => {
 };
 
 export const getQuizCatalog = async (venueId = null, daysThreshold = 30) => {
+  // CARICA SOLO LE DOMANDE DELL'EVENTO CORRENTE
+  const pubCode = localStorage.getItem('neonpub_pub_code');
+  if (!pubCode) return { data: [] };
+
+  const { data: event } = await supabase
+    .from('events')
+    .select('id')
+    .eq('code', pubCode.toUpperCase())
+    .single();
+
+  if (!event) return { data: [] };
+
+  // Ottieni le domande caricate per questo evento
+  const { data: eventQuestions, error: eventError } = await supabase
+    .from('event_quiz_catalog')
+    .select('quiz_catalog_id')
+    .eq('event_id', event.id);
+
+  if (eventError) throw eventError;
+
+  // Se non ci sono domande caricate, ritorna vuoto
+  if (!eventQuestions || eventQuestions.length === 0) {
+    return { data: [] };
+  }
+
+  const questionIds = eventQuestions.map(eq => eq.quiz_catalog_id);
+
+  // Carica le domande dal catalogo
   let { data: catalog, error } = await supabase
     .from('quiz_catalog')
     .select('*')
+    .in('id', questionIds)
     .eq('is_active', true) 
     .order('category');
 
   if (error) throw error;
 
-  // FILTRO 1: Domande già usate nello STESSO EVENTO (nasconde completamente)
+  // FILTRO: Domande già usate nello STESSO EVENTO (nasconde completamente)
   try {
-      const pubCode = localStorage.getItem('neonpub_pub_code');
-      if(pubCode) {
-          const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
-          if(event) {
-              const { data: usedQuizzes } = await supabase.from('quizzes')
-                  .select('quiz_catalog_id')
-                  .eq('event_id', event.id)
-                  .not('quiz_catalog_id', 'is', null);
-              
-              if (usedQuizzes && usedQuizzes.length > 0) {
-                  const usedQuizIds = new Set(usedQuizzes.map(q => q.quiz_catalog_id));
-                  catalog = catalog.filter(item => !usedQuizIds.has(item.id));
-              }
-          }
+      const { data: usedQuizzes } = await supabase.from('quizzes')
+          .select('quiz_catalog_id')
+          .eq('event_id', event.id)
+          .not('quiz_catalog_id', 'is', null);
+      
+      if (usedQuizzes && usedQuizzes.length > 0) {
+          const usedQuizIds = new Set(usedQuizzes.map(q => q.quiz_catalog_id));
+          catalog = catalog.filter(item => !usedQuizIds.has(item.id));
       }
   } catch (e) {
-      console.warn("Impossibile filtrare domande usate nell'evento:", e);
+      console.warn("Impossibile filtrare domande usate:", e);
   }
 
   // FILTRO 2: Domande usate negli ultimi 30 giorni in quel VENUE (mostra con badge)
@@ -316,7 +339,6 @@ export const getQuizCatalog = async (venueId = null, daysThreshold = 30) => {
       
       const usedQuestionIds = new Set(usedQuestions?.map(q => q.question_id) || []);
       
-      // Aggiungi flag recently_used
       return { 
         data: catalog.map(q => ({
           ...q,
@@ -391,6 +413,17 @@ export const getQuizModules = async () => {
 }
 
 export const loadQuizModule = async (moduleId) => {
+    const pubCode = localStorage.getItem('neonpub_pub_code');
+    if (!pubCode) throw new Error("Nessun evento selezionato");
+
+    const { data: event } = await supabase
+        .from('events')
+        .select('id')
+        .eq('code', pubCode.toUpperCase())
+        .single();
+
+    if (!event) throw new Error("Evento non trovato");
+
     const { data: module, error: moduleError } = await supabase
         .from('quiz_library')
         .select('*')
@@ -401,35 +434,74 @@ export const loadQuizModule = async (moduleId) => {
     if (!module) throw new Error("Modulo non trovato");
     
     const questions = module.questions || [];
-    if (questions.length === 0) throw new Error("Modulo vuoto");
+    if (questions.length === 0) throw new Error("Modulo vuoto - aggiungi domande nel campo 'questions' (JSON)");
     
-    const { data: existing } = await supabase.from('quiz_catalog').select('question');
-    const existingSet = new Set(existing?.map(q => q.question) || []);
+    // Verifica domande già esistenti in quiz_catalog
+    const { data: existing } = await supabase.from('quiz_catalog').select('id, question');
+    const existingQuestionMap = new Map(existing?.map(q => [q.question, q.id]) || []);
     
-    const newQuestions = questions
-        .filter(q => !existingSet.has(q.question))
-        .map(q => ({
-            category: q.category || module.category,
-            question: q.question,
-            options: q.options,
-            correct_index: q.correct_index ?? 0,
-            points: q.points || 10,
-            media_url: q.media_url || null,
-            media_type: q.media_type || 'text',
-            is_active: true
-        }));
+    const newQuestions = [];
+    const existingQuestionIds = [];
     
-    if (newQuestions.length === 0) {
-        return { success: true, count: 0, skipped: questions.length, message: "Tutte le domande già presenti" };
+    for (const q of questions) {
+        if (existingQuestionMap.has(q.question)) {
+            existingQuestionIds.push(existingQuestionMap.get(q.question));
+        } else {
+            newQuestions.push({
+                category: q.category || module.category,
+                question: q.question,
+                options: q.options,
+                correct_index: q.correct_index ?? 0,
+                points: q.points || 10,
+                media_url: q.media_url || null,
+                media_type: q.media_type || 'text',
+                is_active: true
+            });
+        }
     }
     
-    const { error } = await supabase.from('quiz_catalog').insert(newQuestions);
-    if (error) throw error;
+    // Inserisci nuove domande in quiz_catalog
+    let insertedIds = [];
+    if (newQuestions.length > 0) {
+        const { data: inserted, error } = await supabase
+            .from('quiz_catalog')
+            .insert(newQuestions)
+            .select('id');
+        if (error) throw error;
+        insertedIds = inserted.map(q => q.id);
+    }
+    
+    // Tutti gli ID da collegare all'evento
+    const allQuestionIds = [...insertedIds, ...existingQuestionIds];
+    
+    // Verifica quali sono già collegati a questo evento
+    const { data: alreadyLinked } = await supabase
+        .from('event_quiz_catalog')
+        .select('quiz_catalog_id')
+        .eq('event_id', event.id)
+        .in('quiz_catalog_id', allQuestionIds);
+    
+    const alreadyLinkedIds = new Set(alreadyLinked?.map(l => l.quiz_catalog_id) || []);
+    const toLink = allQuestionIds.filter(id => !alreadyLinkedIds.has(id));
+    
+    // Collega all'evento
+    if (toLink.length > 0) {
+        const links = toLink.map(qid => ({
+            event_id: event.id,
+            quiz_catalog_id: qid
+        }));
+        
+        const { error: linkError } = await supabase
+            .from('event_quiz_catalog')
+            .insert(links);
+        
+        if (linkError) throw linkError;
+    }
     
     return { 
         success: true, 
-        count: newQuestions.length,
-        skipped: questions.length - newQuestions.length,
+        count: toLink.length,
+        skipped: allQuestionIds.length - toLink.length,
         module: module.name
     };
 }
