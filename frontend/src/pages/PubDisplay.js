@@ -269,7 +269,7 @@ const KaraokeMode = ({ perf, isMuted }) => {
 };
 
 const VotingMode = ({ perf }) => (
-    <div className="w-full h-full flex flex-col items-center justify-center animated-bg p-8 mr-[350px]">
+    <div className="w-full h-full flex flex-col items-center justify-center animated-bg p-8">
         <div className="bg-fuchsia-600/10 blur-[200px] w-[800px] h-[800px] absolute rounded-full animate-pulse"></div>
         <div className="text-center relative z-10">
             <Star className="w-56 h-56 text-yellow-400 mx-auto mb-12 drop-shadow-[0_0_100px_rgba(234,179,8,0.6)] animate-pulse" />
@@ -284,7 +284,7 @@ const VotingMode = ({ perf }) => (
 );
 
 const ScoreMode = ({ perf }) => (
-    <div className="w-full h-full flex flex-col items-center justify-center animated-bg p-8 mr-[350px]">
+    <div className="w-full h-full flex flex-col items-center justify-center animated-bg p-8">
         <div className="bg-yellow-400/10 blur-[250px] w-[900px] h-[900px] absolute rounded-full animate-pulse"></div>
         <div className="text-center relative z-10">
             <div className="glass-panel px-20 py-12 rounded-[4rem] border-8 border-yellow-500 shadow-[0_0_120px_rgba(234,179,8,0.5)] inline-block">
@@ -312,7 +312,7 @@ const ScoreMode = ({ perf }) => (
 const QuizMode = ({ quiz, result }) => {
     if (quiz.status === 'leaderboard' && quiz.leaderboard) {
         return (
-             <div className="w-full h-full flex flex-col bg-[#080808] relative p-12 overflow-hidden items-center justify-center mr-[350px]">
+             <div className="w-full h-full flex flex-col bg-[#080808] relative p-12 overflow-hidden items-center justify-center">
                 <div className="bg-yellow-500/10 blur-[200px] w-full h-full absolute"></div>
                 <h1 className="text-8xl font-black text-yellow-400 uppercase tracking-[0.2em] mb-12 drop-shadow-2xl flex items-center gap-6 z-10">
                     <Trophy className="w-32 h-32" /> Classifica
@@ -342,7 +342,7 @@ const QuizMode = ({ quiz, result }) => {
         const ytId = getYtId(quiz.media_url);
 
         return (
-        <div className="w-full h-full flex flex-col bg-[#080808] overflow-hidden mr-[350px]" style={{height: '100%'}}>
+        <div className="w-full h-full flex flex-col bg-[#080808] overflow-hidden" style={{height: '100%'}}>
 
             {/* DOMANDA — 15% altezza */}
             <div style={{height: '15%'}} className="flex flex-col items-center justify-center px-8 gap-2 shrink-0">
@@ -398,7 +398,7 @@ const QuizMode = ({ quiz, result }) => {
         
         <div className="absolute inset-0 bg-black/70 z-10 pointer-events-none"></div>
 
-        <div className="relative z-20 flex-1 flex flex-col items-center justify-center mr-[350px]">
+        <div className="relative z-20 flex-1 flex flex-col items-center justify-center">
             <div className="bg-fuchsia-600 text-white px-10 py-4 rounded-full font-black text-xl uppercase tracking-[0.3em] mb-12 shadow-[0_0_40px_rgba(217,70,239,0.6)] transform -rotate-2 border-2 border-white/20">
                 {quiz.category || "QUIZ TIME"}
             </div>
@@ -464,7 +464,7 @@ const IdleMode = ({ pub }) => (
     <div className="w-full h-full flex flex-col items-center justify-center animated-bg relative overflow-hidden">
         <div className="w-[1000px] h-[1000px] bg-fuchsia-600/10 rounded-full blur-[150px] absolute z-0 animate-pulse"></div>
         
-        <div className="relative z-10 text-center mr-[350px]">
+        <div className="relative z-10 text-center">
             {pub.logo_url ? (
                  <img src={pub.logo_url} className="w-80 h-80 rounded-[3rem] mb-12 mx-auto shadow-[0_0_80px_rgba(0,0,0,0.8)] border-4 border-white/10 object-contain bg-black p-8" alt="logo" />
             ) : (
@@ -582,7 +582,7 @@ export default function PubDisplay() {
                 </div>
             )}
             
-            <div className="w-full h-full pt-24 pb-0 relative z-10">
+            <div className="absolute top-24 bottom-0 left-0 right-[362px] z-10">
                 {Content}
             </div>
             
