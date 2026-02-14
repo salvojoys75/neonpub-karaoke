@@ -28,7 +28,7 @@ export default function AdminDashboard() {
   // --- STATI GLOBALI ---
   const [appState, setAppState] = useState("loading");
   const [profile, setProfile] = useState(null);
-  const [pubCode, setPubCode] = useState(localStorage.getItem("neonpub_pub_code"));
+  const [pubCode, setPubCode] = useState(localStorage.getItem("discojoys_pub_code"));
   
   // --- STATI DASHBOARD ---
   const [eventState, setEventState] = useState({ active_module: 'karaoke', active_module_id: null });
@@ -147,7 +147,7 @@ export default function AdminDashboard() {
       let { data: userProfile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
       
       // LOGICA ADMIN: Se è l'admin, forza sempre il ruolo e lo stato attivo se non corretti
-      if (user.email === 'admin@neonpub.com') {
+      if (user.email === 'admin@discojoys.com') {
           if (!userProfile || userProfile.role !== 'super_admin' || userProfile.is_active !== true) {
               const { error } = await supabase.from('profiles').upsert({ 
                   id: user.id, 
@@ -190,7 +190,7 @@ export default function AdminDashboard() {
           loadSuperAdminData(); 
       } else {
         // Logica Operatore
-        const storedCode = localStorage.getItem("neonpub_pub_code");
+        const storedCode = localStorage.getItem("discojoys_pub_code");
         
         if (storedCode) { 
             const pubData = await api.getPub(storedCode);
@@ -199,7 +199,7 @@ export default function AdminDashboard() {
                 setPubCode(storedCode); 
                 setAppState("dashboard"); 
             } else {
-                localStorage.removeItem("neonpub_pub_code");
+                localStorage.removeItem("discojoys_pub_code");
                 setPubCode(null);
                 loadActiveEvents(); 
                 setAppState("setup");
@@ -220,7 +220,7 @@ export default function AdminDashboard() {
       setActiveEventsList(events || []);
   };
 
-  const handleLogout = () => { localStorage.removeItem("neonpub_pub_code"); logout(); navigate("/"); };
+  const handleLogout = () => { localStorage.removeItem("discojoys_pub_code"); logout(); navigate("/"); };
 
   const handleStartEvent = async (e) => {
     e.preventDefault();
@@ -230,7 +230,7 @@ export default function AdminDashboard() {
     setCreatingEvent(true);
     try {
         const { data: pubData } = await createPub({ name: newEventName });
-        localStorage.setItem("neonpub_pub_code", pubData.code);
+        localStorage.setItem("discojoys_pub_code", pubData.code);
         setPubCode(pubData.code);
         
         // Aggiorna crediti locali per UI veloce
@@ -242,7 +242,7 @@ export default function AdminDashboard() {
   };
 
   const handleResumeEvent = (code) => {
-      localStorage.setItem("neonpub_pub_code", code);
+      localStorage.setItem("discojoys_pub_code", code);
       setPubCode(code);
       setAppState("dashboard");
       toast.success("Evento ripreso!");
@@ -254,7 +254,7 @@ export default function AdminDashboard() {
       const pubRes = await api.getPub(pubCode);
       if (!pubRes.data) {
           toast.error("Evento scaduto o inesistente.");
-          localStorage.removeItem("neonpub_pub_code");
+          localStorage.removeItem("discojoys_pub_code");
           setAppState("setup");
           loadActiveEvents();
           return;
@@ -673,7 +673,7 @@ export default function AdminDashboard() {
   const handleOpenDisplay = () => {
     const width = 1280; const height = 720;
     const left = (window.screen.width - width) / 2; const top = (window.screen.height - height) / 2;
-    window.open(`/display/${pubCode}`, 'NeonPubDisplay', `popup=yes,width=${width},height=${height},top=${top},left=${left},toolbar=no,menubar=no`);
+    window.open(`/display/${pubCode}`, 'DISCOJOYSDisplay', `popup=yes,width=${width},height=${height},top=${top},left=${left},toolbar=no,menubar=no`);
   };
 
   const handleToggleMute = async () => {
@@ -1097,6 +1097,23 @@ export default function AdminDashboard() {
                     </div>
                 </DialogContent>
             </Dialog>
+
+            {/* ===== MODALE IMPORT MODULI QUIZ (SUPER ADMIN) ===== */}
+            <Dialog open={showImportModal} onOpenChange={setShowImportModal}>
+                <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
+                    <DialogHeader><DialogTitle>Importa Moduli Quiz (Super Admin)</DialogTitle></DialogHeader>
+                    <div className="space-y-4 pt-4">
+                        <p className="text-xs text-zinc-500 bg-cyan-900/20 p-3 rounded border border-cyan-700">
+                            <strong>FORMATO MODULI:</strong> Array di moduli con campo "questions"
+                        </p>
+                        <p className="text-[10px] text-zinc-600 font-mono bg-zinc-950 p-2 rounded">
+                            {`[{"name":"Intro Pop","category":"Indovina Intro","description":"...","questions":[{...},{...}]}]`}
+                        </p>
+                        <Textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder='Incolla JSON moduli qui...' className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"/>
+                        <Button className="w-full bg-cyan-600 font-bold" onClick={handleImportScript}><FileJson className="w-4 h-4 mr-2"/> IMPORTA MODULI IN LIBRERIA</Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
       );
   }
@@ -1194,7 +1211,7 @@ export default function AdminDashboard() {
                  <Gem className="w-4 h-4"/>{profile?.credits || 0}
              </div>
              <Button variant="outline" size="sm" onClick={handleOpenDisplay} className="bg-cyan-900/20 text-cyan-400 border-cyan-800"><Tv className="w-4 h-4 mr-2" /> DISPLAY</Button>
-             <Button variant="ghost" size="sm" onClick={() => { if(confirm("Tornare al menu eventi?")) { localStorage.removeItem("neonpub_pub_code"); setPubCode(null); setAppState("setup"); loadActiveEvents(); } }}><LogOut className="w-4 h-4" /></Button>
+             <Button variant="ghost" size="sm" onClick={() => { if(confirm("Tornare al menu eventi?")) { localStorage.removeItem("discojoys_pub_code"); setPubCode(null); setAppState("setup"); loadActiveEvents(); } }}><LogOut className="w-4 h-4" /></Button>
          </div>
       </header>
 
@@ -1770,22 +1787,6 @@ export default function AdminDashboard() {
                       ))}
                   </div>
                   <Button className="w-full bg-fuchsia-600 mt-4 h-12 text-lg font-bold" onClick={launchCustomQuiz}>LANCIA QUIZ</Button>
-              </div>
-          </DialogContent>
-      </Dialog>
-
-      <Dialog open={showImportModal} onOpenChange={setShowImportModal}>
-          <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
-              <DialogHeader><DialogTitle>Importa Moduli Quiz (Super Admin)</DialogTitle></DialogHeader>
-              <div className="space-y-4 pt-4">
-                  <p className="text-xs text-zinc-500 bg-cyan-900/20 p-3 rounded border border-cyan-700">
-                      <strong>FORMATO MODULI:</strong> Array di moduli con campo "questions"
-                  </p>
-                  <p className="text-[10px] text-zinc-600 font-mono bg-zinc-950 p-2 rounded">
-                      {`[{"name":"Intro Pop","category":"Indovina Intro","description":"...","questions":[{domanda1},{domanda2}...]}]`}
-                  </p>
-                  <Textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder='Incolla JSON moduli qui...' className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"/>
-                  <Button className="w-full bg-cyan-600 font-bold" onClick={handleImportScript}><FileJson className="w-4 h-4 mr-2"/> IMPORTA MODULI IN LIBRERIA</Button>
               </div>
           </DialogContent>
       </Dialog>

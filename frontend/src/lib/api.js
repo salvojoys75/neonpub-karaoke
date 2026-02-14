@@ -1,7 +1,7 @@
 import { supabase } from './supabase'
 
 function getParticipantFromToken() {
-  const token = localStorage.getItem('neonpub_token')
+  const token = localStorage.getItem('discojoys_token')
   if (!token) throw new Error('Not authenticated')
   try {
     return JSON.parse(atob(token))
@@ -11,7 +11,7 @@ function getParticipantFromToken() {
 }
 
 async function getAdminEvent() {
-  const pubCode = localStorage.getItem('neonpub_pub_code')
+  const pubCode = localStorage.getItem('discojoys_pub_code')
   if (!pubCode) throw new Error('No event selected')
   
   const { data, error } = await supabase
@@ -242,14 +242,14 @@ export const createOperatorProfile = async (email, name, password, initialCredit
 }
 
 export const getEventState = async () => {
-  const pubCode = localStorage.getItem('neonpub_pub_code');
+  const pubCode = localStorage.getItem('discojoys_pub_code');
   if (!pubCode) return null;
   const { data } = await supabase.from('events').select('active_module, active_module_id').eq('code', pubCode.toUpperCase()).maybeSingle();
   return data;
 };
 
 export const setEventModule = async (moduleId, specificContentId = null) => {
-  const pubCode = localStorage.getItem('neonpub_pub_code');
+  const pubCode = localStorage.getItem('discojoys_pub_code');
   const { data: event, error } = await supabase.from('events').update({ active_module: moduleId, active_module_id: specificContentId }).eq('code', pubCode.toUpperCase()).select().single();
   if (error) throw error;
   
@@ -274,7 +274,7 @@ export const setEventModule = async (moduleId, specificContentId = null) => {
 
 export const getQuizCatalog = async (venueId = null, daysThreshold = 30) => {
   // CARICA SOLO LE DOMANDE DELL'EVENTO CORRENTE
-  const pubCode = localStorage.getItem('neonpub_pub_code');
+  const pubCode = localStorage.getItem('discojoys_pub_code');
   if (!pubCode) return { data: [] };
 
   const { data: event } = await supabase
@@ -413,7 +413,7 @@ export const getQuizModules = async () => {
 }
 
 export const loadQuizModule = async (moduleId) => {
-    const pubCode = localStorage.getItem('neonpub_pub_code');
+    const pubCode = localStorage.getItem('discojoys_pub_code');
     if (!pubCode) throw new Error("Nessun evento selezionato");
 
     const { data: event } = await supabase
@@ -627,7 +627,7 @@ export const restartPerformance = async (performanceId) => {
 }
 
 export const toggleMute = async (isMuted) => {
-    const pubCode = localStorage.getItem('neonpub_pub_code');
+    const pubCode = localStorage.getItem('discojoys_pub_code');
     const channel = supabase.channel('tv_ctrl');
     await channel.send({
         type: 'broadcast',
@@ -687,9 +687,9 @@ export const sendReaction = async (data) => {
 }
 
 export const sendMessage = async (data) => {
-  // PRIORITÀ 1: Controlla se è un UTENTE (ha neonpub_token)
+  // PRIORITÀ 1: Controlla se è un UTENTE (ha discojoys_token)
   // Questo controlla prima se c'è un token utente valido
-  const userToken = localStorage.getItem('neonpub_token');
+  const userToken = localStorage.getItem('discojoys_token');
   if (userToken) {
     try {
       const participant = getParticipantFromToken();
@@ -708,8 +708,8 @@ export const sendMessage = async (data) => {
     }
   }
 
-  // PRIORITÀ 2: Controlla se è ADMIN (ha neonpub_pub_code ma NO token utente)
-  const pubCode = localStorage.getItem('neonpub_pub_code');
+  // PRIORITÀ 2: Controlla se è ADMIN (ha discojoys_pub_code ma NO token utente)
+  const pubCode = localStorage.getItem('discojoys_pub_code');
   if (pubCode) {
       const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
       if (event) {
@@ -989,7 +989,7 @@ export const trackQuizUsage = async (questionId, venueId) => {
   try {
     console.log('📊 trackQuizUsage chiamata:', { questionId, venueId });
     
-    const pubCode = localStorage.getItem('neonpub_pub_code');
+    const pubCode = localStorage.getItem('discojoys_pub_code');
     if (!pubCode) {
       console.warn('⚠️ Nessun pub code trovato');
       return { data: 'no_pubcode' };
