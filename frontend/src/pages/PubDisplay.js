@@ -226,7 +226,7 @@ const Sidebar = ({ pubCode, queue, leaderboard }) => (
 const KaraokeMode = ({ perf, isMuted }) => {
     return (
         <div className="w-full h-full relative">
-            <div className="absolute inset-0 right-[380px] bg-black">
+            <div className="absolute inset-0 right-[380px] bottom-[100px] bg-black">
                 <KaraokePlayer 
                     key={perf.id} 
                     url={perf.youtube_url}
@@ -236,29 +236,30 @@ const KaraokeMode = ({ perf, isMuted }) => {
                     startedAt={perf.started_at}
                 />
             </div>
+            {/* Fascia nera sotto il player per ospitare il banner */}
+            <div className="absolute bottom-0 left-0 right-[380px] h-[100px] bg-black z-[70]"></div>
             
-            <div className="absolute bottom-8 left-8 right-[420px] z-[80] anim-entry">
-                <div className="glass-panel p-4 rounded-xl border-l-8 border-fuchsia-500 relative overflow-hidden flex items-end gap-4 shadow-[0_0_50px_rgba(0,0,0,0.8)]">
+            <div className="absolute bottom-8 left-8 z-[80] anim-entry">
+                <div className="inline-flex items-center gap-3 bg-black/50 backdrop-blur-md px-4 py-3 rounded-2xl border border-white/10 shadow-[0_4px_30px_rgba(0,0,0,0.6)]">
                     
-                    <div className="relative">
-                        <div className="absolute inset-0 bg-fuchsia-500 blur-xl opacity-50 rounded-full"></div>
+                    <div className="relative shrink-0">
                         {perf.user_avatar ? (
-                            <img src={perf.user_avatar} className="w-16 h-16 rounded-full border-2 border-white/20 object-cover relative z-10 bg-zinc-900 shadow-2xl" alt="Singer" />
+                            <img src={perf.user_avatar} className="w-12 h-12 rounded-full border-2 border-fuchsia-500/60 object-cover bg-zinc-900" alt="Singer" />
                         ) : (
-                            <div className="w-16 h-16 rounded-full border-2 border-white/20 bg-fuchsia-600 flex items-center justify-center relative z-10 shadow-2xl">
-                                <Mic2 className="w-8 h-8 text-white" />
+                            <div className="w-12 h-12 rounded-full border-2 border-fuchsia-500/60 bg-fuchsia-600/40 flex items-center justify-center">
+                                <Mic2 className="w-6 h-6 text-white" />
                             </div>
                         )}
-                        <div className="absolute -bottom-1 -right-1 bg-red-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full z-20 border border-white/20">LIVE</div>
+                        <div className="absolute -bottom-1 -right-1 bg-red-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full border border-white/20">LIVE</div>
                     </div>
 
-                    <div className="flex-1 pb-1">
-                        <div className="flex items-center gap-2 mb-1">
-                            <Mic2 className="w-4 h-4 text-fuchsia-400" />
-                            <span className="text-lg font-bold text-white">{perf.user_nickname}</span>
+                    <div>
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                            <Mic2 className="w-3 h-3 text-fuchsia-400" />
+                            <span className="text-sm font-bold text-white">{perf.user_nickname}</span>
                         </div>
-                        <h1 className="text-3xl font-black text-white leading-none line-clamp-1 text-glow mb-0.5">{perf.song_title}</h1>
-                        <h2 className="text-xl text-white/60 font-light uppercase tracking-wide">{perf.song_artist}</h2>
+                        <div className="text-base font-black text-white leading-none text-glow">{perf.song_title}</div>
+                        <div className="text-xs text-white/50 uppercase tracking-wide mt-0.5">{perf.song_artist}</div>
                     </div>
                 </div>
             </div>
@@ -325,6 +326,46 @@ const QuizMode = ({ quiz, result }) => {
                      ))}
                 </div>
              </div>
+        );
+    }
+
+    // Layout split per video: video sx, domanda dx
+    const isVideoQuiz = quiz.media_type === 'video' && quiz.media_url && !result;
+
+    if (isVideoQuiz) {
+        return (
+        <div className="w-full h-full flex bg-[#080808] overflow-hidden">
+            {/* VIDEO SX — 40% */}
+            <div className="w-[40%] h-full relative flex items-center justify-center bg-black shrink-0">
+                <QuizMediaFixed mediaUrl={quiz.media_url} mediaType={quiz.media_type} isResult={false} />
+                <div className="absolute bottom-4 left-0 right-0 flex justify-center">
+                    <div className="bg-fuchsia-600 text-white px-6 py-2 rounded-full font-black text-sm uppercase tracking-[0.3em] shadow-[0_0_30px_rgba(217,70,239,0.6)] border border-white/20">
+                        {quiz.category || "QUIZ TIME"}
+                    </div>
+                </div>
+            </div>
+
+            {/* DOMANDA + RISPOSTE DX — 60% */}
+            <div className="flex-1 h-full flex flex-col items-center justify-center p-10 mr-[350px]">
+                <h1 className="text-5xl font-black text-white leading-tight mb-10 text-center drop-shadow-2xl">{quiz.question}</h1>
+                {quiz.status === 'closed' ? (
+                    <div className="bg-red-600 p-10 rounded-[3rem] inline-block animate-pulse shadow-[0_0_80px_rgba(220,38,38,0.8)] border-4 border-red-400">
+                        <h2 className="text-5xl font-black text-white uppercase italic">TEMPO SCADUTO!</h2>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-2 gap-4 w-full">
+                        {quiz.options.map((opt, i) => (
+                            <div key={i} className="glass-panel border-l-[8px] border-fuchsia-600 p-6 rounded-r-2xl flex items-center gap-4 text-left">
+                                <div className="w-14 h-14 bg-black/40 rounded-xl flex items-center justify-center text-3xl font-black text-white shrink-0 font-mono shadow-inner border border-white/10">
+                                    {String.fromCharCode(65+i)}
+                                </div>
+                                <div className="text-2xl font-bold text-white leading-tight">{opt}</div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
         );
     }
 
