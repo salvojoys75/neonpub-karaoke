@@ -1,227 +1,574 @@
-import React, { useEffect, useRef, useState, useCallback, memo } from 'react';
-import { Loader2, Music, Volume2 } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useParams } from 'react-router-dom';
+import { QRCodeSVG } from 'qrcode.react';
+import { supabase } from '@/lib/supabase';
+import api from '@/lib/api';
+import { Music, Mic2, Star, Trophy, Users, MessageSquare, Disc, Zap, Megaphone } from 'lucide-react';
 
-// Helper per estrarre ID YouTube
-const getYoutubeId = (url) => {
-  if (!url) return null;
-  const regExp = /^.*(youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-  const match = url.match(regExp);
-  return (match && match[2].length === 11) ? match[2] : null;
-};
-
-// Helper per determinare tipo media
-const getMediaType = (url, type) => {
-  if (type === 'audio') return 'audio';
-  if (type === 'video' || (url && (url.includes('youtube.com') || url.includes('youtu.be')))) {
-    return 'youtube';
+import KaraokePlayer from '@/components/KaraokePlayer';
+import QuizMediaFixed from '@/components/QuizMediaFixed';
+import FloatingReactions from '@/components/FloatingReactions';
+import ExtractionMode from '@/components/ExtractionMode';
+const STYLES = `
+  @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800;900&family=JetBrains+Mono:wght@500&display=swap');
+  
+  :root {
+    --glass-bg: rgba(15, 15, 20, 0.7);
+    --glass-border: rgba(255, 255, 255, 0.1);
   }
-  return 'unknown';
-};
 
-// ====================================================
-// YOUTUBE PLAYER COMPONENT - Completamente isolato
-// Non si re-renderizza MAI a meno che cambi l'URL
-// ====================================================
-const YouTubePlayer = memo(({ videoId, isAudioMode }) => {
-  const playerRef = useRef(null);
-  const containerIdRef = useRef(`yt-quiz-${Date.now()}`);
-  const [isLoading, setIsLoading] = useState(true);
-  const [audioBlocked, setAudioBlocked] = useState(false);
-  const isInitRef = useRef(false);
+  body { 
+    background: #000; 
+    overflow: hidden; 
+    font-family: 'Montserrat', sans-serif; 
+    color: white; 
+  }
+  
+  .glass-panel {
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+  }
 
-  const handleUnblockAudio = useCallback(() => {
-    if (playerRef.current) {
-      try {
-        playerRef.current.unMute();
-        playerRef.current.setVolume(100);
-        playerRef.current.playVideo();
-        setAudioBlocked(false);
-      } catch (e) {}
-    }
-  }, []);
+  @keyframes ticker { 
+    0% { transform: translateX(100%); } 
+    100% { transform: translateX(-100%); } 
+  }
+  .ticker-wrap { width: 100%; overflow: hidden; }
+  .ticker-content { display: inline-block; white-space: nowrap; animation: ticker 25s linear infinite; }
 
-  useEffect(() => {
-    if (!videoId || isInitRef.current) return;
-    isInitRef.current = true;
+  @keyframes gradient-move {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+  .animated-bg {
+    background: linear-gradient(-45deg, #101010, #1a0b2e, #0f172a, #000);
+    background-size: 400% 400%;
+    animation: gradient-move 20s ease infinite;
+  }
+  
+  .text-glow { text-shadow: 0 0 30px rgba(217,70,239, 0.6); }
+`;
 
-    const containerId = containerIdRef.current;
-
-    const initPlayer = () => {
-      if (!window.YT || !window.YT.Player) {
-        setTimeout(initPlayer, 150);
-        return;
-      }
-
-      const el = document.getElementById(containerId);
-      if (!el) {
-        setTimeout(initPlayer, 150);
-        return;
-      }
-
-      try {
-        playerRef.current = new window.YT.Player(containerId, {
-          videoId: videoId,
-          playerVars: {
-            autoplay: 1,
-            controls: 0,
-            disablekb: 1,
-            fs: 0,
-            iv_load_policy: 3,
-            modestbranding: 1,
-            rel: 0,
-            showinfo: 0,
-            mute: 0,
-            playsinline: 1,
-            origin: window.location.origin,
-            loop: 1,
-            playlist: videoId
-          },
-          events: {
-            onReady: (event) => {
-              event.target.setVolume(100);
-              event.target.unMute();
-              event.target.playVideo();
-
-              setTimeout(() => {
-                try {
-                  if (event.target.isMuted && event.target.isMuted()) {
-                    setAudioBlocked(true);
-                  } else {
-                    setAudioBlocked(false);
-                  }
-                } catch (e) {}
-              }, 800);
-            },
-            onStateChange: (event) => {
-              if (event.data === 1) { // PLAYING
-                setIsLoading(false);
-                try {
-                  if (!event.target.isMuted()) {
-                    setAudioBlocked(false);
-                  }
-                } catch (e) {}
-              }
-            },
-            onError: () => {
-              setIsLoading(false);
-            }
-          }
-        });
-      } catch (e) {
-        setIsLoading(false);
-      }
-    };
-
-    // Carica API YouTube se necessario
-    if (!window.YT) {
-      if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
-        const tag = document.createElement('script');
-        tag.src = 'https://www.youtube.com/iframe_api';
-        document.head.appendChild(tag);
-      }
-      
-      const prevCallback = window.onYouTubeIframeAPIReady;
-      window.onYouTubeIframeAPIReady = () => {
-        if (prevCallback) prevCallback();
-        initPlayer();
-      };
-    } else {
-      initPlayer();
-    }
-
-    // Cleanup SOLO on unmount definitivo
-    return () => {
-      if (playerRef.current) {
-        try {
-          if (typeof playerRef.current.destroy === 'function') {
-            playerRef.current.destroy();
-          }
-        } catch (e) {}
-        playerRef.current = null;
-      }
-    };
-  }, [videoId]); // Dipende SOLO dal videoId - non cambia mai durante la vita del componente
-
+const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => {
+  const messagesString = messages && messages.length > 0 ? messages.map(m => `${m.nickname}: ${m.text}`).join('   •   ') : '';
+  
   return (
-    <div className="absolute inset-0 bg-black flex items-center justify-center overflow-hidden">
-      {/* Overlay scuro per leggibilità testo */}
-      <div className="absolute inset-0 bg-black/50 z-10 pointer-events-none" />
-      
-      {/* Container YouTube */}
-      <div 
-        id={containerIdRef.current}
-        className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[150%] h-[150%] ${isAudioMode ? 'opacity-0' : 'opacity-70'}`}
-        style={{ pointerEvents: 'none' }}
-      />
-      
-      {/* Loader */}
-      {isLoading && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black">
-          <Loader2 className="w-16 h-16 text-fuchsia-500 animate-spin" />
-        </div>
-      )}
-
-      {/* Audio Block Warning */}
-      {audioBlocked && !isLoading && (
-        <div className="absolute top-10 left-1/2 -translate-x-1/2 z-50" style={{ pointerEvents: 'auto' }}>
-          <button 
-            onClick={handleUnblockAudio}
-            className="bg-red-600 text-white px-6 py-3 rounded-full font-bold animate-bounce flex items-center gap-2 shadow-lg hover:bg-red-700 transition"
-          >
-            <Volume2 className="w-5 h-5" /> CLICCA PER ATTIVARE L'AUDIO
-          </button>
-        </div>
-      )}
-
-      {/* Audio mode overlay */}
-      {isAudioMode && !isLoading && (
-        <div className="absolute inset-0 z-15 flex flex-col items-center justify-center bg-gradient-to-t from-fuchsia-900/50 to-black pointer-events-none">
-          <div className="relative">
-            <div className="absolute inset-0 bg-fuchsia-500 rounded-full blur-3xl animate-pulse opacity-40" />
-            <Music className="w-32 h-32 text-white relative z-10" />
+  <div className="absolute top-0 left-0 right-0 h-24 z-[100] flex items-center justify-between px-8 bg-gradient-to-b from-black/90 via-black/60 to-transparent">
+      <div className="flex items-center gap-5">
+          {logoUrl ? (
+            <img src={logoUrl} alt="Logo" className="w-16 h-16 rounded-xl border-2 border-white/20 shadow-lg object-contain bg-black p-1" />
+          ) : (
+            <div className="w-16 h-16 rounded-xl bg-fuchsia-600 flex items-center justify-center border-2 border-white/20 shadow-lg font-black text-xl">NP</div>
+          )}
+          <div>
+              <h1 className="text-3xl font-black text-white tracking-wider drop-shadow-md uppercase">{pubName || "NEONPUB"}</h1>
+              <div className="flex items-center gap-3">
+                  <span className="bg-red-600 px-2 py-0.5 rounded text-[10px] font-bold tracking-widest uppercase animate-pulse shadow-[0_0_10px_red]">LIVE</span>
+                  {isMuted && <span className="text-white bg-red-900 px-2 py-0.5 rounded text-[10px] font-bold tracking-widest border border-red-500">AUDIO OFF</span>}
+              </div>
           </div>
-          <p className="mt-8 text-2xl text-fuchsia-200 font-mono tracking-widest uppercase">Ascolta la traccia</p>
+      </div>
+      
+      <div className="flex-1 mx-16 h-14 glass-panel rounded-full flex items-center px-4 overflow-hidden relative">
+          {messagesString ? (
+             <div className="ticker-wrap">
+                 <div className="ticker-content text-white text-lg font-medium flex items-center gap-8">
+                     <MessageSquare className="w-5 h-5 text-fuchsia-400 inline-block shrink-0"/>
+                     <span>{messagesString}</span>
+                     <span className="ml-8">{messagesString}</span>
+                 </div>
+             </div>
+          ) : (
+             <div className="ticker-wrap">
+                 <div className="ticker-content text-white/40 text-sm font-medium uppercase tracking-widest flex items-center gap-8">
+                     <span>🎵 Prenota la tua canzone</span>
+                     <span>📸 Carica il tuo avatar</span>
+                     <span>🏆 Scala la classifica</span>
+                     <span>📱 Scansiona il QR Code</span>
+                     <span>🎵 Prenota la tua canzone</span>
+                     <span>📸 Carica il tuo avatar</span>
+                     <span>🏆 Scala la classifica</span>
+                     <span>📱 Scansiona il QR Code</span>
+                 </div>
+             </div>
+          )}
+      </div>
+
+      <div className="flex flex-col items-end">
+          <div className="glass-panel px-4 py-2 rounded-xl flex items-center gap-3">
+              <Users className="w-5 h-5 text-fuchsia-400"/> 
+              <span className="text-2xl font-mono font-bold">{onlineCount}</span>
+          </div>
+      </div>
+  </div>
+);};
+
+const AdminMessageOverlay = ({ message }) => {
+    // Nessun timer: l'overlay resta visibile finché il messaggio esiste nel DB.
+    // La regia lo elimina manualmente dalla dashboard (bottone Trash).
+    if (!message) return null;
+
+    return (
+        <div className="absolute inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+            <div className="glass-panel p-12 rounded-[3rem] max-w-5xl text-center border-4 border-fuchsia-500 shadow-[0_0_100px_rgba(217,70,239,0.5)] transform animate-bounce-in">
+                <div className="flex justify-center mb-6">
+                    <Megaphone className="w-24 h-24 text-fuchsia-400 animate-pulse" />
+                </div>
+                <h2 className="text-4xl text-fuchsia-200 font-bold uppercase tracking-[0.5em] mb-8">Comunicazione Regia</h2>
+                <p className="text-7xl font-black text-white leading-tight drop-shadow-2xl">{message.text}</p>
+            </div>
         </div>
-      )}
+    );
+};
+
+const Sidebar = ({ pubCode, queue, leaderboard }) => (
+  <div className="absolute top-28 right-6 bottom-6 w-[350px] z-[90] flex flex-col gap-6">
+      <div className="glass-panel p-6 rounded-3xl flex flex-col items-center justify-center relative overflow-hidden">
+          <div className="absolute inset-0 bg-fuchsia-600/10 blur-xl"></div>
+          <div className="bg-white p-3 rounded-2xl mb-4 shadow-2xl relative z-10">
+              <QRCodeSVG value={`${window.location.origin}/join/${pubCode}`} size={180} level="M" />
+          </div>
+          <div className="text-5xl font-black text-white tracking-widest font-mono drop-shadow-xl relative z-10">{pubCode}</div>
+          <div className="text-xs text-white/60 uppercase mt-2 font-bold tracking-[0.2em] relative z-10">Scansiona per entrare</div>
+      </div>
+      
+      <div className="glass-panel rounded-3xl flex flex-col overflow-hidden relative" style={{maxHeight: '45%'}}>
+          <div className="bg-gradient-to-r from-fuchsia-600 to-purple-600 px-6 py-4 flex items-center justify-between border-b border-white/10 shrink-0">
+              <div className="flex items-center gap-3">
+                  <Disc className="w-6 h-6 text-white animate-spin" style={{animationDuration: '3s'}} />
+                  <span className="font-black text-white text-xl uppercase tracking-wider">Coda</span>
+              </div>
+              <div className="bg-white/20 px-3 py-1 rounded-full">
+                  <span className="text-white font-bold text-sm">{queue?.length || 0}</span>
+              </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin scrollbar-thumb-fuchsia-600 scrollbar-track-transparent">
+              {queue && queue.length > 0 ? (
+                  queue.slice(0, 1).map((s, i) => (
+                      <div key={s.id} className="bg-white/5 backdrop-blur-sm p-4 rounded-2xl border border-white/10 hover:bg-white/10 transition-all flex items-center gap-4">
+                          {s.user_avatar ? (
+                              <img 
+                                  src={s.user_avatar} 
+                                  alt={s.user_nickname} 
+                                  className="w-12 h-12 rounded-full border-2 border-fuchsia-500 object-cover shrink-0 shadow-lg"
+                              />
+                          ) : (
+                              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-fuchsia-600 to-purple-600 flex items-center justify-center text-white font-black text-lg shadow-lg shrink-0">
+                                  {s.user_nickname?.charAt(0)?.toUpperCase() || '?'}
+                              </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                              <div className="text-white font-bold text-lg truncate">{s.user_nickname}</div>
+                              <div className="text-white/60 text-sm truncate">{s.title || s.song_title || 'Canzone senza titolo'}</div>
+                          </div>
+                          <Music className="w-5 h-5 text-fuchsia-400 shrink-0" />
+                      </div>
+                  ))
+              ) : (
+                  <div className="text-white/30 text-center py-8 italic">Nessuna canzone in coda</div>
+              )}
+          </div>
+      </div>
+
+      <div className="glass-panel rounded-3xl flex flex-col overflow-hidden relative flex-1">
+          <div className="bg-gradient-to-r from-yellow-500 to-orange-500 px-6 py-4 flex items-center justify-between border-b border-white/10 shrink-0">
+              <div className="flex items-center gap-3">
+                  <Trophy className="w-6 h-6 text-white" />
+                  <span className="font-black text-white text-xl uppercase tracking-wider">Classifica</span>
+              </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-thin scrollbar-thumb-yellow-500 scrollbar-track-transparent">
+              {leaderboard && leaderboard.length > 0 ? (
+                  leaderboard.slice(0, 10).map((player, i) => (
+                      <div key={player.id || i} className={`flex items-center gap-3 p-3 rounded-xl ${
+                          i === 0 ? 'bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/30' :
+                          i === 1 ? 'bg-white/5 border border-gray-400/20' :
+                          i === 2 ? 'bg-white/5 border border-amber-600/20' :
+                          'bg-white/5'
+                      }`}>
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm shrink-0 ${
+                              i === 0 ? 'bg-yellow-500 text-black' :
+                              i === 1 ? 'bg-gray-400 text-black' :
+                              i === 2 ? 'bg-amber-700 text-white' :
+                              'bg-white/10 text-white'
+                          }`}>
+                              {i+1}
+                          </div>
+                          {player.avatar_url ? (
+                              <img 
+                                  src={player.avatar_url} 
+                                  alt={player.nickname} 
+                                  className="w-10 h-10 rounded-full border-2 border-yellow-500/50 object-cover shrink-0 shadow-md"
+                              />
+                          ) : (
+                              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-fuchsia-600 to-purple-600 flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-md">
+                                  {player.nickname?.charAt(0)?.toUpperCase() || '?'}
+                              </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                              <div className="text-white font-bold text-sm truncate">{player.nickname}</div>
+                          </div>
+                          <div className="font-mono text-cyan-400 font-bold text-sm">{player.score || 0}</div>
+                      </div>
+                  ))
+              ) : (
+                  <div className="text-white/30 text-center py-8 italic text-sm">Classifica vuota</div>
+              )}
+          </div>
+      </div>
+  </div>
+);
+
+const KaraokeMode = ({ perf, isMuted }) => {
+    return (
+        <div className="w-full h-full relative">
+            <div className="absolute inset-0 right-[380px] bottom-[100px] bg-black">
+                <KaraokePlayer 
+                    key={perf.id} 
+                    url={perf.youtube_url}
+                    status={perf.status}
+                    volume={100}
+                    isMuted={isMuted}
+                    startedAt={perf.started_at}
+                />
+            </div>
+            {/* Fascia nera con banner esteso — riempie lo spazio sotto il player */}
+            <div className="absolute bottom-0 left-0 right-[380px] h-[100px] bg-black z-[70] flex items-center px-6 gap-5 border-t border-white/5">
+                
+                <div className="relative shrink-0">
+                    {perf.user_avatar ? (
+                        <img src={perf.user_avatar} className="w-16 h-16 rounded-full border-2 border-fuchsia-500/80 object-cover bg-zinc-900 shadow-lg" alt="Singer" />
+                    ) : (
+                        <div className="w-16 h-16 rounded-full border-2 border-fuchsia-500/80 bg-fuchsia-600/40 flex items-center justify-center shadow-lg">
+                            <Mic2 className="w-8 h-8 text-white" />
+                        </div>
+                    )}
+                    <div className="absolute -bottom-1 -right-1 bg-red-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full border border-white/20">LIVE</div>
+                </div>
+
+                <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                        <Mic2 className="w-4 h-4 text-fuchsia-400 shrink-0" />
+                        <span className="text-lg font-bold text-white truncate">{perf.user_nickname}</span>
+                    </div>
+                    <h1 className="text-2xl font-black text-white leading-none truncate text-glow">{perf.song_title}</h1>
+                    <p className="text-sm text-white/50 uppercase tracking-wide mt-1 truncate">{perf.song_artist}</p>
+                </div>
+
+                <div className="shrink-0 text-right border-l border-white/10 pl-5">
+                    <div className="text-xs text-white/30 uppercase tracking-widest mb-1">In onda</div>
+                    <div className="text-fuchsia-400 text-sm font-bold">🎤 Karaoke Live</div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const VotingMode = ({ perf }) => (
+    <div className="w-full h-full flex flex-col items-center justify-center animated-bg p-8 mr-[350px]">
+        <div className="bg-fuchsia-600/10 blur-[200px] w-[800px] h-[800px] absolute rounded-full animate-pulse"></div>
+        <div className="text-center relative z-10">
+            <Star className="w-56 h-56 text-yellow-400 mx-auto mb-12 drop-shadow-[0_0_100px_rgba(234,179,8,0.6)] animate-pulse" />
+            <h1 className="text-9xl font-black text-white leading-none mb-8 drop-shadow-2xl tracking-tight uppercase">Vota!</h1>
+            <div className="glass-panel px-16 py-10 rounded-[3rem] inline-block border-4 border-fuchsia-500 shadow-[0_0_80px_rgba(217,70,239,0.4)]">
+                <div className="text-4xl text-fuchsia-300 font-bold tracking-wider mb-4 uppercase">Ha Cantato</div>
+                <div className="text-8xl font-black text-white">{perf.user_nickname}</div>
+            </div>
+            <p className="text-4xl text-white/70 mt-16 font-bold animate-pulse">Usa l'app per votare da 1 a 5 stelle</p>
+        </div>
     </div>
-  );
-}, (prev, next) => {
-  // Non re-renderizzare MAI - il videoId non cambia durante la vita del componente
-  return prev.videoId === next.videoId;
-});
+);
 
-// ====================================================
-// QUIZ MEDIA FIXED - Componente principale
-// Crea/distrugge YouTubePlayer solo quando cambia video
-// ====================================================
-const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult }) => {
-  const detectedType = getMediaType(mediaUrl, mediaType);
-  const videoId = getYoutubeId(mediaUrl);
-  const isAudioMode = mediaType === 'audio';
+const ScoreMode = ({ perf }) => (
+    <div className="w-full h-full flex flex-col items-center justify-center animated-bg p-8 mr-[350px]">
+        <div className="bg-yellow-400/10 blur-[250px] w-[900px] h-[900px] absolute rounded-full animate-pulse"></div>
+        <div className="text-center relative z-10">
+            <div className="glass-panel px-20 py-12 rounded-[4rem] border-8 border-yellow-500 shadow-[0_0_120px_rgba(234,179,8,0.5)] inline-block">
+                <div className="text-4xl uppercase text-yellow-300 font-black tracking-[0.5em] mb-8">Punteggio</div>
+                <div className="text-7xl font-black text-white mb-10">{perf.user_nickname}</div>
+                <div className="flex justify-center gap-6 mb-10">
+                    {[1,2,3,4,5].map(star => (
+                        <Star 
+                            key={star} 
+                            className={`w-24 h-24 ${star <= Math.round(perf.average_score || 0) ? 'text-yellow-400 fill-yellow-400 drop-shadow-[0_0_30px_rgba(250,204,21,0.8)]' : 'text-white/20'}`}
+                        />
+                    ))}
+                </div>
+                <div className="text-[10rem] font-black text-yellow-400 font-mono drop-shadow-2xl leading-none">
+                    {perf.average_score?.toFixed(1) || "0.0"}
+                </div>
+                <p className="text-3xl text-white mt-12 font-bold bg-white/10 px-10 py-4 rounded-full backdrop-blur-md border border-white/20 inline-block">
+                    {perf.song_title}
+                </p>
+            </div>
+        </div>
+    </div>
+);
 
-  // Se è risultato, non mostrare media
-  if (isResult) return null;
+const QuizMode = ({ quiz, result }) => {
+    if (quiz.status === 'leaderboard' && quiz.leaderboard) {
+        return (
+             <div className="w-full h-full flex flex-col bg-[#080808] relative p-12 overflow-hidden items-center justify-center mr-[350px]">
+                <div className="bg-yellow-500/10 blur-[200px] w-full h-full absolute"></div>
+                <h1 className="text-8xl font-black text-yellow-400 uppercase tracking-[0.2em] mb-12 drop-shadow-2xl flex items-center gap-6 z-10">
+                    <Trophy className="w-32 h-32" /> Classifica
+                </h1>
+                <div className="glass-panel p-8 rounded-[3rem] w-full max-w-4xl border-4 border-yellow-500/30 z-10 flex flex-col gap-4 max-h-[80vh] overflow-y-auto custom-scrollbar">
+                     {quiz.leaderboard.slice(0, 10).map((p, i) => (
+                         <div key={i} className={`flex items-center gap-6 p-6 rounded-3xl ${i===0 ? 'bg-yellow-500/20 border-2 border-yellow-500' : 'bg-white/5'}`}>
+                             <div className={`text-4xl font-black w-16 h-16 rounded-xl flex items-center justify-center ${i===0 ? 'bg-yellow-500 text-black' : 'bg-white/10 text-white'}`}>{i+1}</div>
+                             <div className="text-4xl font-bold text-white flex-1">{p.nickname}</div>
+                             <div className="text-5xl font-mono text-yellow-400 font-black">{p.score}</div>
+                         </div>
+                     ))}
+                </div>
+             </div>
+        );
+    }
 
-  // Se non c'è media o non è YouTube
-  if (!mediaUrl || detectedType !== 'youtube' || !videoId) {
-    return <div className="absolute inset-0 bg-black" />;
-  }
+    // Layout split per video: video sx, domanda dx
+    const isVideoQuiz = quiz.media_type === 'video' && quiz.media_url && !result;
 
-  // Render YouTube Player con key stabile basata su videoId
-  // Il key fa sì che React crei un NUOVO componente solo quando cambia il videoId
-  // e NON quando cambiano altri props del padre
-  return (
-    <YouTubePlayer 
-      key={videoId}
-      videoId={videoId} 
-      isAudioMode={isAudioMode} 
-    />
-  );
-}, (prev, next) => {
-  // Regola di re-render: SOLO se cambia URL o isResult
-  return prev.mediaUrl === next.mediaUrl && 
-         prev.mediaType === next.mediaType &&
-         prev.isResult === next.isResult;
-});
+    if (isVideoQuiz) {
+        return (
+        <div className="w-full h-full flex flex-col bg-[#080808] overflow-hidden mr-[350px]">
+            {/* DOMANDA SOPRA */}
+            <div className="shrink-0 px-10 pt-6 pb-3 text-center">
+                <div className="inline-block bg-fuchsia-600 text-white px-8 py-2 rounded-full font-black text-sm uppercase tracking-[0.3em] shadow-[0_0_30px_rgba(217,70,239,0.5)] border border-white/20 mb-3">
+                    {quiz.category || "QUIZ TIME"}
+                </div>
+                <h1 className="text-4xl font-black text-white leading-tight drop-shadow-2xl">{quiz.question}</h1>
+            </div>
 
-export default QuizMediaFixed;
+            {/* VIDEO AL CENTRO — altezza fissa per contenere QuizMediaFixed */}
+            <div className="shrink-0 mx-10 rounded-2xl overflow-hidden border border-white/10 shadow-2xl" style={{height: '340px', position: 'relative'}}>
+                <QuizMediaFixed mediaUrl={quiz.media_url} mediaType={quiz.media_type} isResult={false} />
+            </div>
+
+            {/* RISPOSTE SOTTO */}
+            <div className="shrink-0 px-10 pt-3 pb-6">
+                {quiz.status === 'closed' ? (
+                    <div className="flex justify-center">
+                        <div className="bg-red-600 px-12 py-6 rounded-[2rem] animate-pulse shadow-[0_0_80px_rgba(220,38,38,0.8)] border-4 border-red-400">
+                            <h2 className="text-5xl font-black text-white uppercase italic">TEMPO SCADUTO!</h2>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-2 gap-3">
+                        {quiz.options.map((opt, i) => (
+                            <div key={i} className="glass-panel border-l-[8px] border-fuchsia-600 px-5 py-4 rounded-r-2xl flex items-center gap-4 text-left">
+                                <div className="w-12 h-12 bg-black/40 rounded-xl flex items-center justify-center text-2xl font-black text-white shrink-0 font-mono shadow-inner border border-white/10">
+                                    {String.fromCharCode(65+i)}
+                                </div>
+                                <div className="text-xl font-bold text-white leading-tight">{opt}</div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+        );
+    }
+
+    return (
+    <div className="w-full h-full flex flex-col bg-[#080808] relative p-12 overflow-hidden">
+        <QuizMediaFixed mediaUrl={quiz.media_url} mediaType={quiz.media_type} isResult={!!result} />
+        
+        <div className="absolute inset-0 bg-black/70 z-10 pointer-events-none"></div>
+
+        <div className="relative z-20 flex-1 flex flex-col items-center justify-center mr-[350px]">
+            <div className="bg-fuchsia-600 text-white px-10 py-4 rounded-full font-black text-xl uppercase tracking-[0.3em] mb-12 shadow-[0_0_40px_rgba(217,70,239,0.6)] transform -rotate-2 border-2 border-white/20">
+                {quiz.category || "QUIZ TIME"}
+            </div>
+
+            {result ? (
+                <div className="w-full max-w-6xl animate-in zoom-in duration-500 flex flex-col items-center">
+                    
+                    <div className="bg-green-600/90 backdrop-blur-xl p-10 rounded-[3rem] mb-12 shadow-[0_0_100px_rgba(22,163,74,0.5)] border-4 border-green-400 text-center w-full">
+                        <div className="text-white/70 uppercase font-bold tracking-widest text-sm mb-2">Risposta Corretta</div>
+                        <span className="text-7xl font-black text-white leading-tight">{result.correct_option}</span>
+                    </div>
+
+                    <div className="w-full">
+                        <div className="glass-panel p-8 rounded-3xl">
+                            <h3 className="text-fuchsia-400 font-bold uppercase tracking-widest mb-6 flex items-center gap-2 text-xl">
+                                <Zap className="w-6 h-6"/> I Più Veloci
+                            </h3>
+                            <div className="space-y-4 max-h-[500px] overflow-y-auto custom-scrollbar pr-2">
+                                {result.winners && result.winners.length > 0 ? (
+                                    result.winners.map((w, i) => (
+                                        <div key={i} className="flex items-center gap-4 bg-white/5 p-3 rounded-2xl border border-white/5">
+                                            <div className="bg-yellow-500 text-black font-black w-8 h-8 rounded-lg flex items-center justify-center text-lg">{i+1}</div>
+                                            {w.avatar && <img src={w.avatar} className="w-10 h-10 rounded-full object-cover border border-white/20" alt="avt" />}
+                                            {!w.avatar && <div className="w-10 h-10 rounded-full bg-fuchsia-600 flex items-center justify-center text-white font-bold border border-white/20">{w.nickname.charAt(0).toUpperCase()}</div>}
+                                            <span className="text-white font-bold text-xl truncate flex-1">{w.nickname}</span>
+                                            <div className="text-green-400 font-mono font-bold text-lg">+{w.points}</div>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="text-white/30 italic text-center py-4">Nessuno ha indovinato in tempo!</div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            ) : (
+                <div className="w-full max-w-7xl text-center">
+                    <h1 className="text-8xl font-black text-white leading-tight mb-20 drop-shadow-2xl">{quiz.question}</h1>
+                    
+                    {quiz.status === 'closed' ? (
+                         <div className="bg-red-600 p-12 rounded-[3rem] inline-block animate-pulse shadow-[0_0_80px_rgba(220,38,38,0.8)] border-4 border-red-400">
+                             <h2 className="text-6xl font-black text-white uppercase italic">TEMPO SCADUTO!</h2>
+                         </div>
+                    ) : (
+                        <div className="grid grid-cols-2 gap-8">
+                            {quiz.options.map((opt, i) => (
+                                <div key={i} className="glass-panel border-l-[12px] border-fuchsia-600 p-10 rounded-r-3xl flex items-center gap-8 text-left transform transition hover:scale-105 duration-300">
+                                    <div className="w-24 h-24 bg-black/40 rounded-2xl flex items-center justify-center text-5xl font-black text-white shrink-0 font-mono shadow-inner border border-white/10">
+                                        {String.fromCharCode(65+i)}
+                                    </div>
+                                    <div className="text-5xl font-bold text-white leading-tight">{opt}</div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    </div>
+)};
+
+const IdleMode = ({ pub }) => (
+    <div className="w-full h-full flex flex-col items-center justify-center animated-bg relative overflow-hidden">
+        <div className="w-[1000px] h-[1000px] bg-fuchsia-600/10 rounded-full blur-[150px] absolute z-0 animate-pulse"></div>
+        
+        <div className="relative z-10 text-center mr-[350px]">
+            {pub.logo_url ? (
+                 <img src={pub.logo_url} className="w-80 h-80 rounded-[3rem] mb-12 mx-auto shadow-[0_0_80px_rgba(0,0,0,0.8)] border-4 border-white/10 object-contain bg-black p-8" alt="logo" />
+            ) : (
+                 <div className="w-64 h-64 rounded-full bg-gradient-to-br from-zinc-800 to-black flex items-center justify-center mx-auto mb-10 border-4 border-white/10">
+                    <Music className="w-32 h-32 text-white/20" />
+                 </div>
+            )}
+            <h1 className="text-9xl font-black text-white tracking-tighter drop-shadow-2xl mb-8">{pub.name}</h1>
+            <div className="glass-panel px-16 py-6 rounded-full inline-block border border-white/20">
+                <span className="text-3xl text-white/90 font-bold uppercase tracking-[0.4em]">Benvenuti</span>
+            </div>
+        </div>
+    </div>
+);
+
+export default function PubDisplay() {
+    const { pubCode } = useParams();
+    const [data, setData] = useState(null);
+    const [isMuted, setIsMuted] = useState(false);
+    const [quizResult, setQuizResult] = useState(null);
+    const [newReaction, setNewReaction] = useState(null);
+
+    const load = useCallback(async () => {
+        try {
+            const res = await api.getDisplayData(pubCode);
+            if(res.data) {
+                let finalData = res.data;
+                const q = finalData.active_quiz;
+
+                if(q && q.status === 'showing_results') {
+                    const r = await api.getQuizResults(q.id);
+                    setQuizResult(r.data);
+                } else {
+                    setQuizResult(null);
+                }
+
+                if(q && q.status === 'leaderboard') {
+                    finalData = {
+                        ...finalData,
+                        active_quiz: {
+                            ...q,
+                            leaderboard: finalData.leaderboard
+                        }
+                    };
+                }
+                
+                setData(finalData);
+            }
+        } catch(e) { console.error(e); }
+    }, [pubCode]);
+
+    useEffect(() => {
+        load();
+        const int = setInterval(load, 3000);
+        
+        const ch = supabase.channel('tv_ctrl')
+            .on('broadcast', {event: 'control'}, p => { if(p.payload.command === 'mute') setIsMuted(p.payload.value); })
+            .on('postgres_changes', {event: 'INSERT', schema: 'public', table: 'reactions'}, p => setNewReaction(p.new))
+            .on('postgres_changes', {event: '*', schema: 'public', table: 'performances'}, load)
+            .on('postgres_changes', {event: '*', schema: 'public', table: 'quizzes'}, load)
+            .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'events'}, load)
+            .subscribe();
+            
+        return () => { clearInterval(int); supabase.removeChannel(ch); };
+    }, [pubCode, load]);
+
+    if (!data) return (
+        <div className="w-screen h-screen bg-black flex flex-col items-center justify-center">
+             <div className="w-20 h-20 border-8 border-fuchsia-600 border-t-transparent rounded-full animate-spin mb-6"></div>
+             <div className="text-white text-3xl font-black font-mono tracking-[0.5em] animate-pulse">CARICAMENTO...</div>
+        </div>
+    );
+
+    const { pub, current_performance: perf, queue, active_quiz: quiz, admin_message, leaderboard, approved_messages, extraction_data } = data;
+
+    // DEBUG: Verifica messaggi
+    console.log('🔍 DEBUG MESSAGGI:', {
+        admin_message,
+        approved_messages,
+        recentMessages: approved_messages?.slice(0, 10)
+    });
+
+    const recentMessages = approved_messages ? approved_messages.slice(0, 10) : [];
+
+    const isQuiz = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
+    const isKaraoke = !isQuiz && perf && ['live', 'paused'].includes(perf.status);
+    const isVoting = !isQuiz && perf && perf.status === 'voting';
+    const isScore = !isQuiz && perf && perf.status === 'ended';
+    
+    let Content = null;
+    if (isQuiz) Content = <QuizMode quiz={quiz} result={quizResult} />;
+    else if (isVoting) Content = <VotingMode perf={perf} />;
+    else if (isScore) Content = <ScoreMode perf={perf} />;
+    else if (isKaraoke) Content = <KaraokeMode perf={perf} isMuted={isMuted} />;
+    else Content = <IdleMode pub={pub} />;
+
+    return (
+        <div className="w-screen h-screen relative bg-black overflow-hidden">
+            <style>{STYLES}</style>
+            
+            <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10 pointer-events-none z-0"></div>
+
+            <TopBar pubName={pub.name} logoUrl={pub.logo_url} onlineCount={leaderboard?.length || 0} messages={recentMessages} isMuted={isMuted} />
+            <FloatingReactions newReaction={newReaction} />
+            <AdminMessageOverlay message={admin_message} />
+
+            {extraction_data && (
+                <div className="absolute inset-0 z-[300]">
+                    <ExtractionMode
+                        extractionData={extraction_data}
+                        participants={leaderboard || []}
+                        songs={extraction_data.song ? [extraction_data.song] : []}
+                        onComplete={() => api.clearExtraction(pubCode)}
+                    />
+                </div>
+            )}
+            
+            <div className="w-full h-full pt-24 pb-0 relative z-10">
+                {Content}
+            </div>
+            
+            <Sidebar pubCode={pubCode} queue={queue} leaderboard={leaderboard} />
+        </div>
+    );
+}
