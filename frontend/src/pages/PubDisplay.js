@@ -344,9 +344,24 @@ const QuizMode = ({ quiz, result }) => {
                 <h1 className="text-4xl font-black text-white leading-tight drop-shadow-2xl">{quiz.question}</h1>
             </div>
 
-            {/* VIDEO AL CENTRO — altezza fissa, video proporzionato */}
-            <div className="shrink-0 mx-10 rounded-2xl overflow-hidden border border-white/10 shadow-2xl" style={{height: '340px', position: 'relative'}}>
-                <QuizMediaFixed mediaUrl={quiz.media_url} mediaType={quiz.media_type} isResult={false} isBackground={false} />
+            {/* VIDEO AL CENTRO — iframe 16:9 che si adatta alla larghezza */}
+            <div className="shrink-0 mx-10 rounded-2xl overflow-hidden border border-white/10 shadow-2xl" style={{position: 'relative', paddingBottom: '42%'}}>
+                {(() => {
+                    const getYtId = (url) => {
+                        if (!url) return null;
+                        const m = url.match(/(?:youtu\.be\/|v\/|watch\?v=|&v=)([^#&?]{11})/);
+                        return m ? m[1] : null;
+                    };
+                    const ytId = getYtId(quiz.media_url);
+                    return ytId ? (
+                        <iframe
+                            src={`https://www.youtube.com/embed/${ytId}?autoplay=1&controls=0&modestbranding=1&rel=0&mute=0&loop=1&playlist=${ytId}`}
+                            allow="autoplay; encrypted-media"
+                            allowFullScreen={false}
+                            style={{position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none'}}
+                        />
+                    ) : null;
+                })()}
             </div>
 
             {/* RISPOSTE SOTTO */}
