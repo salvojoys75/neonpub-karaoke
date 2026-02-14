@@ -236,31 +236,32 @@ const KaraokeMode = ({ perf, isMuted }) => {
                     startedAt={perf.started_at}
                 />
             </div>
-            {/* Fascia nera sotto il player per ospitare il banner */}
-            <div className="absolute bottom-0 left-0 right-[380px] h-[100px] bg-black z-[70]"></div>
-            
-            <div className="absolute bottom-8 left-8 z-[80] anim-entry">
-                <div className="inline-flex items-center gap-3 bg-black/50 backdrop-blur-md px-4 py-3 rounded-2xl border border-white/10 shadow-[0_4px_30px_rgba(0,0,0,0.6)]">
-                    
-                    <div className="relative shrink-0">
-                        {perf.user_avatar ? (
-                            <img src={perf.user_avatar} className="w-12 h-12 rounded-full border-2 border-fuchsia-500/60 object-cover bg-zinc-900" alt="Singer" />
-                        ) : (
-                            <div className="w-12 h-12 rounded-full border-2 border-fuchsia-500/60 bg-fuchsia-600/40 flex items-center justify-center">
-                                <Mic2 className="w-6 h-6 text-white" />
-                            </div>
-                        )}
-                        <div className="absolute -bottom-1 -right-1 bg-red-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full border border-white/20">LIVE</div>
-                    </div>
-
-                    <div>
-                        <div className="flex items-center gap-1.5 mb-0.5">
-                            <Mic2 className="w-3 h-3 text-fuchsia-400" />
-                            <span className="text-sm font-bold text-white">{perf.user_nickname}</span>
+            {/* Fascia nera con banner esteso — riempie lo spazio sotto il player */}
+            <div className="absolute bottom-0 left-0 right-[380px] h-[100px] bg-black z-[70] flex items-center px-6 gap-5 border-t border-white/5">
+                
+                <div className="relative shrink-0">
+                    {perf.user_avatar ? (
+                        <img src={perf.user_avatar} className="w-16 h-16 rounded-full border-2 border-fuchsia-500/80 object-cover bg-zinc-900 shadow-lg" alt="Singer" />
+                    ) : (
+                        <div className="w-16 h-16 rounded-full border-2 border-fuchsia-500/80 bg-fuchsia-600/40 flex items-center justify-center shadow-lg">
+                            <Mic2 className="w-8 h-8 text-white" />
                         </div>
-                        <div className="text-base font-black text-white leading-none text-glow">{perf.song_title}</div>
-                        <div className="text-xs text-white/50 uppercase tracking-wide mt-0.5">{perf.song_artist}</div>
+                    )}
+                    <div className="absolute -bottom-1 -right-1 bg-red-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full border border-white/20">LIVE</div>
+                </div>
+
+                <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                        <Mic2 className="w-4 h-4 text-fuchsia-400 shrink-0" />
+                        <span className="text-lg font-bold text-white truncate">{perf.user_nickname}</span>
                     </div>
+                    <h1 className="text-2xl font-black text-white leading-none truncate text-glow">{perf.song_title}</h1>
+                    <p className="text-sm text-white/50 uppercase tracking-wide mt-1 truncate">{perf.song_artist}</p>
+                </div>
+
+                <div className="shrink-0 text-right border-l border-white/10 pl-5">
+                    <div className="text-xs text-white/30 uppercase tracking-widest mb-1">In onda</div>
+                    <div className="text-fuchsia-400 text-sm font-bold">🎤 Karaoke Live</div>
                 </div>
             </div>
         </div>
@@ -334,32 +335,36 @@ const QuizMode = ({ quiz, result }) => {
 
     if (isVideoQuiz) {
         return (
-        <div className="w-full h-full flex bg-[#080808] overflow-hidden">
-            {/* VIDEO SX — 40% */}
-            <div className="w-[40%] h-full relative flex items-center justify-center bg-black shrink-0">
-                <QuizMediaFixed mediaUrl={quiz.media_url} mediaType={quiz.media_type} isResult={false} />
-                <div className="absolute bottom-4 left-0 right-0 flex justify-center">
-                    <div className="bg-fuchsia-600 text-white px-6 py-2 rounded-full font-black text-sm uppercase tracking-[0.3em] shadow-[0_0_30px_rgba(217,70,239,0.6)] border border-white/20">
-                        {quiz.category || "QUIZ TIME"}
-                    </div>
+        <div className="w-full h-full flex flex-col bg-[#080808] overflow-hidden mr-[350px]">
+            {/* DOMANDA SOPRA */}
+            <div className="shrink-0 px-10 pt-6 pb-3 text-center">
+                <div className="inline-block bg-fuchsia-600 text-white px-8 py-2 rounded-full font-black text-sm uppercase tracking-[0.3em] shadow-[0_0_30px_rgba(217,70,239,0.5)] border border-white/20 mb-3">
+                    {quiz.category || "QUIZ TIME"}
                 </div>
+                <h1 className="text-4xl font-black text-white leading-tight drop-shadow-2xl">{quiz.question}</h1>
             </div>
 
-            {/* DOMANDA + RISPOSTE DX — 60% */}
-            <div className="flex-1 h-full flex flex-col items-center justify-center p-10 mr-[350px]">
-                <h1 className="text-5xl font-black text-white leading-tight mb-10 text-center drop-shadow-2xl">{quiz.question}</h1>
+            {/* VIDEO AL CENTRO */}
+            <div className="flex-1 relative min-h-0 mx-10 rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
+                <QuizMediaFixed mediaUrl={quiz.media_url} mediaType={quiz.media_type} isResult={false} />
+            </div>
+
+            {/* RISPOSTE SOTTO */}
+            <div className="shrink-0 px-10 pt-3 pb-6">
                 {quiz.status === 'closed' ? (
-                    <div className="bg-red-600 p-10 rounded-[3rem] inline-block animate-pulse shadow-[0_0_80px_rgba(220,38,38,0.8)] border-4 border-red-400">
-                        <h2 className="text-5xl font-black text-white uppercase italic">TEMPO SCADUTO!</h2>
+                    <div className="flex justify-center">
+                        <div className="bg-red-600 px-12 py-6 rounded-[2rem] animate-pulse shadow-[0_0_80px_rgba(220,38,38,0.8)] border-4 border-red-400">
+                            <h2 className="text-5xl font-black text-white uppercase italic">TEMPO SCADUTO!</h2>
+                        </div>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-2 gap-4 w-full">
+                    <div className="grid grid-cols-2 gap-3">
                         {quiz.options.map((opt, i) => (
-                            <div key={i} className="glass-panel border-l-[8px] border-fuchsia-600 p-6 rounded-r-2xl flex items-center gap-4 text-left">
-                                <div className="w-14 h-14 bg-black/40 rounded-xl flex items-center justify-center text-3xl font-black text-white shrink-0 font-mono shadow-inner border border-white/10">
+                            <div key={i} className="glass-panel border-l-[8px] border-fuchsia-600 px-5 py-4 rounded-r-2xl flex items-center gap-4 text-left">
+                                <div className="w-12 h-12 bg-black/40 rounded-xl flex items-center justify-center text-2xl font-black text-white shrink-0 font-mono shadow-inner border border-white/10">
                                     {String.fromCharCode(65+i)}
                                 </div>
-                                <div className="text-2xl font-bold text-white leading-tight">{opt}</div>
+                                <div className="text-xl font-bold text-white leading-tight">{opt}</div>
                             </div>
                         ))}
                     </div>
