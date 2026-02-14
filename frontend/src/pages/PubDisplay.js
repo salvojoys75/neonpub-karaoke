@@ -344,16 +344,16 @@ const QuizMode = ({ quiz, result }) => {
         return (
         <div className="w-full h-full flex flex-col bg-[#080808] overflow-hidden" style={{height: '100%'}}>
 
-            {/* DOMANDA — 15% altezza */}
-            <div style={{height: '15%'}} className="flex flex-col items-center justify-center px-8 gap-2 shrink-0">
-                <div className="bg-fuchsia-600 text-white px-6 py-1.5 rounded-full font-black text-xs uppercase tracking-[0.3em] shadow-[0_0_20px_rgba(217,70,239,0.5)] border border-white/20">
+            {/* DOMANDA — 12% altezza */}
+            <div style={{height: '12%'}} className="flex flex-col items-center justify-center px-8 gap-1 shrink-0 overflow-hidden">
+                <div style={{fontSize: 'clamp(0.6rem, 1vw, 0.9rem)'}} className="bg-fuchsia-600 text-white px-4 py-1 rounded-full font-black uppercase tracking-[0.3em] shadow-[0_0_20px_rgba(217,70,239,0.5)] border border-white/20 shrink-0">
                     {quiz.category || "QUIZ TIME"}
                 </div>
-                <h1 className="text-3xl font-black text-white leading-tight text-center drop-shadow-2xl line-clamp-2">{quiz.question}</h1>
+                <h1 style={{fontSize: 'clamp(1rem, 2.5vw, 2.2rem)', lineHeight: 1.2}} className="font-black text-white text-center drop-shadow-2xl line-clamp-2">{quiz.question}</h1>
             </div>
 
-            {/* VIDEO — 50% altezza */}
-            <div style={{height: '50%'}} className="shrink-0 px-8">
+            {/* VIDEO — 55% altezza */}
+            <div style={{height: '55%'}} className="shrink-0 px-8">
                 <div className="w-full h-full rounded-2xl overflow-hidden border border-white/10 shadow-2xl relative bg-black">
                     {ytId && (
                         <iframe
@@ -366,8 +366,8 @@ const QuizMode = ({ quiz, result }) => {
                 </div>
             </div>
 
-            {/* RISPOSTE — 35% altezza */}
-            <div style={{height: '35%'}} className="shrink-0 px-8 py-3 flex items-center">
+            {/* RISPOSTE — 33% altezza */}
+            <div style={{height: '33%'}} className="shrink-0 px-8 py-2 flex items-center">
                 {quiz.status === 'closed' ? (
                     <div className="w-full flex justify-center">
                         <div className="bg-red-600 px-10 py-5 rounded-[2rem] animate-pulse shadow-[0_0_60px_rgba(220,38,38,0.8)] border-4 border-red-400">
@@ -375,13 +375,13 @@ const QuizMode = ({ quiz, result }) => {
                         </div>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-2 gap-3 w-full h-full">
+                    <div className="grid grid-cols-2 gap-2 w-full h-full">
                         {quiz.options.map((opt, i) => (
-                            <div key={i} className="glass-panel border-l-[8px] border-fuchsia-600 px-5 rounded-r-2xl flex items-center gap-4 text-left">
-                                <div className="w-10 h-10 bg-black/40 rounded-xl flex items-center justify-center text-xl font-black text-white shrink-0 font-mono border border-white/10">
+                            <div key={i} className="glass-panel border-l-[8px] border-fuchsia-600 px-3 rounded-r-2xl flex items-center gap-3 text-left overflow-hidden">
+                                <div style={{fontSize: 'clamp(0.9rem, 1.8vw, 1.8rem)', minWidth: '2em', minHeight: '2em'}} className="bg-black/40 rounded-lg flex items-center justify-center font-black text-white shrink-0 font-mono border border-white/10 aspect-square">
                                     {String.fromCharCode(65+i)}
                                 </div>
-                                <div className="text-lg font-bold text-white leading-tight line-clamp-2">{opt}</div>
+                                <div style={{fontSize: 'clamp(0.8rem, 1.5vw, 1.4rem)'}} className="font-bold text-white leading-tight line-clamp-2">{opt}</div>
                             </div>
                         ))}
                     </div>
@@ -435,21 +435,21 @@ const QuizMode = ({ quiz, result }) => {
                     </div>
                 </div>
             ) : (
-                <div className="w-full max-w-7xl text-center">
-                    <h1 className="text-8xl font-black text-white leading-tight mb-20 drop-shadow-2xl">{quiz.question}</h1>
+                <div className="w-full h-full flex flex-col justify-center gap-4 px-4 overflow-hidden">
+                    <h1 style={{fontSize: 'clamp(1.5rem, 4vw, 4rem)', lineHeight: 1.2}} className="font-black text-white drop-shadow-2xl text-center">{quiz.question}</h1>
                     
                     {quiz.status === 'closed' ? (
-                         <div className="bg-red-600 p-12 rounded-[3rem] inline-block animate-pulse shadow-[0_0_80px_rgba(220,38,38,0.8)] border-4 border-red-400">
-                             <h2 className="text-6xl font-black text-white uppercase italic">TEMPO SCADUTO!</h2>
+                         <div className="bg-red-600 rounded-[2rem] animate-pulse shadow-[0_0_80px_rgba(220,38,38,0.8)] border-4 border-red-400 mx-auto px-10 py-6">
+                             <h2 style={{fontSize: 'clamp(2rem, 4vw, 4rem)'}} className="font-black text-white uppercase italic">TEMPO SCADUTO!</h2>
                          </div>
                     ) : (
-                        <div className="grid grid-cols-2 gap-8">
+                        <div className="grid grid-cols-2 gap-3 flex-1 min-h-0">
                             {quiz.options.map((opt, i) => (
-                                <div key={i} className="glass-panel border-l-[12px] border-fuchsia-600 p-10 rounded-r-3xl flex items-center gap-8 text-left transform transition hover:scale-105 duration-300">
-                                    <div className="w-24 h-24 bg-black/40 rounded-2xl flex items-center justify-center text-5xl font-black text-white shrink-0 font-mono shadow-inner border border-white/10">
+                                <div key={i} className="glass-panel border-l-[8px] border-fuchsia-600 px-4 rounded-r-2xl flex items-center gap-4 text-left overflow-hidden">
+                                    <div style={{fontSize: 'clamp(1.2rem, 2.5vw, 2.5rem)', minWidth: '2.5em', minHeight: '2.5em'}} className="bg-black/40 rounded-xl flex items-center justify-center font-black text-white shrink-0 font-mono border border-white/10 aspect-square">
                                         {String.fromCharCode(65+i)}
                                     </div>
-                                    <div className="text-5xl font-bold text-white leading-tight">{opt}</div>
+                                    <div style={{fontSize: 'clamp(1rem, 2vw, 2rem)'}} className="font-bold text-white leading-tight line-clamp-3">{opt}</div>
                                 </div>
                             ))}
                         </div>
