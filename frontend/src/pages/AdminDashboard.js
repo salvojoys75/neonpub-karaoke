@@ -1205,12 +1205,18 @@ export default function AdminDashboard() {
 
                {libraryTab === 'quiz' && (
                     <div className="flex flex-col h-full">
-                        <div className="grid grid-cols-2 gap-2 mb-4">
+                        <div className="grid grid-cols-3 gap-2 mb-4">
                             <Button className="bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-xs" onClick={()=>setShowCustomQuizModal(true)}>
                                 <Plus className="w-3 h-3 mr-1"/> Crea Manuale
                             </Button>
                             <Button className="bg-blue-600 hover:bg-blue-500 text-xs" onClick={()=>setShowImportModal(true)}>
                                 <Download className="w-3 h-3 mr-1"/> Importa JSON
+                            </Button>
+                            <Button className="bg-purple-600 hover:bg-purple-500 text-xs" onClick={()=>{
+                                const cat = window.prompt('Filtra per categoria:\n\nintro = Intro\nvideo = Videoclip\nlyrics = Testi\nartista = Chi Canta\nanno = Anno\ncover = Cover\nall = Tutti');
+                                if(cat) setQuizCategoryFilter(cat.toLowerCase());
+                            }}>
+                                <Dices className="w-3 h-3 mr-1"/> Filtra
                             </Button>
                         </div>
 
@@ -1291,6 +1297,26 @@ export default function AdminDashboard() {
                                                         <ListOrdered className="w-4 h-4 mr-2"/> MOSTRA CLASSIFICA
                                                     </Button>
                                                 )}
+                                                <Button 
+                                                    variant="outline" 
+                                                    className="border-red-500 text-red-500 hover:bg-red-900/20" 
+                                                    onClick={async () => {
+                                                        if(window.confirm(`⚠️ ELIMINARE LA DOMANDA DAL CATALOGO?\n\n"${activeQuizData?.question}"\n\nMotivo: Video/Audio non funzionante\n\nQuesta azione eliminerà la domanda e chiuderà il quiz.`)) {
+                                                            try {
+                                                                await api.deleteQuizQuestion(activeQuizId);
+                                                                toast.success("Domanda eliminata dal catalogo");
+                                                                await api.endQuiz(activeQuizId);
+                                                                await api.setEventModule('karaoke');
+                                                                toast.info("Tornati al Karaoke");
+                                                                loadData();
+                                                            } catch(e) {
+                                                                toast.error("Errore: " + e.message);
+                                                            }
+                                                        }
+                                                    }}
+                                                >
+                                                    <Trash2 className="w-4 h-4 mr-2"/> ELIMINA DOMANDA (Video Non Funziona)
+                                                </Button>
                                                 <Button variant="destructive" onClick={() => ctrlQuiz('end')}>
                                                     <MonitorPlay className="w-4 h-4 mr-2"/> CHIUDI E TORNA AL KARAOKE
                                                 </Button>
