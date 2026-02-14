@@ -103,6 +103,23 @@ export default function AdminDashboard() {
 
 // --- RANDOM EXTRACTION ---
   const [songPool, setSongPool] = useState([]);
+  const [showCatalogModal, setShowCatalogModal] = useState(false);
+  const [catalogSongs, setCatalogSongs] = useState([]);
+  const [catalogMoods, setCatalogMoods] = useState([]);
+  const [catalogGenres, setCatalogGenres] = useState([]);
+  const [catalogMoodFilter, setCatalogMoodFilter] = useState("all");
+  const [catalogGenreFilter, setCatalogGenreFilter] = useState("all");
+  const [catalogSearch, setCatalogSearch] = useState("");
+  const [loadingCatalog, setLoadingCatalog] = useState(false);
+  const [addingToPool, setAddingToPool] = useState(new Set());
+  // Super Admin catalog management
+  const [showAdminCatalogModal, setShowAdminCatalogModal] = useState(false);
+  const [adminCatalogSongs, setAdminCatalogSongs] = useState([]);
+  const [showAdminCatalogImportModal, setShowAdminCatalogImportModal] = useState(false);
+  const [adminCatalogImportText, setAdminCatalogImportText] = useState("");
+  const [showAdminCatalogSongModal, setShowAdminCatalogSongModal] = useState(false);
+  const [editingCatalogSong, setEditingCatalogSong] = useState(null);
+  const [catalogSongForm, setCatalogSongForm] = useState({ title: '', artist: '', youtube_url: '', genre: '', mood: '', decade: '', difficulty: 'facile' });
   const [showPoolModal, setShowPoolModal] = useState(false);
   const [editingSong, setEditingSong] = useState(null);
   const [poolFormData, setPoolFormData] = useState({ title: '', artist: '', youtube_url: '', genre: '', decade: '', difficulty: 'facile' });
@@ -497,7 +514,122 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleExtractRandom = async () => {
+  // ---- SONG CATALOG FUNCTIONS ----
+  const loadSongCatalog = async () => {
+    setLoadingCatalog(true);
+    try {
+      const moodFilter = catalogMoodFilter !== "all" ? catalogMoodFilter : null;
+      const genreFilter = catalogGenreFilter !== "all" ? catalogGenreFilter : null;
+      const [songsRes, moodsRes, genresRes] = await Promise.all([
+        api.getSongCatalog({ mood: moodFilter, genre: genreFilter }),
+        api.getSongCatalogMoods(),
+        api.getSongCatalogGenres()
+      ]);
+      setCatalogSongs(songsRes.data || []);
+      setCatalogMoods(moodsRes.data || []);
+      setCatalogGenres(genresRes.data || []);
+    } catch (e) {
+      toast.error("Errore caricamento catalogo: " + e.message);
+    } finally {
+      setLoadingCatalog(false);
+    }
+  };
+
+  const handleAddSongToPoolFromCatalog = async (song) => {
+    setAddingToPool(prev => new Set(prev).add(song.id));
+    try {
+      const result = await api.addCatalogSongToPool(song);
+      if (result.already_exists) {
+        toast.info(`"${song.title}" è già nel tuo pool`);
+      } else {
+        toast.success(`✅ "${song.title}" aggiunto al pool!`);
+        loadSongPool();
+      }
+    } catch (e) {
+      toast.error("Errore: " + e.message);
+    } finally {
+      setAddingToPool(prev => { const s = new Set(prev); s.delete(song.id); return s; });
+    }
+  };
+
+  const handleAddCategoryToPool = async (filterType, filterValue) => {
+    const label = filterValue;
+    if (!window.confirm(`Aggiungere tutte le canzoni "${label}" al tuo pool? I duplicati verranno saltati.`)) return;
+    try {
+      const options = filterType === 'mood' ? { mood: filterValue } : { genre: filterValue };
+      const result = await api.addCatalogCategoryToPool(options);
+      if (result.count === 0) {
+        toast.info(`Tutte le canzoni "${label}" sono già nel tuo pool!`);
+      } else {
+        toast.success(`✅ ${result.count} canzoni aggiunte! (${result.skipped} già presenti)`);
+        loadSongPool();
+      }
+    } catch (e) {
+      toast.error("Errore: " + e.message);
+    }
+  };
+
+  // Super Admin catalog management
+  const loadAdminCatalog = async () => {
+    try {
+      const { data } = await api.getSongCatalog();
+      setAdminCatalogSongs(data || []);
+    } catch (e) {
+      toast.error("Errore caricamento catalogo admin");
+    }
+  };
+
+  const handleAdminCatalogImport = async () => {
+    try {
+      const parsed = JSON.parse(adminCatalogImportText);
+      if (!Array.isArray(parsed)) throw new Error("Formato non valido");
+      const result = await api.importSongsToCatalog(parsed);
+      if (result.count === 0 && result.skipped > 0) {
+        toast.info(`Tutte le ${result.skipped} canzoni erano già nel catalogo!`);
+      } else if (result.skipped > 0) {
+        toast.success(`${result.count} canzoni aggiunte al catalogo! (${result.skipped} già presenti, saltate)`);
+      } else {
+        toast.success(`${result.count} canzoni aggiunte al catalogo!`);
+      }
+      setShowAdminCatalogImportModal(false);
+      setAdminCatalogImportText("");
+      loadAdminCatalog();
+    } catch (e) {
+      toast.error("Errore import: " + e.message);
+    }
+  };
+
+  const handleSaveAdminCatalogSong = async () => {
+    if (!catalogSongForm.title || !catalogSongForm.artist || !catalogSongForm.youtube_url) {
+      return toast.error("Titolo, Artista e URL sono obbligatori");
+    }
+    try {
+      if (editingCatalogSong) {
+        await api.updateSongInCatalog(editingCatalogSong.id, catalogSongForm);
+        toast.success("Canzone aggiornata nel catalogo");
+      } else {
+        await api.addSongToCatalog(catalogSongForm);
+        toast.success("Canzone aggiunta al catalogo");
+      }
+      setShowAdminCatalogSongModal(false);
+      loadAdminCatalog();
+    } catch (e) {
+      toast.error("Errore: " + e.message);
+    }
+  };
+
+  const handleDeleteAdminCatalogSong = async (songId, title) => {
+    if (!window.confirm(`Eliminare "${title}" dal catalogo globale?`)) return;
+    try {
+      await api.deleteSongFromCatalog(songId);
+      toast.success("Canzone eliminata dal catalogo");
+      loadAdminCatalog();
+    } catch (e) {
+      toast.error("Errore eliminazione: " + e.message);
+    }
+  };
+
+    const handleExtractRandom = async () => {
     try {
       const options = {};
       if (extractionMode.participant === 'forced' && selectedParticipantId) {
@@ -521,6 +653,18 @@ export default function AdminDashboard() {
       loadOnlineParticipants();
     }
   }, [appState, libraryTab]);
+
+  useEffect(() => {
+    if (showCatalogModal) {
+      loadSongCatalog();
+    }
+  }, [showCatalogModal, catalogMoodFilter, catalogGenreFilter]);
+
+  useEffect(() => {
+    if (showAdminCatalogModal) {
+      loadAdminCatalog();
+    }
+  }, [showAdminCatalogModal]);
  
 
   // --- DASHBOARD ACTIONS ---
@@ -728,7 +872,10 @@ export default function AdminDashboard() {
                 <h1 className="text-3xl font-bold text-fuchsia-500">SUPER ADMIN DASHBOARD</h1>
                 <Button variant="ghost" onClick={handleLogout}><LogOut className="w-4 h-4 mr-2"/> Esci</Button>
             </header>
-            <div className="mb-6"><Button onClick={()=>setShowCreateUserModal(true)} className="bg-green-600"><UserPlus className="w-4 h-4 mr-2"/> Nuovo Operatore</Button></div>
+            <div className="mb-6 flex gap-3">
+                <Button onClick={()=>setShowCreateUserModal(true)} className="bg-green-600"><UserPlus className="w-4 h-4 mr-2"/> Nuovo Operatore</Button>
+                <Button onClick={()=>setShowAdminCatalogModal(true)} className="bg-fuchsia-600"><ListMusic className="w-4 h-4 mr-2"/> Gestione Catalogo Pool</Button>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {userList.map(user => (
                     <Card key={user.id} className={`border-zinc-800 ${!user.is_active ? 'bg-red-950/20 opacity-70' : 'bg-zinc-900'}`}>
@@ -1174,6 +1321,12 @@ export default function AdminDashboard() {
                                <Button size="sm" onClick={() => handleOpenPoolModal()} className="bg-blue-600 h-7">
                                    <Plus className="w-3 h-3 mr-1"/> Nuova
                                </Button>
+                               <Button size="sm" onClick={() => { setShowCatalogModal(true); }} className="bg-fuchsia-600 h-7">
+                                   <ListMusic className="w-3 h-3 mr-1"/> Catalogo
+                               </Button>
+                               <Button size="sm" onClick={() => { setEditingCatalogSong(null); setCatalogSongForm({ title:'', artist:'', youtube_url:'', genre:'', mood:'', decade:'', difficulty:'facile' }); setShowAdminCatalogSongModal(true); }} className="bg-zinc-700 h-7" title="Aggiungi canzone al catalogo globale">
+                                   <Plus className="w-3 h-3 mr-1"/> +Catalogo
+                               </Button>
                                <Button size="sm" onClick={() => setShowImportPoolModal(true)} className="bg-green-600 h-7">
                                    <FileJson className="w-3 h-3 mr-1"/> Import
                                </Button>
@@ -1532,6 +1685,231 @@ export default function AdminDashboard() {
                   />
                   <Button className="w-full bg-green-600 font-bold" onClick={handleImportPoolScript}>
                       <Download className="w-4 h-4 mr-2"/> IMPORTA NEL POOL
+                  </Button>
+              </div>
+          </DialogContent>
+      </Dialog>
+
+      {/* ===== MODALE CATALOGO CENTRALIZZATO (OPERATORE) ===== */}
+      <Dialog open={showCatalogModal} onOpenChange={setShowCatalogModal}>
+          <DialogContent className="bg-zinc-900 border-zinc-800 max-w-3xl max-h-[90vh] flex flex-col">
+              <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                      <ListMusic className="w-5 h-5 text-fuchsia-400"/> Catalogo Canzoni
+                      <span className="text-xs text-zinc-500 font-normal ml-2">({catalogSongs.filter(s => {
+                          const q = catalogSearch.toLowerCase();
+                          return !q || s.title.toLowerCase().includes(q) || s.artist.toLowerCase().includes(q);
+                      }).length} canzoni)</span>
+                  </DialogTitle>
+              </DialogHeader>
+
+              {/* FILTRI */}
+              <div className="space-y-2 pt-2">
+                  <Input
+                      placeholder="🔍 Cerca titolo o artista..."
+                      value={catalogSearch}
+                      onChange={e => setCatalogSearch(e.target.value)}
+                      className="bg-zinc-800 border-zinc-700 h-8 text-sm"
+                  />
+                  <div className="flex gap-2">
+                      <div className="flex-1">
+                          <Select value={catalogMoodFilter} onValueChange={v => { setCatalogMoodFilter(v); setCatalogGenreFilter("all"); }}>
+                              <SelectTrigger className="bg-zinc-800 border-zinc-700 h-8 text-xs">
+                                  <SelectValue placeholder="Mood..." />
+                              </SelectTrigger>
+                              <SelectContent className="bg-zinc-800 border-zinc-700">
+                                  <SelectItem value="all">🎵 Tutti i mood</SelectItem>
+                                  {catalogMoods.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                              </SelectContent>
+                          </Select>
+                      </div>
+                      <div className="flex-1">
+                          <Select value={catalogGenreFilter} onValueChange={v => { setCatalogGenreFilter(v); setCatalogMoodFilter("all"); }}>
+                              <SelectTrigger className="bg-zinc-800 border-zinc-700 h-8 text-xs">
+                                  <SelectValue placeholder="Genere..." />
+                              </SelectTrigger>
+                              <SelectContent className="bg-zinc-800 border-zinc-700">
+                                  <SelectItem value="all">🎸 Tutti i generi</SelectItem>
+                                  {catalogGenres.map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}
+                              </SelectContent>
+                          </Select>
+                      </div>
+                      {(catalogMoodFilter !== "all" || catalogGenreFilter !== "all") && (
+                          <Button
+                              size="sm"
+                              className="bg-fuchsia-700 hover:bg-fuchsia-600 h-8 text-xs whitespace-nowrap"
+                              onClick={() => {
+                                  const filterType = catalogMoodFilter !== "all" ? 'mood' : 'genre';
+                                  const filterValue = catalogMoodFilter !== "all" ? catalogMoodFilter : catalogGenreFilter;
+                                  handleAddCategoryToPool(filterType, filterValue);
+                              }}
+                          >
+                              <Plus className="w-3 h-3 mr-1"/> Aggiungi tutti
+                          </Button>
+                      )}
+                  </div>
+              </div>
+
+              {/* LISTA CANZONI */}
+              <ScrollArea className="flex-1 mt-2 pr-1">
+                  {loadingCatalog ? (
+                      <div className="text-center py-8 text-zinc-500 text-sm">Caricamento...</div>
+                  ) : catalogSongs.length === 0 ? (
+                      <div className="text-center py-8 text-zinc-600 text-sm">
+                          <p>Nessuna canzone nel catalogo.</p>
+                          <p className="text-xs mt-1 text-zinc-700">Il Super Admin deve prima popolare il catalogo.</p>
+                      </div>
+                  ) : (
+                      <div className="space-y-1 pb-4">
+                          {catalogSongs
+                              .filter(s => {
+                                  const q = catalogSearch.toLowerCase();
+                                  return !q || s.title.toLowerCase().includes(q) || s.artist.toLowerCase().includes(q);
+                              })
+                              .map(song => (
+                              <div key={song.id} className="flex items-center justify-between bg-zinc-800 hover:bg-zinc-700 px-3 py-2 rounded group transition-colors">
+                                  <div className="flex-1 min-w-0">
+                                      <div className="font-medium text-sm text-white truncate">{song.title}</div>
+                                      <div className="text-xs text-zinc-400 flex gap-2">
+                                          <span>{song.artist}</span>
+                                          {song.decade && <span className="text-zinc-600">• {song.decade}</span>}
+                                          {song.mood && <span className="px-1.5 py-0.5 bg-fuchsia-900/40 text-fuchsia-300 rounded text-[10px]">{song.mood}</span>}
+                                          {song.genre && <span className="px-1.5 py-0.5 bg-blue-900/40 text-blue-300 rounded text-[10px]">{song.genre}</span>}
+                                          {song.difficulty && <span className={`px-1.5 py-0.5 rounded text-[10px] ${song.difficulty === 'facile' ? 'bg-green-900/40 text-green-300' : song.difficulty === 'difficile' ? 'bg-red-900/40 text-red-300' : 'bg-yellow-900/40 text-yellow-300'}`}>{song.difficulty}</span>}
+                                      </div>
+                                  </div>
+                                  <Button
+                                      size="sm"
+                                      className="ml-2 h-7 bg-fuchsia-700 hover:bg-fuchsia-600 text-xs shrink-0"
+                                      onClick={() => handleAddSongToPoolFromCatalog(song)}
+                                      disabled={addingToPool.has(song.id)}
+                                  >
+                                      {addingToPool.has(song.id) ? '...' : <><Plus className="w-3 h-3 mr-1"/>Pool</>}
+                                  </Button>
+                              </div>
+                          ))}
+                      </div>
+                  )}
+              </ScrollArea>
+              <div className="border-t border-white/10 pt-3 mt-1 flex justify-between items-center">
+                  <p className="text-[10px] text-zinc-600">Il catalogo è condiviso tra tutti gli operatori.</p>
+                  <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs border-fuchsia-700 text-fuchsia-400 hover:bg-fuchsia-900/20"
+                      onClick={() => { setShowCatalogModal(false); setEditingCatalogSong(null); setCatalogSongForm({ title:'', artist:'', youtube_url:'', genre:'', mood:'', decade:'', difficulty:'facile' }); setShowAdminCatalogSongModal(true); }}
+                  >
+                      <Plus className="w-3 h-3 mr-1"/> Aggiungi canzone al catalogo
+                  </Button>
+              </div>
+          </DialogContent>
+      </Dialog>
+
+      {/* ===== MODALE GESTIONE CATALOGO (SUPER ADMIN) ===== */}
+      <Dialog open={showAdminCatalogModal} onOpenChange={setShowAdminCatalogModal}>
+          <DialogContent className="bg-zinc-900 border-zinc-800 max-w-4xl max-h-[90vh] flex flex-col">
+              <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                      <ListMusic className="w-5 h-5 text-fuchsia-400"/> Catalogo Pool Globale (Collaborativo)
+                      <span className="text-xs text-zinc-500 font-normal">({adminCatalogSongs.length} canzoni)</span>
+                  </DialogTitle>
+              </DialogHeader>
+              <div className="flex gap-2 pt-2">
+                  <Button size="sm" className="bg-green-600 h-7" onClick={() => { setEditingCatalogSong(null); setCatalogSongForm({ title:'', artist:'', youtube_url:'', genre:'', mood:'', decade:'', difficulty:'facile' }); setShowAdminCatalogSongModal(true); }}>
+                      <Plus className="w-3 h-3 mr-1"/> Aggiungi Canzone
+                  </Button>
+                  <Button size="sm" className="bg-blue-600 h-7" onClick={() => setShowAdminCatalogImportModal(true)}>
+                      <Download className="w-3 h-3 mr-1"/> Import JSON
+                  </Button>
+              </div>
+              <ScrollArea className="flex-1 mt-3 pr-1">
+                  <div className="space-y-1 pb-4">
+                      {adminCatalogSongs.map(song => (
+                          <div key={song.id} className="flex items-center justify-between bg-zinc-800 px-3 py-2 rounded">
+                              <div className="flex-1 min-w-0">
+                                  <div className="font-medium text-sm text-white truncate">{song.title}</div>
+                                  <div className="text-xs text-zinc-400 flex gap-2 flex-wrap">
+                                      <span>{song.artist}</span>
+                                      {song.decade && <span className="text-zinc-600">• {song.decade}</span>}
+                                      {song.mood && <span className="px-1.5 py-0.5 bg-fuchsia-900/40 text-fuchsia-300 rounded text-[10px]">{song.mood}</span>}
+                                      {song.genre && <span className="px-1.5 py-0.5 bg-blue-900/40 text-blue-300 rounded text-[10px]">{song.genre}</span>}
+                                  </div>
+                              </div>
+                              <div className="flex gap-1 ml-2">
+                                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditingCatalogSong(song); setCatalogSongForm({ title: song.title, artist: song.artist, youtube_url: song.youtube_url, genre: song.genre || '', mood: song.mood || '', decade: song.decade || '', difficulty: song.difficulty || 'facile' }); setShowAdminCatalogSongModal(true); }}>
+                                      <Settings className="w-3 h-3"/>
+                                  </Button>
+                                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => handleDeleteAdminCatalogSong(song.id, song.title)}>
+                                      <Trash2 className="w-3 h-3"/>
+                                  </Button>
+                              </div>
+                          </div>
+                      ))}
+                  </div>
+              </ScrollArea>
+          </DialogContent>
+      </Dialog>
+
+      {/* ===== MODALE IMPORT CATALOGO GLOBALE (SUPER ADMIN) ===== */}
+      <Dialog open={showAdminCatalogImportModal} onOpenChange={setShowAdminCatalogImportModal}>
+          <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
+              <DialogHeader><DialogTitle>Importa nel Catalogo Globale</DialogTitle></DialogHeader>
+              <div className="space-y-4 pt-4">
+                  <p className="text-xs text-zinc-500">Formato JSON con campo <code className="text-fuchsia-300">mood</code> e <code className="text-fuchsia-300">genre</code>:</p>
+                  <p className="text-[10px] text-zinc-600 font-mono bg-zinc-950 p-2 rounded">{`[ { "title": "...", "artist": "...", "youtube_url": "https://...", "genre": "Pop", "mood": "Ballabili", "decade": "1990", "difficulty": "facile" } ]`}</p>
+                  <p className="text-[10px] text-zinc-600">Mood suggeriti: Ballabili, Allegre, Emozionanti, Anni 80, Anni 90, Anni 2000, Cartoni/Sigle, Italiane, Rock, Lente</p>
+                  <Textarea
+                      value={adminCatalogImportText}
+                      onChange={e => setAdminCatalogImportText(e.target.value)}
+                      placeholder="Incolla JSON qui..."
+                      className="bg-zinc-950 border-zinc-700 font-mono text-xs h-48"
+                  />
+                  <Button className="w-full bg-blue-600 font-bold" onClick={handleAdminCatalogImport}>
+                      <Download className="w-4 h-4 mr-2"/> IMPORTA NEL CATALOGO GLOBALE
+                  </Button>
+              </div>
+          </DialogContent>
+      </Dialog>
+
+      {/* ===== MODALE AGGIUNGI/MODIFICA CANZONE CATALOGO (SUPER ADMIN) ===== */}
+      <Dialog open={showAdminCatalogSongModal} onOpenChange={setShowAdminCatalogSongModal}>
+          <DialogContent className="bg-zinc-900 border-zinc-800">
+              <DialogHeader><DialogTitle>{editingCatalogSong ? 'Modifica Canzone Catalogo' : 'Aggiungi al Catalogo Globale'}</DialogTitle></DialogHeader>
+              <div className="space-y-3 pt-4">
+                  <div><label className="text-xs text-zinc-500 mb-1 block">Titolo *</label>
+                      <Input value={catalogSongForm.title} onChange={e=>setCatalogSongForm({...catalogSongForm, title: e.target.value})} className="bg-zinc-800"/>
+                  </div>
+                  <div><label className="text-xs text-zinc-500 mb-1 block">Artista *</label>
+                      <Input value={catalogSongForm.artist} onChange={e=>setCatalogSongForm({...catalogSongForm, artist: e.target.value})} className="bg-zinc-800"/>
+                  </div>
+                  <div><label className="text-xs text-zinc-500 mb-1 block">URL YouTube *</label>
+                      <Input value={catalogSongForm.youtube_url} onChange={e=>setCatalogSongForm({...catalogSongForm, youtube_url: e.target.value})} className="bg-zinc-800"/>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                      <div><label className="text-xs text-zinc-500 mb-1 block">Mood</label>
+                          <Input value={catalogSongForm.mood} onChange={e=>setCatalogSongForm({...catalogSongForm, mood: e.target.value})} placeholder="es. Ballabili" className="bg-zinc-800"/>
+                      </div>
+                      <div><label className="text-xs text-zinc-500 mb-1 block">Genere</label>
+                          <Input value={catalogSongForm.genre} onChange={e=>setCatalogSongForm({...catalogSongForm, genre: e.target.value})} placeholder="es. Pop" className="bg-zinc-800"/>
+                      </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                      <div><label className="text-xs text-zinc-500 mb-1 block">Decennio</label>
+                          <Input value={catalogSongForm.decade} onChange={e=>setCatalogSongForm({...catalogSongForm, decade: e.target.value})} placeholder="es. 1990" className="bg-zinc-800"/>
+                      </div>
+                      <div><label className="text-xs text-zinc-500 mb-1 block">Difficoltà</label>
+                          <Select value={catalogSongForm.difficulty} onValueChange={v=>setCatalogSongForm({...catalogSongForm, difficulty: v})}>
+                              <SelectTrigger className="bg-zinc-800"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                  <SelectItem value="facile">Facile</SelectItem>
+                                  <SelectItem value="media">Media</SelectItem>
+                                  <SelectItem value="difficile">Difficile</SelectItem>
+                              </SelectContent>
+                          </Select>
+                      </div>
+                  </div>
+                  <Button className="w-full bg-green-600 font-bold" onClick={handleSaveAdminCatalogSong}>
+                      <Save className="w-4 h-4 mr-2"/> {editingCatalogSong ? 'Aggiorna' : 'Aggiungi'} al Catalogo
                   </Button>
               </div>
           </DialogContent>

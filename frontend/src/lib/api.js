@@ -1169,6 +1169,222 @@ export const clearExtraction = async (pubCode) => {
   return { data: 'ok' }
 }
 
+// ==================== SONG CATALOG (CENTRALIZED) ====================
+
+export const getSongCatalog = async ({ mood = null, genre = null } = {}) => {
+  let query = supabase
+    .from('song_catalog')
+    .select('*')
+    .eq('is_active', true)
+    .order('artist', { ascending: true })
+
+  if (mood) query = query.eq('mood', mood)
+  if (genre) query = query.eq('genre', genre)
+
+  const { data, error } = await query
+  if (error) throw error
+  return { data }
+}
+
+export const getSongCatalogMoods = async () => {
+  const { data, error } = await supabase
+    .from('song_catalog')
+    .select('mood')
+    .eq('is_active', true)
+    .not('mood', 'is', null)
+
+  if (error) throw error
+  const moods = [...new Set((data || []).map(r => r.mood))].sort()
+  return { data: moods }
+}
+
+export const getSongCatalogGenres = async () => {
+  const { data, error } = await supabase
+    .from('song_catalog')
+    .select('genre')
+    .eq('is_active', true)
+    .not('genre', 'is', null)
+
+  if (error) throw error
+  const genres = [...new Set((data || []).map(r => r.genre))].sort()
+  return { data: genres }
+}
+
+export const addSongToCatalog = async (songData) => {
+  const { data: user } = await supabase.auth.getUser()
+  if (!user?.user) throw new Error('Not authenticated')
+
+  const { data, error } = await supabase
+    .from('song_catalog')
+    .insert({
+      title: songData.title,
+      artist: songData.artist,
+      youtube_url: songData.youtube_url,
+      genre: songData.genre || null,
+      mood: songData.mood || null,
+      decade: songData.decade || null,
+      difficulty: songData.difficulty || null,
+      created_by: user.user.id,
+      is_active: true
+    })
+    .select()
+    .single()
+
+  if (error) throw error
+  return { data }
+}
+
+export const updateSongInCatalog = async (songId, songData) => {
+  const { data, error } = await supabase
+    .from('song_catalog')
+    .update({
+      title: songData.title,
+      artist: songData.artist,
+      youtube_url: songData.youtube_url,
+      genre: songData.genre || null,
+      mood: songData.mood || null,
+      decade: songData.decade || null,
+      difficulty: songData.difficulty || null
+    })
+    .eq('id', songId)
+    .select()
+    .single()
+
+  if (error) throw error
+  return { data }
+}
+
+export const deleteSongFromCatalog = async (songId) => {
+  const { error } = await supabase
+    .from('song_catalog')
+    .update({ is_active: false })
+    .eq('id', songId)
+
+  if (error) throw error
+  return { data: 'ok' }
+}
+
+export const importSongsToCatalog = async (songsArray) => {
+  const { data: user } = await supabase.auth.getUser()
+  if (!user?.user) throw new Error('Not authenticated')
+
+  const { data: existing } = await supabase
+    .from('song_catalog')
+    .select('title, artist')
+    .eq('is_active', true)
+
+  const existingSet = new Set(
+    (existing || []).map(s => `${s.title.toLowerCase()}|||${s.artist.toLowerCase()}`)
+  )
+
+  const toInsert = songsArray
+    .filter(s => !existingSet.has(`${s.title.toLowerCase()}|||${s.artist.toLowerCase()}`))
+    .map(s => ({
+      title: s.title,
+      artist: s.artist,
+      youtube_url: s.youtube_url,
+      genre: s.genre || null,
+      mood: s.mood || null,
+      decade: s.decade || null,
+      difficulty: s.difficulty || null,
+      created_by: user.user.id,
+      is_active: true
+    }))
+
+  if (toInsert.length === 0) return { data: [], count: 0, skipped: songsArray.length }
+
+  const { data, error } = await supabase
+    .from('song_catalog')
+    .insert(toInsert)
+    .select()
+
+  if (error) throw error
+  return { data, count: data.length, skipped: songsArray.length - toInsert.length }
+}
+
+export const addCatalogSongToPool = async (catalogSong) => {
+  const { data: user } = await supabase.auth.getUser()
+  if (!user?.user) throw new Error('Not authenticated')
+
+  // Check if already in personal pool
+  const { data: existing } = await supabase
+    .from('random_song_pool')
+    .select('id')
+    .eq('operator_id', user.user.id)
+    .eq('title', catalogSong.title)
+    .eq('artist', catalogSong.artist)
+    .eq('is_active', true)
+    .limit(1)
+
+  if (existing && existing.length > 0) {
+    return { data: existing[0], already_exists: true }
+  }
+
+  const { data, error } = await supabase
+    .from('random_song_pool')
+    .insert({
+      operator_id: user.user.id,
+      title: catalogSong.title,
+      artist: catalogSong.artist,
+      youtube_url: catalogSong.youtube_url,
+      genre: catalogSong.genre || null,
+      decade: catalogSong.decade || null,
+      difficulty: catalogSong.difficulty || null
+    })
+    .select()
+    .single()
+
+  if (error) throw error
+  return { data, already_exists: false }
+}
+
+export const addCatalogCategoryToPool = async ({ mood = null, genre = null }) => {
+  const { data: user } = await supabase.auth.getUser()
+  if (!user?.user) throw new Error('Not authenticated')
+
+  // Get songs from catalog for this category
+  let query = supabase.from('song_catalog').select('*').eq('is_active', true)
+  if (mood) query = query.eq('mood', mood)
+  if (genre) query = query.eq('genre', genre)
+  const { data: catalogSongs } = await query
+
+  if (!catalogSongs || catalogSongs.length === 0) throw new Error('Nessuna canzone trovata in questa categoria')
+
+  // Get existing pool songs to avoid duplicates
+  const { data: existingPool } = await supabase
+    .from('random_song_pool')
+    .select('title, artist')
+    .eq('operator_id', user.user.id)
+    .eq('is_active', true)
+
+  const existingSet = new Set(
+    (existingPool || []).map(s => `${s.title.toLowerCase()}|||${s.artist.toLowerCase()}`)
+  )
+
+  const toInsert = catalogSongs
+    .filter(s => !existingSet.has(`${s.title.toLowerCase()}|||${s.artist.toLowerCase()}`))
+    .map(s => ({
+      operator_id: user.user.id,
+      title: s.title,
+      artist: s.artist,
+      youtube_url: s.youtube_url,
+      genre: s.genre || null,
+      decade: s.decade || null,
+      difficulty: s.difficulty || null
+    }))
+
+  if (toInsert.length === 0) return { count: 0, skipped: catalogSongs.length }
+
+  const { data, error } = await supabase
+    .from('random_song_pool')
+    .insert(toInsert)
+    .select()
+
+  if (error) throw error
+  return { count: data.length, skipped: catalogSongs.length - toInsert.length }
+}
+
+
 export default {
   createPub, updateEventSettings, uploadLogo, getPub, joinPub, uploadAvatar, adminLogin, getMe,
   getAllProfiles, updateProfileCredits, createOperatorProfile, toggleUserStatus,
@@ -1186,5 +1402,9 @@ export default {
   // Venues
   getMyVenues, createVenue, updateVenue, deleteVenue, trackQuizUsage, resetQuizUsageForVenue,
   // Random Extraction
-  getRandomSongPool, addSongToPool, updateSongInPool, deleteSongFromPool, importSongsToPool, extractRandomKaraoke, clearExtraction
+  getRandomSongPool, addSongToPool, updateSongInPool, deleteSongFromPool, importSongsToPool, extractRandomKaraoke, clearExtraction,
+  // Song Catalog (centralized)
+  getSongCatalog, getSongCatalogMoods, getSongCatalogGenres,
+  addSongToCatalog, updateSongInCatalog, deleteSongFromCatalog, importSongsToCatalog,
+  addCatalogSongToPool, addCatalogCategoryToPool
 }
