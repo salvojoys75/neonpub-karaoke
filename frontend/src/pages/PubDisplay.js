@@ -334,57 +334,60 @@ const QuizMode = ({ quiz, result }) => {
     const isVideoQuiz = quiz.media_type === 'video' && quiz.media_url && !result;
 
     if (isVideoQuiz) {
+        const getYtId = (url) => {
+            if (!url) return null;
+            const m = url.match(/(?:youtu[.]be\/|v\/|watch[?]v=|&v=)([^#&?]{11})/);
+            return m ? m[1] : null;
+        };
+        const ytId = getYtId(quiz.media_url);
+
         return (
-        <div className="w-full h-full flex flex-col bg-[#080808] overflow-hidden mr-[350px]">
-            {/* DOMANDA SOPRA */}
-            <div className="shrink-0 px-10 pt-6 pb-3 text-center">
-                <div className="inline-block bg-fuchsia-600 text-white px-8 py-2 rounded-full font-black text-sm uppercase tracking-[0.3em] shadow-[0_0_30px_rgba(217,70,239,0.5)] border border-white/20 mb-3">
+        <div className="w-full h-full flex flex-col bg-[#080808] overflow-hidden mr-[350px]" style={{height: '100%'}}>
+
+            {/* DOMANDA — 15% altezza */}
+            <div style={{height: '15%'}} className="flex flex-col items-center justify-center px-8 gap-2 shrink-0">
+                <div className="bg-fuchsia-600 text-white px-6 py-1.5 rounded-full font-black text-xs uppercase tracking-[0.3em] shadow-[0_0_20px_rgba(217,70,239,0.5)] border border-white/20">
                     {quiz.category || "QUIZ TIME"}
                 </div>
-                <h1 className="text-4xl font-black text-white leading-tight drop-shadow-2xl">{quiz.question}</h1>
+                <h1 className="text-3xl font-black text-white leading-tight text-center drop-shadow-2xl line-clamp-2">{quiz.question}</h1>
             </div>
 
-            {/* VIDEO AL CENTRO — iframe 16:9 che si adatta alla larghezza */}
-            <div className="shrink-0 mx-10 rounded-2xl overflow-hidden border border-white/10 shadow-2xl" style={{position: 'relative', paddingBottom: '42%'}}>
-                {(() => {
-                    const getYtId = (url) => {
-                        if (!url) return null;
-                        const m = url.match(/(?:youtu\.be\/|v\/|watch\?v=|&v=)([^#&?]{11})/);
-                        return m ? m[1] : null;
-                    };
-                    const ytId = getYtId(quiz.media_url);
-                    return ytId ? (
+            {/* VIDEO — 50% altezza */}
+            <div style={{height: '50%'}} className="shrink-0 px-8">
+                <div className="w-full h-full rounded-2xl overflow-hidden border border-white/10 shadow-2xl relative bg-black">
+                    {ytId && (
                         <iframe
                             src={`https://www.youtube.com/embed/${ytId}?autoplay=1&controls=0&modestbranding=1&rel=0&mute=0&loop=1&playlist=${ytId}`}
                             allow="autoplay; encrypted-media"
                             allowFullScreen={false}
                             style={{position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none'}}
                         />
-                    ) : null;
-                })()}
+                    )}
+                </div>
             </div>
 
-            {/* RISPOSTE SOTTO */}
-            <div className="shrink-0 px-10 pt-3 pb-6">
+            {/* RISPOSTE — 35% altezza */}
+            <div style={{height: '35%'}} className="shrink-0 px-8 py-3 flex items-center">
                 {quiz.status === 'closed' ? (
-                    <div className="flex justify-center">
-                        <div className="bg-red-600 px-12 py-6 rounded-[2rem] animate-pulse shadow-[0_0_80px_rgba(220,38,38,0.8)] border-4 border-red-400">
+                    <div className="w-full flex justify-center">
+                        <div className="bg-red-600 px-10 py-5 rounded-[2rem] animate-pulse shadow-[0_0_60px_rgba(220,38,38,0.8)] border-4 border-red-400">
                             <h2 className="text-5xl font-black text-white uppercase italic">TEMPO SCADUTO!</h2>
                         </div>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-3 w-full h-full">
                         {quiz.options.map((opt, i) => (
-                            <div key={i} className="glass-panel border-l-[8px] border-fuchsia-600 px-5 py-4 rounded-r-2xl flex items-center gap-4 text-left">
-                                <div className="w-12 h-12 bg-black/40 rounded-xl flex items-center justify-center text-2xl font-black text-white shrink-0 font-mono shadow-inner border border-white/10">
+                            <div key={i} className="glass-panel border-l-[8px] border-fuchsia-600 px-5 rounded-r-2xl flex items-center gap-4 text-left">
+                                <div className="w-10 h-10 bg-black/40 rounded-xl flex items-center justify-center text-xl font-black text-white shrink-0 font-mono border border-white/10">
                                     {String.fromCharCode(65+i)}
                                 </div>
-                                <div className="text-xl font-bold text-white leading-tight">{opt}</div>
+                                <div className="text-lg font-bold text-white leading-tight line-clamp-2">{opt}</div>
                             </div>
                         ))}
                     </div>
                 )}
             </div>
+
         </div>
         );
     }
