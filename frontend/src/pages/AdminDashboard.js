@@ -70,6 +70,7 @@ export default function AdminDashboard() {
   
   const [showImportModal, setShowImportModal] = useState(false);
   const [importText, setImportText] = useState("");
+  const [showModulesModal, setShowModulesModal] = useState(false);
 
   // --- YOUTUBE VARS ---
   const [youtubeUrl, setYoutubeUrl] = useState("");
@@ -807,25 +808,25 @@ export default function AdminDashboard() {
   const handleDeleteQuestion = async (e, item) => {
       e.stopPropagation();
       const isActive = item.id === activeQuizId;
-      const warningMsg = isActive 
-          ? `⚠️ ATTENZIONE: Questa domanda è IN ONDA!\n\n"${item.question}"\n\nVuoi eliminarla comunque dal catalogo?\n\nIl quiz verrà terminato automaticamente.`
-          : `Sei sicuro di voler eliminare dal catalogo: "${item.question}"?`;
+      const msg = isActive 
+          ? `⚠️ QUESTA DOMANDA È IN ONDA!\n\n"${item.question}"\n\nVuoi eliminarla? Il quiz verrà chiuso.`
+          : `Eliminare: "${item.question}"?`;
       
-      if(!confirm(warningMsg)) return;
+      if(!confirm(msg)) return;
       
       try {
           await api.deleteQuizQuestion(item.id);
-          toast.success("Domanda rimossa dal catalogo.");
+          toast.success("Domanda eliminata");
           
           if(isActive && activeQuizId) {
               await api.endQuiz(activeQuizId);
               await api.setEventModule('karaoke');
-              toast.info("Quiz terminato, tornati al Karaoke");
+              toast.info("Quiz chiuso");
           }
           
           loadData();
       } catch(err) {
-          toast.error("Errore eliminazione: " + err.message);
+          toast.error("Errore: " + err.message);
       }
   };
 
@@ -1212,11 +1213,8 @@ export default function AdminDashboard() {
                             <Button className="bg-blue-600 hover:bg-blue-500 text-xs" onClick={()=>setShowImportModal(true)}>
                                 <Download className="w-3 h-3 mr-1"/> Importa JSON
                             </Button>
-                            <Button className="bg-purple-600 hover:bg-purple-500 text-xs" onClick={()=>{
-                                const cat = window.prompt('Filtra per categoria:\n\nintro = Intro\nvideo = Videoclip\nlyrics = Testi\nartista = Chi Canta\nanno = Anno\ncover = Cover\nall = Tutti');
-                                if(cat) setQuizCategoryFilter(cat.toLowerCase());
-                            }}>
-                                <Dices className="w-3 h-3 mr-1"/> Filtra
+                            <Button className="bg-purple-600 hover:bg-purple-500 text-xs" onClick={()=>setShowModulesModal(true)}>
+                                <Dices className="w-3 h-3 mr-1"/> Moduli
                             </Button>
                         </div>
 
@@ -1275,10 +1273,32 @@ export default function AdminDashboard() {
 
                                     <div className="grid grid-cols-1 gap-2">
                                         {quizStatus === 'active' && (
-                                            <Button className="w-full bg-red-600 hover:bg-red-500 h-10 font-bold animate-pulse" 
-                                                onClick={() => ctrlQuiz('close_vote')}>
-                                                <StopCircle className="w-4 h-4 mr-2"/> STOP AL TELEVOTO
-                                            </Button>
+                                            <>
+                                                <Button className="w-full bg-red-600 hover:bg-red-500 h-10 font-bold animate-pulse" 
+                                                    onClick={() => ctrlQuiz('close_vote')}>
+                                                    <StopCircle className="w-4 h-4 mr-2"/> CHIUDI RISPOSTE
+                                                </Button>
+                                                <Button 
+                                                    variant="outline" 
+                                                    className="border-red-500 text-red-500 hover:bg-red-900/20" 
+                                                    onClick={async () => {
+                                                        if(window.confirm(`⚠️ ELIMINARE QUESTA DOMANDA DAL CATALOGO?\n\n"${activeQuizData?.question}"\n\nMotivo: Video/Audio non funzionante\n\nLa domanda sarà eliminata e il quiz chiuso.`)) {
+                                                            try {
+                                                                await api.deleteQuizQuestion(activeQuizId);
+                                                                toast.success("Domanda eliminata");
+                                                                await api.endQuiz(activeQuizId);
+                                                                await api.setEventModule('karaoke');
+                                                                toast.info("Tornato al Karaoke");
+                                                                loadData();
+                                                            } catch(e) {
+                                                                toast.error("Errore: " + e.message);
+                                                            }
+                                                        }
+                                                    }}
+                                                >
+                                                    <Trash2 className="w-4 h-4 mr-2"/> ELIMINA (Video Non Funziona)
+                                                </Button>
+                                            </>
                                         )}
                                         
                                         {quizStatus === 'closed' && (
@@ -1297,26 +1317,6 @@ export default function AdminDashboard() {
                                                         <ListOrdered className="w-4 h-4 mr-2"/> MOSTRA CLASSIFICA
                                                     </Button>
                                                 )}
-                                                <Button 
-                                                    variant="outline" 
-                                                    className="border-red-500 text-red-500 hover:bg-red-900/20" 
-                                                    onClick={async () => {
-                                                        if(window.confirm(`⚠️ ELIMINARE LA DOMANDA DAL CATALOGO?\n\n"${activeQuizData?.question}"\n\nMotivo: Video/Audio non funzionante\n\nQuesta azione eliminerà la domanda e chiuderà il quiz.`)) {
-                                                            try {
-                                                                await api.deleteQuizQuestion(activeQuizId);
-                                                                toast.success("Domanda eliminata dal catalogo");
-                                                                await api.endQuiz(activeQuizId);
-                                                                await api.setEventModule('karaoke');
-                                                                toast.info("Tornati al Karaoke");
-                                                                loadData();
-                                                            } catch(e) {
-                                                                toast.error("Errore: " + e.message);
-                                                            }
-                                                        }
-                                                    }}
-                                                >
-                                                    <Trash2 className="w-4 h-4 mr-2"/> ELIMINA DOMANDA (Video Non Funziona)
-                                                </Button>
                                                 <Button variant="destructive" onClick={() => ctrlQuiz('end')}>
                                                     <MonitorPlay className="w-4 h-4 mr-2"/> CHIUDI E TORNA AL KARAOKE
                                                 </Button>
@@ -1377,7 +1377,7 @@ export default function AdminDashboard() {
                                             )}
                                             {isActiveQuiz && (
                                                 <div className="text-[9px] text-fuchsia-400 mt-1 font-bold">
-                                                    ⚡ Questa domanda è attualmente in onda
+                                                    ⚡ Questa domanda è in onda ora
                                                 </div>
                                             )}
                                         </div>
@@ -1721,6 +1721,43 @@ export default function AdminDashboard() {
                   <p className="text-[10px] text-zinc-600">Categorie: Indovina Intro, Indovina Videoclip, Completa il Testo, Chi Canta?, Indovina l'Anno, Cover o Originale?, Musica Generale</p>
                   <Textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder='Incolla JSON qui...' className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"/>
                   <Button className="w-full bg-blue-600 font-bold" onClick={handleImportScript}><Download className="w-4 h-4 mr-2"/> IMPORTA NEL CATALOGO</Button>
+              </div>
+          </DialogContent>
+      </Dialog>
+
+      <Dialog open={showModulesModal} onOpenChange={setShowModulesModal}>
+          <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl max-h-[80vh]">
+              <DialogHeader><DialogTitle className="flex items-center gap-2"><Dices className="w-5 h-5 text-purple-400"/> Carica Moduli Quiz</DialogTitle></DialogHeader>
+              <ScrollArea className="h-[500px] pr-4">
+                  <div className="space-y-3 pt-4">
+                      <Card className="bg-zinc-800 border-zinc-700 hover:border-purple-500 cursor-pointer transition" onClick={async ()=>{
+                          if(confirm('Caricare 30 domande "Indovina Intro - Pop Italiane"?')) {
+                              const json = `[{"category":"Indovina Intro","question":"Intro 1","options":["A","B","C","D"],"correct_index":0,"media_url":"","media_type":"audio"}]`;
+                              toast.info("Funzione demo - Implementa caricamento dal tuo database");
+                              setShowModulesModal(false);
+                          }
+                      }}>
+                          <CardHeader><CardTitle className="text-base text-white">🎵 Intro Pop Italiane</CardTitle><p className="text-xs text-zinc-400">30 intro successi italiani</p></CardHeader>
+                      </Card>
+                      <Card className="bg-zinc-800 border-zinc-700 hover:border-purple-500 cursor-pointer transition" onClick={()=>toast.info("Modulo 2")}>
+                          <CardHeader><CardTitle className="text-base text-white">🎸 Intro Rock Classico</CardTitle><p className="text-xs text-zinc-400">30 intro rock internazionali</p></CardHeader>
+                      </Card>
+                      <Card className="bg-zinc-800 border-zinc-700 hover:border-purple-500 cursor-pointer transition" onClick={()=>toast.info("Modulo 3")}>
+                          <CardHeader><CardTitle className="text-base text-white">📼 Videoclip Anni 80</CardTitle><p className="text-xs text-zinc-400">25 videoclip iconici</p></CardHeader>
+                      </Card>
+                      <Card className="bg-zinc-800 border-zinc-700 hover:border-purple-500 cursor-pointer transition" onClick={()=>toast.info("Modulo 4")}>
+                          <CardHeader><CardTitle className="text-base text-white">📝 Completa Testo Italiani</CardTitle><p className="text-xs text-zinc-400">20 brani celebri</p></CardHeader>
+                      </Card>
+                      <Card className="bg-zinc-800 border-zinc-700 hover:border-purple-500 cursor-pointer transition" onClick={()=>toast.info("Modulo 5")}>
+                          <CardHeader><CardTitle className="text-base text-white">🎤 Chi Canta?</CardTitle><p className="text-xs text-zinc-400">30 domande artisti</p></CardHeader>
+                      </Card>
+                      <Card className="bg-zinc-800 border-zinc-700 hover:border-purple-500 cursor-pointer transition" onClick={()=>toast.info("Modulo 6")}>
+                          <CardHeader><CardTitle className="text-base text-white">📅 Indovina l'Anno</CardTitle><p className="text-xs text-zinc-400">25 domande anni uscita</p></CardHeader>
+                      </Card>
+                  </div>
+              </ScrollArea>
+              <div className="pt-4 border-t border-zinc-700 text-xs text-zinc-500">
+                  💡 Click su un modulo per caricare le domande nel catalogo per stasera
               </div>
           </DialogContent>
       </Dialog>
