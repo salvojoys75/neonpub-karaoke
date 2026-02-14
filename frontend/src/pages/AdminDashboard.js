@@ -71,6 +71,7 @@ export default function AdminDashboard() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [importText, setImportText] = useState("");
   const [showModulesModal, setShowModulesModal] = useState(false);
+  const [quizModules, setQuizModules] = useState([]);
 
   // --- YOUTUBE VARS ---
   const [youtubeUrl, setYoutubeUrl] = useState("");
@@ -853,6 +854,37 @@ export default function AdminDashboard() {
           toast.error(e.message);
       }
   };
+
+  const loadQuizModules = async () => {
+      try {
+          const { data } = await api.getQuizModules();
+          setQuizModules(data || []);
+      } catch(e) {
+          console.error("Errore caricamento moduli:", e);
+      }
+  };
+
+  const handleLoadModule = async (moduleId, moduleName) => {
+      if(!confirm(`Caricare il modulo "${moduleName}" nel catalogo?`)) return;
+      try {
+          const result = await api.loadQuizModule(moduleId);
+          if(result.count === 0) {
+              toast.info(`Tutte le domande di "${moduleName}" sono già nel catalogo!`);
+          } else {
+              toast.success(`✅ ${result.count} domande caricate! ${result.skipped > 0 ? `(${result.skipped} già presenti)` : ''}`);
+          }
+          setShowModulesModal(false);
+          loadData();
+      } catch(e) {
+          toast.error("Errore: " + e.message);
+      }
+  };
+
+  useEffect(() => {
+      if(showModulesModal) {
+          loadQuizModules();
+      }
+  }, [showModulesModal]);
 
   const MUSIC_CATEGORIES = [
     { id: 'all', label: 'Tutti' },
@@ -1730,34 +1762,37 @@ export default function AdminDashboard() {
               <DialogHeader><DialogTitle className="flex items-center gap-2"><Dices className="w-5 h-5 text-purple-400"/> Carica Moduli Quiz</DialogTitle></DialogHeader>
               <ScrollArea className="h-[500px] pr-4">
                   <div className="space-y-3 pt-4">
-                      <Card className="bg-zinc-800 border-zinc-700 hover:border-purple-500 cursor-pointer transition" onClick={async ()=>{
-                          if(confirm('Caricare 30 domande "Indovina Intro - Pop Italiane"?')) {
-                              const json = `[{"category":"Indovina Intro","question":"Intro 1","options":["A","B","C","D"],"correct_index":0,"media_url":"","media_type":"audio"}]`;
-                              toast.info("Funzione demo - Implementa caricamento dal tuo database");
-                              setShowModulesModal(false);
-                          }
-                      }}>
-                          <CardHeader><CardTitle className="text-base text-white">🎵 Intro Pop Italiane</CardTitle><p className="text-xs text-zinc-400">30 intro successi italiani</p></CardHeader>
-                      </Card>
-                      <Card className="bg-zinc-800 border-zinc-700 hover:border-purple-500 cursor-pointer transition" onClick={()=>toast.info("Modulo 2")}>
-                          <CardHeader><CardTitle className="text-base text-white">🎸 Intro Rock Classico</CardTitle><p className="text-xs text-zinc-400">30 intro rock internazionali</p></CardHeader>
-                      </Card>
-                      <Card className="bg-zinc-800 border-zinc-700 hover:border-purple-500 cursor-pointer transition" onClick={()=>toast.info("Modulo 3")}>
-                          <CardHeader><CardTitle className="text-base text-white">📼 Videoclip Anni 80</CardTitle><p className="text-xs text-zinc-400">25 videoclip iconici</p></CardHeader>
-                      </Card>
-                      <Card className="bg-zinc-800 border-zinc-700 hover:border-purple-500 cursor-pointer transition" onClick={()=>toast.info("Modulo 4")}>
-                          <CardHeader><CardTitle className="text-base text-white">📝 Completa Testo Italiani</CardTitle><p className="text-xs text-zinc-400">20 brani celebri</p></CardHeader>
-                      </Card>
-                      <Card className="bg-zinc-800 border-zinc-700 hover:border-purple-500 cursor-pointer transition" onClick={()=>toast.info("Modulo 5")}>
-                          <CardHeader><CardTitle className="text-base text-white">🎤 Chi Canta?</CardTitle><p className="text-xs text-zinc-400">30 domande artisti</p></CardHeader>
-                      </Card>
-                      <Card className="bg-zinc-800 border-zinc-700 hover:border-purple-500 cursor-pointer transition" onClick={()=>toast.info("Modulo 6")}>
-                          <CardHeader><CardTitle className="text-base text-white">📅 Indovina l'Anno</CardTitle><p className="text-xs text-zinc-400">25 domande anni uscita</p></CardHeader>
-                      </Card>
+                      {quizModules.length === 0 ? (
+                          <div className="text-center py-8 text-zinc-500">
+                              <p>Nessun modulo disponibile</p>
+                              <p className="text-xs mt-2">Aggiungi moduli nella tabella quiz_library</p>
+                          </div>
+                      ) : (
+                          quizModules.map(module => (
+                              <Card 
+                                  key={module.id} 
+                                  className="bg-zinc-800 border-zinc-700 hover:border-purple-500 cursor-pointer transition" 
+                                  onClick={() => handleLoadModule(module.id, module.name)}
+                              >
+                                  <CardHeader>
+                                      <div className="flex justify-between items-start">
+                                          <div className="flex-1">
+                                              <CardTitle className="text-base text-white">{module.name}</CardTitle>
+                                              <div className="flex gap-2 mt-1">
+                                                  <span className="text-xs px-2 py-0.5 bg-purple-900/50 text-purple-300 rounded">{module.category}</span>
+                                                  <span className="text-xs text-zinc-500">{module.questions?.length || 0} domande</span>
+                                              </div>
+                                              {module.description && <p className="text-xs text-zinc-400 mt-2">{module.description}</p>}
+                                          </div>
+                                      </div>
+                                  </CardHeader>
+                              </Card>
+                          ))
+                      )}
                   </div>
               </ScrollArea>
               <div className="pt-4 border-t border-zinc-700 text-xs text-zinc-500">
-                  💡 Click su un modulo per caricare le domande nel catalogo per stasera
+                  💡 Click su un modulo per caricarlo nel catalogo. Le domande duplicate vengono saltate automaticamente.
               </div>
           </DialogContent>
       </Dialog>

@@ -335,7 +335,7 @@ export const getQuizCatalog = async (venueId = null, daysThreshold = 30) => {
 export const deleteQuizQuestion = async (catalogId) => {
     const { error } = await supabase
         .from('quiz_catalog')
-        .update({ is_active: false })
+        .delete()
         .eq('id', catalogId);
         
     if (error) throw error;
@@ -378,6 +378,60 @@ export const importQuizCatalog = async (jsonString) => {
         
         return { success: true, count: newItems.length };
     } catch (e) { throw new Error("Errore Importazione: " + e.message); }
+}
+
+export const getQuizModules = async () => {
+    const { data, error } = await supabase
+        .from('quiz_library')
+        .select('*')
+        .order('category', { ascending: true });
+    
+    if (error) throw error;
+    return { data: data || [] };
+}
+
+export const loadQuizModule = async (moduleId) => {
+    const { data: module, error: moduleError } = await supabase
+        .from('quiz_library')
+        .select('*')
+        .eq('id', moduleId)
+        .single();
+    
+    if (moduleError) throw moduleError;
+    if (!module) throw new Error("Modulo non trovato");
+    
+    const questions = module.questions || [];
+    if (questions.length === 0) throw new Error("Modulo vuoto");
+    
+    const { data: existing } = await supabase.from('quiz_catalog').select('question');
+    const existingSet = new Set(existing?.map(q => q.question) || []);
+    
+    const newQuestions = questions
+        .filter(q => !existingSet.has(q.question))
+        .map(q => ({
+            category: q.category || module.category,
+            question: q.question,
+            options: q.options,
+            correct_index: q.correct_index ?? 0,
+            points: q.points || 10,
+            media_url: q.media_url || null,
+            media_type: q.media_type || 'text',
+            is_active: true
+        }));
+    
+    if (newQuestions.length === 0) {
+        return { success: true, count: 0, skipped: questions.length, message: "Tutte le domande già presenti" };
+    }
+    
+    const { error } = await supabase.from('quiz_catalog').insert(newQuestions);
+    if (error) throw error;
+    
+    return { 
+        success: true, 
+        count: newQuestions.length,
+        skipped: questions.length - newQuestions.length,
+        module: module.name
+    };
 }
 
 export const requestSong = async (data) => {
@@ -1398,7 +1452,7 @@ export default {
   getQuizResults, getAdminLeaderboard,
   getLeaderboard, getDisplayData,
   getActiveEventsForUser,
-  deleteQuizQuestion,
+  deleteQuizQuestion, getQuizModules, loadQuizModule,
   // Venues
   getMyVenues, createVenue, updateVenue, deleteVenue, trackQuizUsage, resetQuizUsageForVenue,
   // Random Extraction
