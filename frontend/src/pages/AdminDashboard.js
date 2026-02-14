@@ -918,6 +918,116 @@ export default function AdminDashboard() {
                     </div>
                 </DialogContent>
             </Dialog>
+
+            {/* ===== MODALE GESTIONE CATALOGO (SUPER ADMIN) ===== */}
+            <Dialog open={showAdminCatalogModal} onOpenChange={setShowAdminCatalogModal}>
+                <DialogContent className="bg-zinc-900 border-zinc-800 max-w-4xl max-h-[90vh] flex flex-col">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <ListMusic className="w-5 h-5 text-fuchsia-400"/> Catalogo Pool Globale (Collaborativo)
+                            <span className="text-xs text-zinc-500 font-normal">({adminCatalogSongs.length} canzoni)</span>
+                        </DialogTitle>
+                    </DialogHeader>
+                    <div className="flex gap-2 pt-2">
+                        <Button size="sm" className="bg-green-600 h-7" onClick={() => { setEditingCatalogSong(null); setCatalogSongForm({ title:'', artist:'', youtube_url:'', genre:'', mood:'', decade:'', difficulty:'facile' }); setShowAdminCatalogSongModal(true); }}>
+                            <Plus className="w-3 h-3 mr-1"/> Aggiungi Canzone
+                        </Button>
+                        <Button size="sm" className="bg-blue-600 h-7" onClick={() => setShowAdminCatalogImportModal(true)}>
+                            <Download className="w-3 h-3 mr-1"/> Import JSON
+                        </Button>
+                    </div>
+                    <ScrollArea className="flex-1 mt-3 pr-1">
+                        <div className="space-y-1 pb-4">
+                            {adminCatalogSongs.map(song => (
+                                <div key={song.id} className="flex items-center justify-between bg-zinc-800 px-3 py-2 rounded">
+                                    <div className="flex-1 min-w-0">
+                                        <div className="font-medium text-sm text-white truncate">{song.title}</div>
+                                        <div className="text-xs text-zinc-400 flex gap-2 flex-wrap">
+                                            <span>{song.artist}</span>
+                                            {song.decade && <span className="text-zinc-600">• {song.decade}</span>}
+                                            {song.mood && <span className="px-1.5 py-0.5 bg-fuchsia-900/40 text-fuchsia-300 rounded text-[10px]">{song.mood}</span>}
+                                            {song.genre && <span className="px-1.5 py-0.5 bg-blue-900/40 text-blue-300 rounded text-[10px]">{song.genre}</span>}
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-1 ml-2">
+                                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditingCatalogSong(song); setCatalogSongForm({ title: song.title, artist: song.artist, youtube_url: song.youtube_url, genre: song.genre || '', mood: song.mood || '', decade: song.decade || '', difficulty: song.difficulty || 'facile' }); setShowAdminCatalogSongModal(true); }}>
+                                            <Settings className="w-3 h-3"/>
+                                        </Button>
+                                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => handleDeleteAdminCatalogSong(song.id, song.title)}>
+                                            <Trash2 className="w-3 h-3"/>
+                                        </Button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </ScrollArea>
+                </DialogContent>
+            </Dialog>
+
+            {/* ===== MODALE IMPORT CATALOGO GLOBALE ===== */}
+            <Dialog open={showAdminCatalogImportModal} onOpenChange={setShowAdminCatalogImportModal}>
+                <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
+                    <DialogHeader><DialogTitle>Importa nel Catalogo Globale</DialogTitle></DialogHeader>
+                    <div className="space-y-4 pt-4">
+                        <p className="text-xs text-zinc-500">Formato JSON con <code className="text-fuchsia-300">mood</code> e <code className="text-fuchsia-300">genre</code>:</p>
+                        <p className="text-[10px] text-zinc-600 font-mono bg-zinc-950 p-2 rounded">{`[ { "title": "...", "artist": "...", "youtube_url": "https://...", "genre": "Pop", "mood": "Ballabili", "decade": "1990", "difficulty": "facile" } ]`}</p>
+                        <p className="text-[10px] text-zinc-600">Mood: Ballabili, Allegre, Emozionanti, Anni 80, Anni 90, Anni 2000, Cartoni/Sigle, Italiane, Rock, Lente</p>
+                        <Textarea
+                            value={adminCatalogImportText}
+                            onChange={e => setAdminCatalogImportText(e.target.value)}
+                            placeholder="Incolla JSON qui..."
+                            className="bg-zinc-950 border-zinc-700 font-mono text-xs h-48"
+                        />
+                        <Button className="w-full bg-blue-600 font-bold" onClick={handleAdminCatalogImport}>
+                            <Download className="w-4 h-4 mr-2"/> IMPORTA NEL CATALOGO GLOBALE
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* ===== MODALE AGGIUNGI/MODIFICA CANZONE CATALOGO ===== */}
+            <Dialog open={showAdminCatalogSongModal} onOpenChange={setShowAdminCatalogSongModal}>
+                <DialogContent className="bg-zinc-900 border-zinc-800">
+                    <DialogHeader><DialogTitle>{editingCatalogSong ? 'Modifica Canzone Catalogo' : 'Aggiungi al Catalogo Globale'}</DialogTitle></DialogHeader>
+                    <div className="space-y-3 pt-4">
+                        <div><label className="text-xs text-zinc-500 mb-1 block">Titolo *</label>
+                            <Input value={catalogSongForm.title} onChange={e=>setCatalogSongForm({...catalogSongForm, title: e.target.value})} className="bg-zinc-800"/>
+                        </div>
+                        <div><label className="text-xs text-zinc-500 mb-1 block">Artista *</label>
+                            <Input value={catalogSongForm.artist} onChange={e=>setCatalogSongForm({...catalogSongForm, artist: e.target.value})} className="bg-zinc-800"/>
+                        </div>
+                        <div><label className="text-xs text-zinc-500 mb-1 block">URL YouTube *</label>
+                            <Input value={catalogSongForm.youtube_url} onChange={e=>setCatalogSongForm({...catalogSongForm, youtube_url: e.target.value})} className="bg-zinc-800"/>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <div><label className="text-xs text-zinc-500 mb-1 block">Mood</label>
+                                <Input value={catalogSongForm.mood} onChange={e=>setCatalogSongForm({...catalogSongForm, mood: e.target.value})} placeholder="es. Ballabili" className="bg-zinc-800"/>
+                            </div>
+                            <div><label className="text-xs text-zinc-500 mb-1 block">Genere</label>
+                                <Input value={catalogSongForm.genre} onChange={e=>setCatalogSongForm({...catalogSongForm, genre: e.target.value})} placeholder="es. Pop" className="bg-zinc-800"/>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                            <div><label className="text-xs text-zinc-500 mb-1 block">Decennio</label>
+                                <Input value={catalogSongForm.decade} onChange={e=>setCatalogSongForm({...catalogSongForm, decade: e.target.value})} placeholder="es. 1990" className="bg-zinc-800"/>
+                            </div>
+                            <div><label className="text-xs text-zinc-500 mb-1 block">Difficoltà</label>
+                                <Select value={catalogSongForm.difficulty} onValueChange={v=>setCatalogSongForm({...catalogSongForm, difficulty: v})}>
+                                    <SelectTrigger className="bg-zinc-800"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="facile">Facile</SelectItem>
+                                        <SelectItem value="media">Media</SelectItem>
+                                        <SelectItem value="difficile">Difficile</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                        <Button className="w-full bg-green-600 font-bold" onClick={handleSaveAdminCatalogSong}>
+                            <Save className="w-4 h-4 mr-2"/> {editingCatalogSong ? 'Aggiorna' : 'Aggiungi'} al Catalogo
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
       );
   }
