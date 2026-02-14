@@ -344,9 +344,9 @@ const QuizMode = ({ quiz, result }) => {
                 <h1 className="text-4xl font-black text-white leading-tight drop-shadow-2xl">{quiz.question}</h1>
             </div>
 
-            {/* VIDEO AL CENTRO */}
-            <div className="flex-1 relative min-h-0 mx-10 rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
-                <QuizMediaFixed mediaUrl={quiz.media_url} mediaType={quiz.media_type} isResult={false} />
+            {/* VIDEO AL CENTRO — altezza fissa, video proporzionato */}
+            <div className="shrink-0 mx-10 rounded-2xl overflow-hidden border border-white/10 shadow-2xl" style={{height: '340px', position: 'relative'}}>
+                <QuizMediaFixed mediaUrl={quiz.media_url} mediaType={quiz.media_type} isResult={false} isBackground={false} />
             </div>
 
             {/* RISPOSTE SOTTO */}
