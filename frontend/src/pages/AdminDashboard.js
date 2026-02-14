@@ -806,10 +806,23 @@ export default function AdminDashboard() {
 
   const handleDeleteQuestion = async (e, item) => {
       e.stopPropagation();
-      if(!confirm(`Sei sicuro di voler eliminare dal catalogo: "${item.question}"?`)) return;
+      const isActive = item.id === activeQuizId;
+      const warningMsg = isActive 
+          ? `⚠️ ATTENZIONE: Questa domanda è IN ONDA!\n\n"${item.question}"\n\nVuoi eliminarla comunque dal catalogo?\n\nIl quiz verrà terminato automaticamente.`
+          : `Sei sicuro di voler eliminare dal catalogo: "${item.question}"?`;
+      
+      if(!confirm(warningMsg)) return;
+      
       try {
           await api.deleteQuizQuestion(item.id);
           toast.success("Domanda rimossa dal catalogo.");
+          
+          if(isActive && activeQuizId) {
+              await api.endQuiz(activeQuizId);
+              await api.setEventModule('karaoke');
+              toast.info("Quiz terminato, tornati al Karaoke");
+          }
+          
           loadData();
       } catch(err) {
           toast.error("Errore eliminazione: " + err.message);
@@ -1308,27 +1321,42 @@ export default function AdminDashboard() {
                                 )}
                             </h3>
                             
-                            <ScrollArea className="flex-1 pr-2">
+                            <ScrollArea className="h-[500px] pr-2">
                                 <div className="space-y-2 pb-20">
-                                    {filteredCatalog.map((item, index) => (
+                                    {filteredCatalog.map((item, index) => {
+                                        const isActiveQuiz = item.id === activeQuizId;
+                                        return (
                                         <div key={item.id || index} 
-                                            className={`group relative bg-zinc-800 hover:bg-zinc-700 border rounded p-3 cursor-pointer transition-all ${item.recently_used ? 'border-orange-500/50 opacity-75' : 'border-transparent hover:border-yellow-500'}`}
-                                            onClick={() => launchCatalogQuiz(item)}>
+                                            className={`group relative bg-zinc-800 hover:bg-zinc-700 border rounded p-3 cursor-pointer transition-all ${isActiveQuiz ? 'border-fuchsia-500 bg-fuchsia-900/10' : item.recently_used ? 'border-orange-500/50 opacity-75' : 'border-transparent hover:border-yellow-500'}`}
+                                            onClick={() => {
+                                                if(isActiveQuiz) {
+                                                    toast.info("Questa domanda è già in onda!");
+                                                    return;
+                                                }
+                                                launchCatalogQuiz(item);
+                                            }}>
                                             <div className="absolute top-2 right-2 flex gap-1 z-10">
-                                                {item.recently_used && <span className="bg-orange-500/20 text-orange-500 px-2 py-1 rounded text-[10px] font-bold">🔄 USATA</span>}
+                                                {isActiveQuiz && <span className="bg-fuchsia-500 text-white px-2 py-1 rounded text-[10px] font-bold">🔴 IN ONDA</span>}
+                                                {item.recently_used && !isActiveQuiz && <span className="bg-orange-500/20 text-orange-500 px-2 py-1 rounded text-[10px] font-bold">🔄 USATA</span>}
                                                 {item.media_type === 'audio' && <span className="bg-yellow-500/20 text-yellow-500 p-1 rounded"><Music2 className="w-3 h-3"/></span>}
                                                 {item.media_type === 'video' && <span className="bg-blue-500/20 text-blue-500 p-1 rounded"><Film className="w-3 h-3"/></span>}
-                                                <Button size="icon" variant="ghost" className="h-6 w-6 bg-red-900/50 hover:bg-red-600 text-white rounded-full ml-1" onClick={(e) => handleDeleteQuestion(e, item)}><Trash2 className="w-3 h-3" /></Button>
+                                                <Button size="icon" variant="ghost" className={`h-6 w-6 text-white rounded-full ml-1 ${isActiveQuiz ? 'bg-red-600 hover:bg-red-700 animate-pulse' : 'bg-red-900/50 hover:bg-red-600'}`} onClick={(e) => handleDeleteQuestion(e, item)}><Trash2 className="w-3 h-3" /></Button>
                                             </div>
                                             <div className="text-[10px] font-bold text-fuchsia-500 uppercase tracking-wider mb-1 flex items-center gap-1">{item.category}</div>
                                             <div className="text-sm font-medium text-white pr-6 line-clamp-2">{item.question}</div>
-                                            {item.recently_used && item.last_used && (
+                                            {item.recently_used && item.last_used && !isActiveQuiz && (
                                                 <div className="text-[9px] text-orange-400 mt-1">
                                                     Usata: {new Date(item.last_used).toLocaleDateString('it-IT')}
                                                 </div>
                                             )}
+                                            {isActiveQuiz && (
+                                                <div className="text-[9px] text-fuchsia-400 mt-1 font-bold">
+                                                    ⚡ Questa domanda è attualmente in onda
+                                                </div>
+                                            )}
                                         </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </ScrollArea>
                         </div>
