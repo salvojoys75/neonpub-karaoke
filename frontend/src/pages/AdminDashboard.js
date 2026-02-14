@@ -7,7 +7,7 @@ import {
   ListMusic, BrainCircuit, Swords, Send, Star, VolumeX, Volume2, ExternalLink,
   Users, Coins, Settings, Save, LayoutDashboard, Gem, Upload, UserPlus, Ban, Trash2, Image as ImageIcon,
   FileJson, Download, Gamepad2, StopCircle, Eye, EyeOff, ListOrdered, MonitorPlay, 
-  Music2, Film, Mic2, Clock, Unlock, Lock, Dices
+  Music2, Film, Mic2, Clock, Unlock, Lock, Dices, Shuffle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -845,13 +845,35 @@ export default function AdminDashboard() {
   const handleImportScript = async () => {
       if(!importText) return;
       try {
-          const res = await api.importQuizCatalog(importText);
-          toast.success(`${res.count} Quiz importati con successo!`);
+          const modules = JSON.parse(importText);
+          if (!Array.isArray(modules)) throw new Error("Formato non valido - serve un array");
+          
+          let count = 0;
+          for (const mod of modules) {
+              if (!mod.name || !mod.questions) {
+                  console.warn("Modulo saltato - mancano name o questions:", mod);
+                  continue;
+              }
+              
+              const { error } = await supabase.from('quiz_library').insert({
+                  name: mod.name,
+                  category: mod.category || 'Generale',
+                  description: mod.description || '',
+                  questions: mod.questions
+              });
+              
+              if (error) {
+                  console.error("Errore inserimento modulo:", mod.name, error);
+              } else {
+                  count++;
+              }
+          }
+          
+          toast.success(`✅ ${count} moduli importati in libreria!`);
           setShowImportModal(false);
           setImportText("");
-          loadData();
       } catch(e) {
-          toast.error(e.message);
+          toast.error("Errore import: " + e.message);
       }
   };
 
@@ -921,6 +943,7 @@ export default function AdminDashboard() {
             <div className="mb-6 flex gap-3">
                 <Button onClick={()=>setShowCreateUserModal(true)} className="bg-green-600"><UserPlus className="w-4 h-4 mr-2"/> Nuovo Operatore</Button>
                 <Button onClick={()=>setShowAdminCatalogModal(true)} className="bg-fuchsia-600"><ListMusic className="w-4 h-4 mr-2"/> Gestione Catalogo Pool</Button>
+                <Button onClick={()=>setShowImportModal(true)} className="bg-cyan-600"><FileJson className="w-4 h-4 mr-2"/> Import Moduli Quiz</Button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {userList.map(user => (
@@ -1181,16 +1204,25 @@ export default function AdminDashboard() {
             <div className="p-2 border-b border-white/5">
                <Tabs value={libraryTab} onValueChange={setLibraryTab} className="w-full">
                   <TabsList className="grid w-full grid-cols-6 bg-zinc-950 p-1">
-                     <TabsTrigger value="karaoke" className="text-xs px-1"><ListMusic className="w-3 h-3" /></TabsTrigger>
-                     <TabsTrigger value="quiz" className="text-xs px-1"><BrainCircuit className="w-3 h-3" /></TabsTrigger>
-                     <TabsTrigger value="challenges" className="text-xs px-1"><Swords className="w-3 h-3" /></TabsTrigger>
-                     <TabsTrigger value="messages" className="text-xs px-1 relative">
-                        <MessageSquare className="w-3 h-3" />
-                        {pendingMessages.length > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>}
+                     <TabsTrigger value="karaoke" className="text-xs px-1 data-[state=active]:bg-blue-900/30" title="Karaoke">
+                        <ListMusic className="w-5 h-5 text-blue-400" />
                      </TabsTrigger>
-                     <TabsTrigger value="settings" className="text-xs px-1"><Settings className="w-3 h-3" /></TabsTrigger>
-<TabsTrigger value="extraction" className="text-xs px-1"><Dices className="w-3 h-3" /></TabsTrigger>
- 
+                     <TabsTrigger value="quiz" className="text-xs px-1 data-[state=active]:bg-fuchsia-900/30" title="Quiz">
+                        <BrainCircuit className="w-5 h-5 text-fuchsia-400" />
+                     </TabsTrigger>
+                     <TabsTrigger value="challenges" className="text-xs px-1 data-[state=active]:bg-red-900/30" title="Sfide">
+                        <Swords className="w-5 h-5 text-red-400" />
+                     </TabsTrigger>
+                     <TabsTrigger value="messages" className="text-xs px-1 relative data-[state=active]:bg-green-900/30" title="Messaggi">
+                        <MessageSquare className="w-5 h-5 text-green-400" />
+                        {pendingMessages.length > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>}
+                     </TabsTrigger>
+                     <TabsTrigger value="settings" className="text-xs px-1 data-[state=active]:bg-zinc-700/30" title="Impostazioni">
+                        <Settings className="w-5 h-5 text-zinc-400" />
+                     </TabsTrigger>
+                     <TabsTrigger value="extraction" className="text-xs px-1 data-[state=active]:bg-purple-900/30" title="Estrazione Casuale">
+                        <Dices className="w-5 h-5 text-purple-400" />
+                     </TabsTrigger>
                   </TabsList>
                </Tabs>
             </div>
@@ -1238,15 +1270,12 @@ export default function AdminDashboard() {
 
                {libraryTab === 'quiz' && (
                     <div className="flex flex-col h-full">
-                        <div className="grid grid-cols-3 gap-2 mb-4">
+                        <div className="grid grid-cols-2 gap-2 mb-4">
                             <Button className="bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-xs" onClick={()=>setShowCustomQuizModal(true)}>
-                                <Plus className="w-3 h-3 mr-1"/> Crea Manuale
-                            </Button>
-                            <Button className="bg-blue-600 hover:bg-blue-500 text-xs" onClick={()=>setShowImportModal(true)}>
-                                <Download className="w-3 h-3 mr-1"/> Importa JSON
+                                <Plus className="w-3 h-3 mr-1"/> Crea Quiz
                             </Button>
                             <Button className="bg-purple-600 hover:bg-purple-500 text-xs" onClick={()=>setShowModulesModal(true)}>
-                                <Dices className="w-3 h-3 mr-1"/> Moduli
+                                <Dices className="w-3 h-3 mr-1"/> Carica Modulo
                             </Button>
                         </div>
 
@@ -1747,12 +1776,16 @@ export default function AdminDashboard() {
 
       <Dialog open={showImportModal} onOpenChange={setShowImportModal}>
           <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
-              <DialogHeader><DialogTitle>Importa Script JSON</DialogTitle></DialogHeader>
+              <DialogHeader><DialogTitle>Importa Moduli Quiz (Super Admin)</DialogTitle></DialogHeader>
               <div className="space-y-4 pt-4">
-                  <p className="text-xs text-zinc-500">Formato: {`[ { "category": "Indovina Intro", "question": "...", "options": ["A","B","C","D"], "correct_index": 0, "media_url": "https://youtube...", "media_type": "audio" } ]`}</p>
-                  <p className="text-[10px] text-zinc-600">Categorie: Indovina Intro, Indovina Videoclip, Completa il Testo, Chi Canta?, Indovina l'Anno, Cover o Originale?, Musica Generale</p>
-                  <Textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder='Incolla JSON qui...' className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"/>
-                  <Button className="w-full bg-blue-600 font-bold" onClick={handleImportScript}><Download className="w-4 h-4 mr-2"/> IMPORTA NEL CATALOGO</Button>
+                  <p className="text-xs text-zinc-500 bg-cyan-900/20 p-3 rounded border border-cyan-700">
+                      <strong>FORMATO MODULI:</strong> Array di moduli con campo "questions"
+                  </p>
+                  <p className="text-[10px] text-zinc-600 font-mono bg-zinc-950 p-2 rounded">
+                      {`[{"name":"Intro Pop","category":"Indovina Intro","description":"...","questions":[{domanda1},{domanda2}...]}]`}
+                  </p>
+                  <Textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder='Incolla JSON moduli qui...' className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"/>
+                  <Button className="w-full bg-cyan-600 font-bold" onClick={handleImportScript}><FileJson className="w-4 h-4 mr-2"/> IMPORTA MODULI IN LIBRERIA</Button>
               </div>
           </DialogContent>
       </Dialog>
