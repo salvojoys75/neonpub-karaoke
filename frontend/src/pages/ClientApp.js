@@ -79,7 +79,7 @@ export default function ClientApp() {
 
   const handleRequestSong = async (e) => {
     e.preventDefault(); if (!songTitle || !songArtist) return toast.error("Inserisci titolo e artista!");
-    try { await api.requestSong({ title: songTitle, artist: songArtist, youtube_url: songYoutubeUrl }); toast.success("Richiesta inviata!"); setShowRequestModal(false); setSongTitle(""); setSongArtist(""); setSongYoutubeUrl(""); } catch (error) { toast.error("Errore richiesta"); }
+    try { await api.requestSong({ title: songTitle, artist: songArtist, youtube_url: songYoutubeUrl }); toast.success("Richiesta inviata!"); setShowRequestModal(false); setSongTitle(""); setSongArtist(""); setSongYoutubeUrl(""); } catch (error) { toast.error("Errore: " + error.message); console.error("handleRequestSong error:", error); }
   };
 
   const handleVote = async () => {
