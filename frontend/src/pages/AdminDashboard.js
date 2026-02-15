@@ -234,7 +234,7 @@ export default function AdminDashboard() {
             name: newEventName,
             venue_id: selectedVenueId // Associa il venue all'evento
         });
-        localStorage.setItem("neonpub_pub_code", pubData.code);
+        localStorage.setItem("discojoys_pub_code", pubData.code);
         setPubCode(pubData.code);
         
         // Aggiorna crediti locali per UI veloce
@@ -434,7 +434,7 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    if (appState === 'dashboard') {
+    if (appState === 'dashboard' || appState === 'setup') {
       loadMyVenues();
     }
   }, [appState]);
@@ -1266,6 +1266,45 @@ export default function AdminDashboard() {
                     </CardContent>
                 </Card>
             </div>
+
+            {/* MODALE VENUE - necessario anche nella view setup */}
+            <Dialog open={showVenueModal} onOpenChange={setShowVenueModal}>
+                <DialogContent className="bg-zinc-900 border-zinc-800">
+                    <DialogHeader><DialogTitle>{editingVenue ? 'Modifica Locale' : 'Nuovo Locale'}</DialogTitle></DialogHeader>
+                    <div className="space-y-4 pt-4">
+                        <div>
+                            <label className="text-xs text-zinc-500 mb-1 block">Nome Locale *</label>
+                            <Input 
+                                value={venueFormData.name} 
+                                onChange={e=>setVenueFormData({...venueFormData, name: e.target.value})} 
+                                placeholder="Es: Red Lion Pub" 
+                                className="bg-zinc-800"
+                            />
+                        </div>
+                        <div>
+                            <label className="text-xs text-zinc-500 mb-1 block">Città</label>
+                            <Input 
+                                value={venueFormData.city} 
+                                onChange={e=>setVenueFormData({...venueFormData, city: e.target.value})} 
+                                placeholder="Es: Milano" 
+                                className="bg-zinc-800"
+                            />
+                        </div>
+                        <div>
+                            <label className="text-xs text-zinc-500 mb-1 block">Indirizzo</label>
+                            <Input 
+                                value={venueFormData.address} 
+                                onChange={e=>setVenueFormData({...venueFormData, address: e.target.value})} 
+                                placeholder="Es: Via Roma 123" 
+                                className="bg-zinc-800"
+                            />
+                        </div>
+                        <Button className="w-full bg-green-600 font-bold" onClick={handleSaveVenue}>
+                            <Save className="w-4 h-4 mr-2"/> {editingVenue ? 'Aggiorna' : 'Crea'} Locale
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
       );
   }
@@ -1279,7 +1318,7 @@ export default function AdminDashboard() {
       
       <header className="h-14 border-b border-white/10 flex items-center justify-between px-4 bg-zinc-900">
          <div className="flex items-center gap-4">
-            <h1 className="font-bold text-lg text-fuchsia-400">NEONPUB OS</h1>
+            <h1 className="font-bold text-lg text-fuchsia-400">DISCOJOYS</h1>
             <div className="flex flex-col items-start">
                 <span className="text-xs px-2 py-0.5 bg-zinc-800 rounded font-mono text-zinc-400">{pubCode}</span>
                 {timeRemaining && <span className="text-[10px] text-yellow-600 flex items-center gap-1 mt-0.5"><Clock className="w-3 h-3"/> {timeRemaining}</span>}
@@ -1589,39 +1628,6 @@ export default function AdminDashboard() {
 
                {libraryTab === 'settings' && (
                    <div className="space-y-6 pt-2">
-                       {/* VENUES (LOCALI) */}
-                       <div className="border-b border-white/10 pb-4">
-                           <div className="flex justify-between items-center mb-3">
-                               <h3 className="text-sm font-bold text-white">🏠 I Miei Locali</h3>
-                               <Button size="sm" onClick={() => handleOpenVenueModal()} className="bg-blue-600 h-7">
-                                   <Plus className="w-3 h-3 mr-1"/> Nuovo
-                               </Button>
-                           </div>
-                           {myVenues.length > 0 ? (
-                               <div className="space-y-2">
-                                   {myVenues.map(venue => (
-                                       <div key={venue.id} className={`bg-zinc-800 p-3 rounded flex justify-between items-start border-2 transition cursor-pointer ${selectedVenueId === venue.id ? 'border-green-500' : 'border-transparent hover:border-zinc-600'}`}>
-                                           <div className="flex-1" onClick={() => setSelectedVenueId(selectedVenueId === venue.id ? null : venue.id)}>
-                                               <div className="font-bold text-sm text-white">{venue.name}</div>
-                                               {venue.city && <div className="text-xs text-zinc-500">📍 {venue.city}</div>}
-                                               {selectedVenueId === venue.id && <div className="text-xs text-green-500 mt-1">✓ Filtra domande per questo locale</div>}
-                                           </div>
-                                           <div className="flex gap-1">
-                                               <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={(e) => {e.stopPropagation(); handleOpenVenueModal(venue)}}>
-                                                   <Settings className="w-3 h-3"/>
-                                               </Button>
-                                               <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={(e) => {e.stopPropagation(); handleDeleteVenue(venue.id)}}>
-                                                   <Trash2 className="w-3 h-3"/>
-                                               </Button>
-                                           </div>
-                                       </div>
-                                   ))}
-                               </div>
-                           ) : (
-                               <p className="text-xs text-zinc-600 italic">Nessun locale configurato. Crea il primo!</p>
-                           )}
-                       </div>
-
                        {/* IMPOSTAZIONI EVENTO */}
                        <div>
                            <h3 className="text-sm font-bold text-white mb-3">⚙️ Impostazioni Evento</h3>
@@ -1631,6 +1637,22 @@ export default function AdminDashboard() {
                                <Button className="w-full bg-zinc-700" onClick={handleSaveSettings}><Save className="w-4 h-4 mr-2"/> Salva Impostazioni</Button>
                            </div>
                        </div>
+
+                       {/* INFO LOCALE CORRENTE */}
+                       {selectedVenueId && myVenues.length > 0 && (
+                           <div className="border-t border-white/10 pt-4">
+                               <div className="text-xs text-zinc-500 mb-1">Locale selezionato</div>
+                               <div className="flex items-center justify-between bg-zinc-800 rounded p-3">
+                                   <div>
+                                       <div className="font-bold text-sm text-green-400">{myVenues.find(v => v.id === selectedVenueId)?.name}</div>
+                                       {myVenues.find(v => v.id === selectedVenueId)?.city && (
+                                           <div className="text-xs text-zinc-500">📍 {myVenues.find(v => v.id === selectedVenueId)?.city}</div>
+                                       )}
+                                   </div>
+                                   <span className="text-[10px] bg-green-900/40 text-green-400 px-2 py-1 rounded font-bold">ATTIVO</span>
+                               </div>
+                           </div>
+                       )}
                    </div>
                )}
 {libraryTab === 'extraction' && (

@@ -65,7 +65,7 @@ const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => {
             <div className="w-16 h-16 rounded-xl bg-fuchsia-600 flex items-center justify-center border-2 border-white/20 shadow-lg font-black text-xl">NP</div>
           )}
           <div>
-              <h1 className="text-3xl font-black text-white tracking-wider drop-shadow-md uppercase">{pubName || "NEONPUB"}</h1>
+              <h1 className="text-3xl font-black text-white tracking-wider drop-shadow-md uppercase">{pubName || "DISCOJOYS"}</h1>
               <div className="flex items-center gap-3">
                   <span className="bg-red-600 px-2 py-0.5 rounded text-[10px] font-bold tracking-widest uppercase animate-pulse shadow-[0_0_10px_red]">LIVE</span>
                   {isMuted && <span className="text-white bg-red-900 px-2 py-0.5 rounded text-[10px] font-bold tracking-widest border border-red-500">AUDIO OFF</span>}
