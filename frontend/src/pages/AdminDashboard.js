@@ -225,19 +225,23 @@ export default function AdminDashboard() {
   const handleStartEvent = async (e) => {
     e.preventDefault();
     if (!newEventName) return toast.error("Inserisci nome evento");
+    if (!selectedVenueId) return toast.error("Seleziona un locale prima di creare l'evento");
     if ((profile?.credits || 0) < 1) return toast.error("Crediti insufficienti!");
 
     setCreatingEvent(true);
     try {
-        const { data: pubData } = await createPub({ name: newEventName });
-        localStorage.setItem("discojoys_pub_code", pubData.code);
+        const { data: pubData } = await createPub({ 
+            name: newEventName,
+            venue_id: selectedVenueId // Associa il venue all'evento
+        });
+        localStorage.setItem("neonpub_pub_code", pubData.code);
         setPubCode(pubData.code);
         
         // Aggiorna crediti locali per UI veloce
         setProfile(prev => ({...prev, credits: prev.credits - 1}));
         
         setAppState("dashboard");
-        toast.success("Evento Iniziato! (-1 Credito, Valido 8 ore)");
+        toast.success(`Evento Iniziato per ${myVenues.find(v => v.id === selectedVenueId)?.name}! (-1 Credito, Valido 8 ore)`);
     } catch (error) { toast.error(error.message); } finally { setCreatingEvent(false); }
   };
 
@@ -275,12 +279,20 @@ export default function AdminDashboard() {
       const stateData = await api.getEventState();
       if(stateData) setEventState(stateData);
 
+      // Usa il venue_id dell'evento se presente, altrimenti selectedVenueId (per compatibilità)
+      const venueIdToUse = pubRes.data.venue_id || selectedVenueId;
+      
+      // Imposta automaticamente selectedVenueId se l'evento ha un venue
+      if (pubRes.data.venue_id && !selectedVenueId) {
+          setSelectedVenueId(pubRes.data.venue_id);
+      }
+
       const [qRes, perfRes, msgRes, activeQuizRes, quizCatRes, challRes] = await Promise.all([
         api.getAdminQueue(),
         api.getAdminCurrentPerformance(),
         api.getAdminPendingMessages(),
         api.getActiveQuiz(),
-        api.getQuizCatalog(selectedVenueId, 30),
+        api.getQuizCatalog(venueIdToUse, 30),
         api.getChallengeCatalog()
       ]);
 
@@ -1136,10 +1148,77 @@ export default function AdminDashboard() {
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <p className="text-xs text-zinc-400 text-center">Ogni nuovo evento costa 1 Credito e dura 8 ore.</p>
-                        <Input placeholder="Nome Serata (es. Venerdì Karaoke)" value={newEventName} onChange={e=>setNewEventName(e.target.value)} className="bg-zinc-950 text-center h-12" />
-                        <Button onClick={handleStartEvent} disabled={creatingEvent || (profile?.credits || 0) < 1} className="w-full bg-fuchsia-600 h-14 text-lg font-bold hover:bg-fuchsia-500">
-                            {creatingEvent ? "Creazione..." : "LANCIA (-1 Credit)"}
+                        
+                        {/* SELEZIONE LOCALE */}
+                        <div className="border-2 border-cyan-500/30 rounded-lg p-4 bg-cyan-900/10">
+                            <label className="text-sm font-bold text-cyan-400 mb-2 block flex items-center gap-2">
+                                <Users className="w-4 h-4"/> 1. SELEZIONA LOCALE
+                            </label>
+                            
+                            {myVenues.length === 0 ? (
+                                <div className="text-center py-4">
+                                    <p className="text-xs text-zinc-500 mb-3">Nessun locale configurato</p>
+                                    <Button 
+                                        size="sm" 
+                                        onClick={() => handleOpenVenueModal()} 
+                                        className="bg-blue-600 hover:bg-blue-500"
+                                    >
+                                        <Plus className="w-3 h-3 mr-1"/> Crea Primo Locale
+                                    </Button>
+                                </div>
+                            ) : (
+                                <Select value={selectedVenueId || ""} onValueChange={setSelectedVenueId}>
+                                    <SelectTrigger className="bg-zinc-950 border-cyan-700 h-11">
+                                        <SelectValue placeholder="Scegli locale..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {myVenues.map(venue => (
+                                            <SelectItem key={venue.id} value={venue.id}>
+                                                {venue.name} {venue.city && `• ${venue.city}`}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            )}
+                            
+                            {myVenues.length > 0 && (
+                                <Button 
+                                    size="sm" 
+                                    variant="ghost" 
+                                    className="w-full mt-2 text-xs text-zinc-500 hover:text-blue-400"
+                                    onClick={() => handleOpenVenueModal()}
+                                >
+                                    <Plus className="w-3 h-3 mr-1"/> Aggiungi Nuovo Locale
+                                </Button>
+                            )}
+                        </div>
+                        
+                        {/* NOME EVENTO */}
+                        <div>
+                            <label className="text-sm font-bold text-fuchsia-400 mb-2 block">
+                                2. NOME SERATA
+                            </label>
+                            <Input 
+                                placeholder="Es: Venerdì Karaoke" 
+                                value={newEventName} 
+                                onChange={e=>setNewEventName(e.target.value)} 
+                                className="bg-zinc-950 text-center h-11" 
+                            />
+                        </div>
+                        
+                        <Button 
+                            onClick={handleStartEvent} 
+                            disabled={creatingEvent || (profile?.credits || 0) < 1 || !selectedVenueId || !newEventName} 
+                            className="w-full bg-fuchsia-600 h-14 text-lg font-bold hover:bg-fuchsia-500 disabled:opacity-50"
+                        >
+                            {creatingEvent ? "Creazione..." : "🚀 LANCIA EVENTO (-1 Credit)"}
                         </Button>
+                        
+                        {selectedVenueId && (
+                            <p className="text-xs text-center text-green-500">
+                                ✓ Evento per: {myVenues.find(v => v.id === selectedVenueId)?.name}
+                            </p>
+                        )}
                     </CardContent>
                     <CardFooter className="justify-center border-t border-white/5 pt-4">
                          <Button variant="ghost" onClick={handleLogout} className="text-zinc-500">Esci</Button>
