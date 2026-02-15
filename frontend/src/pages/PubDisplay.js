@@ -137,49 +137,48 @@ const AdminMessageOverlay = ({ message }) => {
 
 const Sidebar = ({ pubCode, queue, leaderboard }) => (
   <div className="dj-sidebar absolute z-[90] flex flex-col gap-[1.5vh]">
-      <div className="glass-panel p-6 rounded-3xl flex flex-col items-center justify-center relative overflow-hidden">
-          <div className="absolute inset-0 bg-fuchsia-600/10 blur-xl"></div>
-          <div className="bg-white p-3 rounded-2xl mb-4 shadow-2xl relative z-10">
-              <QRCodeSVG value={`${window.location.origin}/join/${pubCode}`} size={Math.round(window.innerWidth * 0.14)} level="M" />
+      {/* QR CODE — compatto */}
+      <div className="glass-panel px-4 py-3 rounded-2xl flex items-center gap-4 relative overflow-hidden shrink-0">
+          <div className="absolute inset-0 bg-fuchsia-600/5 blur-xl"></div>
+          <div className="bg-white p-2 rounded-xl shadow-2xl relative z-10 shrink-0">
+              <QRCodeSVG value={`${window.location.origin}/join/${pubCode}`} size={Math.round(window.innerWidth * 0.07)} level="M" />
           </div>
-          <div className="text-[3.5vw] font-black text-white tracking-widest font-mono drop-shadow-xl relative z-10">{pubCode}</div>
-          <div className="text-[0.9vw] text-white/60 uppercase mt-2 font-bold tracking-[0.2em] relative z-10">Scansiona per entrare</div>
+          <div className="relative z-10 flex flex-col">
+              <div className="text-[2vw] font-black text-white tracking-widest font-mono drop-shadow-xl">{pubCode}</div>
+              <div className="text-[0.8vw] text-white/50 uppercase font-bold tracking-[0.15em]">Scansiona per entrare</div>
+          </div>
       </div>
       
-      <div className="glass-panel rounded-3xl flex flex-col overflow-hidden relative" style={{maxHeight: '45%'}}>
-          <div className="bg-gradient-to-r from-fuchsia-600 to-purple-600 px-6 py-4 flex items-center justify-between border-b border-white/10 shrink-0">
-              <div className="flex items-center gap-3">
-                  <Disc className="w-6 h-6 text-white animate-spin" style={{animationDuration: '3s'}} />
-                  <span className="font-black text-white text-xl uppercase tracking-wider">Coda</span>
+      {/* CODA — solo il prossimo */}
+      <div className="glass-panel rounded-3xl flex flex-col overflow-hidden relative shrink-0">
+          <div className="bg-gradient-to-r from-fuchsia-600 to-purple-600 px-4 py-3 flex items-center justify-between border-b border-white/10">
+              <div className="flex items-center gap-2">
+                  <Disc className="w-[2vh] h-[2vh] text-white animate-spin" style={{animationDuration: '3s'}} />
+                  <span className="font-black text-white text-[1.8vh] uppercase tracking-wider">Coda</span>
               </div>
               <div className="bg-white/20 px-3 py-1 rounded-full">
-                  <span className="text-white font-bold text-sm">{queue?.length || 0}</span>
+                  <span className="text-white font-bold text-[1.4vh]">{queue?.length || 0}</span>
               </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin scrollbar-thumb-fuchsia-600 scrollbar-track-transparent">
+          <div className="p-3">
               {queue && queue.length > 0 ? (
-                  queue.slice(0, 1).map((s, i) => (
-                      <div key={s.id} className="bg-white/5 backdrop-blur-sm p-4 rounded-2xl border border-white/10 hover:bg-white/10 transition-all flex items-center gap-4">
-                          {s.user_avatar ? (
-                              <img 
-                                  src={s.user_avatar} 
-                                  alt={s.user_nickname} 
-                                  className="w-12 h-12 rounded-full border-2 border-fuchsia-500 object-cover shrink-0 shadow-lg"
-                              />
-                          ) : (
-                              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-fuchsia-600 to-purple-600 flex items-center justify-center text-white font-black text-lg shadow-lg shrink-0">
-                                  {s.user_nickname?.charAt(0)?.toUpperCase() || '?'}
-                              </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                              <div className="text-white font-bold text-lg truncate">{s.user_nickname}</div>
-                              <div className="text-white/60 text-sm truncate">{s.title || s.song_title || 'Canzone senza titolo'}</div>
+                  <div className="bg-white/5 backdrop-blur-sm px-4 py-3 rounded-2xl border border-white/10 flex items-center gap-3">
+                      {queue[0].user_avatar ? (
+                          <img src={queue[0].user_avatar} alt={queue[0].user_nickname}
+                              className="w-[5vh] h-[5vh] rounded-full border-2 border-fuchsia-500 object-cover shrink-0 shadow-lg" />
+                      ) : (
+                          <div className="w-[5vh] h-[5vh] rounded-full bg-gradient-to-br from-fuchsia-600 to-purple-600 flex items-center justify-center text-white font-black text-[2vh] shadow-lg shrink-0">
+                              {queue[0].user_nickname?.charAt(0)?.toUpperCase() || '?'}
                           </div>
-                          <Music className="w-5 h-5 text-fuchsia-400 shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                          <div className="text-white font-bold text-[1.6vh] truncate">{queue[0].user_nickname}</div>
+                          <div className="text-white/60 text-[1.2vh] truncate">{queue[0].title || queue[0].song_title || '—'}</div>
                       </div>
-                  ))
+                      <Music className="w-[2vh] h-[2vh] text-fuchsia-400 shrink-0" />
+                  </div>
               ) : (
-                  <div className="text-white/30 text-center py-8 italic">Nessuna canzone in coda</div>
+                  <div className="text-white/30 text-center py-4 italic text-[1.3vh]">Nessuna canzone in coda</div>
               )}
           </div>
       </div>
