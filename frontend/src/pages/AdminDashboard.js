@@ -21,6 +21,34 @@ import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import api, { createPub, updateEventSettings, uploadLogo } from "@/lib/api";
 
+// Componente bottone elimina domanda con doppio step — evita cancellazioni accidentali
+function DeleteQuizQuestionButton({ question, onConfirm }) {
+  const [step, setStep] = useState(0);
+  if (step === 0) return (
+    <div className="mt-3 pt-3 border-t border-zinc-700/50">
+      <button
+        onClick={() => setStep(1)}
+        className="w-full text-xs text-zinc-600 hover:text-zinc-400 transition flex items-center justify-center gap-1 py-1"
+      >
+        <Trash2 className="w-3 h-3"/> video/audio non funziona?
+      </button>
+    </div>
+  );
+  if (step === 1) return (
+    <div className="mt-3 pt-3 border-t border-red-900/40 bg-red-950/20 rounded-lg p-3 space-y-2">
+      <p className="text-xs text-red-400 font-bold text-center">⚠️ Eliminare DAL CATALOGO?</p>
+      <p className="text-[10px] text-zinc-500 text-center line-clamp-2">"{question}"</p>
+      <p className="text-[10px] text-red-500/70 text-center">Azione irreversibile — la domanda sparirà per sempre.</p>
+      <div className="flex gap-2">
+        <Button size="sm" variant="ghost" className="flex-1 text-zinc-400 h-7 text-xs" onClick={() => setStep(0)}>Annulla</Button>
+        <Button size="sm" className="flex-1 bg-red-700 hover:bg-red-600 h-7 text-xs" onClick={() => { setStep(0); onConfirm(); }}>
+          <Trash2 className="w-3 h-3 mr-1"/> Sì, elimina
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const { isAuthenticated, logout } = useAuth();
@@ -1469,32 +1497,10 @@ export default function AdminDashboard() {
 
                                     <div className="grid grid-cols-1 gap-2">
                                         {quizStatus === 'active' && (
-                                            <>
-                                                <Button className="w-full bg-red-600 hover:bg-red-500 h-10 font-bold animate-pulse" 
-                                                    onClick={() => ctrlQuiz('close_vote')}>
-                                                    <StopCircle className="w-4 h-4 mr-2"/> CHIUDI RISPOSTE
-                                                </Button>
-                                                <Button 
-                                                    variant="outline" 
-                                                    className="border-red-500 text-red-500 hover:bg-red-900/20" 
-                                                    onClick={async () => {
-                                                        if(window.confirm(`⚠️ ELIMINARE QUESTA DOMANDA DAL CATALOGO?\n\n"${activeQuizData?.question}"\n\nMotivo: Video/Audio non funzionante\n\nLa domanda sarà eliminata e il quiz chiuso.`)) {
-                                                            try {
-                                                                await api.deleteQuizQuestion(activeQuizId);
-                                                                toast.success("Domanda eliminata");
-                                                                await api.endQuiz(activeQuizId);
-                                                                await api.setEventModule('karaoke');
-                                                                toast.info("Tornato al Karaoke");
-                                                                loadData();
-                                                            } catch(e) {
-                                                                toast.error("Errore: " + e.message);
-                                                            }
-                                                        }
-                                                    }}
-                                                >
-                                                    <Trash2 className="w-4 h-4 mr-2"/> ELIMINA (Video Non Funziona)
-                                                </Button>
-                                            </>
+                                            <Button className="w-full bg-red-600 hover:bg-red-500 h-10 font-bold animate-pulse" 
+                                                onClick={() => ctrlQuiz('close_vote')}>
+                                                <StopCircle className="w-4 h-4 mr-2"/> CHIUDI RISPOSTE
+                                            </Button>
                                         )}
                                         
                                         {quizStatus === 'closed' && (
@@ -1519,6 +1525,25 @@ export default function AdminDashboard() {
                                             </div>
                                         )}
                                     </div>
+
+                                    {/* ZONA PERICOLOSA — separata visivamente e in fondo */}
+                                    {quizStatus === 'active' && (
+                                        <DeleteQuizQuestionButton 
+                                            question={activeQuizData?.question}
+                                            onConfirm={async () => {
+                                                try {
+                                                    await api.deleteQuizQuestion(activeQuizId);
+                                                    toast.success("Domanda eliminata dal catalogo");
+                                                    await api.endQuiz(activeQuizId);
+                                                    await api.setEventModule('karaoke');
+                                                    toast.info("Tornato al Karaoke");
+                                                    loadData();
+                                                } catch(e) {
+                                                    toast.error("Errore: " + e.message);
+                                                }
+                                            }}
+                                        />
+                                    )}
                                 </CardContent>
                             </Card>
                         ) : (

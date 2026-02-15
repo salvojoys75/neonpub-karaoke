@@ -62,7 +62,7 @@ const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => {
           {logoUrl ? (
             <img src={logoUrl} alt="Logo" className="w-16 h-16 rounded-xl border-2 border-white/20 shadow-lg object-contain bg-black p-1" />
           ) : (
-            <div className="w-16 h-16 rounded-xl bg-fuchsia-600 flex items-center justify-center border-2 border-white/20 shadow-lg font-black text-xl">NP</div>
+            <div className="w-16 h-16 rounded-xl bg-fuchsia-600 flex items-center justify-center border-2 border-white/20 shadow-lg font-black text-xl">DJ</div>
           )}
           <div>
               <h1 className="text-3xl font-black text-white tracking-wider drop-shadow-md uppercase">{pubName || "DISCOJOYS"}</h1>
@@ -226,7 +226,7 @@ const Sidebar = ({ pubCode, queue, leaderboard }) => (
 const KaraokeMode = ({ perf, isMuted }) => {
     return (
         <div className="w-full h-full relative">
-            <div className="absolute inset-0 right-[380px] bottom-[100px] bg-black">
+            <div className="absolute inset-0 bottom-[100px] bg-black">
                 <KaraokePlayer 
                     key={perf.id} 
                     url={perf.youtube_url}
@@ -237,7 +237,7 @@ const KaraokeMode = ({ perf, isMuted }) => {
                 />
             </div>
             {/* Fascia nera con banner esteso — riempie lo spazio sotto il player */}
-            <div className="absolute bottom-0 left-0 right-[380px] h-[100px] bg-black z-[70] flex items-center px-6 gap-5 border-t border-white/5">
+            <div className="absolute bottom-0 left-0 right-0 h-[100px] bg-black z-[70] flex items-center px-6 gap-5 border-t border-white/5">
                 
                 <div className="relative shrink-0">
                     {perf.user_avatar ? (
