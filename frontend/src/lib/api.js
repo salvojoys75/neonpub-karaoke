@@ -910,7 +910,7 @@ export const getDisplayData = async (pubCode) => {
   // FIX: Filtri rigorosi per event_id su TUTTE le tabelle
   const [perf, queue, lb, activeQuiz, adminMsg, approvedMsgs] = await Promise.all([
     supabase.from('performances').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).in('status', ['live','voting','paused','ended']).order('started_at', {ascending: false}).limit(1).maybeSingle(),
-    supabase.from('song_requests').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).eq('status', 'queued').limit(10), 
+    supabase.from('song_requests').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).in('status', ['queued']).order('created_at', {ascending: true}).limit(10), 
     supabase.from('participants').select('nickname, score, avatar_url').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
     supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
     // Messaggio REGIA
@@ -928,11 +928,17 @@ export const getDisplayData = async (pubCode) => {
       }
   }
 
+  // Esclude dalla coda il brano attualmente in esecuzione (potrebbe essere ancora 'queued' per race condition)
+  const liveRequestId = currentPerformance?.song_request_id;
+  const queueData = (queue.data || [])
+    .filter(q => q.id !== liveRequestId)
+    .map(q => ({...q, user_nickname: q.participants?.nickname, user_avatar: q.participants?.avatar_url}));
+
   return {
     data: {
       pub: event,
       current_performance: currentPerformance,
-      queue: queue.data?.map(q => ({...q, user_nickname: q.participants?.nickname, user_avatar: q.participants?.avatar_url})),
+      queue: queueData,
       leaderboard: lb.data,
       active_quiz: activeQuiz.data,
       admin_message: adminMsg.data,
