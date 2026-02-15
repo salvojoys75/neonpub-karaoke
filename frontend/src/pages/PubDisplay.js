@@ -548,13 +548,6 @@ export default function PubDisplay() {
 
     const { pub, current_performance: perf, queue, active_quiz: quiz, admin_message, leaderboard, approved_messages, extraction_data } = data;
 
-    // DEBUG: Verifica messaggi
-    console.log('🔍 DEBUG MESSAGGI:', {
-        admin_message,
-        approved_messages,
-        recentMessages: approved_messages?.slice(0, 10)
-    });
-
     const recentMessages = approved_messages ? approved_messages.slice(0, 10) : [];
 
     const isQuiz = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
