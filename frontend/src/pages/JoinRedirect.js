@@ -129,7 +129,9 @@ const handleJoin = async (e) => {
       throw new Error("Risposta dal server incompleta");
     }
 
-    localStorage.setItem("neonpub_pub_code", pubCode.toUpperCase());
+    localStorage.setItem("discojoys_pub_code", pubCode.toUpperCase());
+    // Salviamo il token con la chiave che api.js si aspetta
+    localStorage.setItem("discojoys_token", data.token);
     login(data.token, data.user);
     toast.success(`Benvenuto ${nickname}!`);
     navigate("/app");

@@ -42,6 +42,8 @@ export default function ClientApp() {
   useEffect(() => { if (!isAuthenticated) navigate("/"); }, [isAuthenticated, navigate]);
 
   const loadData = useCallback(async () => {
+    // Senza token non ha senso chiamare le API
+    if (!localStorage.getItem('discojoys_token')) return;
     try {
       const [queueRes, myRes, perfRes, lbRes, quizRes] = await Promise.all([
         api.getSongQueue(), api.getMyRequests(), api.getCurrentPerformance(), api.getLeaderboard(), api.getActiveQuiz(),
@@ -112,7 +114,7 @@ export default function ClientApp() {
   return (
     <div className="min-h-screen bg-[#050505] flex flex-col pb-24 font-sans text-white">
       <header className="sticky top-0 z-40 bg-[#050505]/90 backdrop-blur-md p-4 flex justify-between items-center border-b border-white/5">
-        <div><h1 className="font-bold text-lg text-fuchsia-500">{user?.pub_name || "NeonPub"}</h1><p className="text-xs text-zinc-500 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> {user?.nickname}</p></div>
+        <div><h1 className="font-bold text-lg text-fuchsia-500">{user?.pub_name || "Discojoys"}</h1><p className="text-xs text-zinc-500 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> {user?.nickname}</p></div>
         <div className="flex items-center gap-2"><Button onClick={() => { loadData(); toast.success("Aggiornato!"); }} variant="ghost" size="sm" className="text-zinc-400"><RefreshCw className="w-4 h-4" /></Button><Button onClick={logout} variant="ghost" size="sm" className="text-zinc-400">Esci</Button></div>
       </header>
       <div className="reactions-overlay pointer-events-none fixed inset-0 z-50 overflow-hidden">{floatingReactions.map(r => (<div key={r.id} className="absolute text-4xl animate-float-up" style={{ left: `${r.left}%`, bottom: '-50px' }}>{r.emoji}</div>))}</div>
