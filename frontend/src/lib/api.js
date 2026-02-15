@@ -859,6 +859,20 @@ export const getLeaderboard = async () => {
   if (error) throw error; return { data }
 }
 
+// Funzione dedicata per messaggi regia — bypassa il check discojoys_token,
+// inserisce sempre con participant_id=null e status='approved' (→ sovraimpressione)
+export const sendAdminMessage = async (text) => {
+  const event = await getAdminEvent();
+  const { data: message, error } = await supabase.from('messages').insert({
+    event_id: event.id,
+    participant_id: null,
+    text: typeof text === 'string' ? text : text.text,
+    status: 'approved'
+  }).select().single();
+  if (error) throw error;
+  return { data: message };
+}
+
 export const deleteAdminMessage = async (id) => {
   const event = await getAdminEvent();
   const { error } = await supabase.from('messages')
@@ -1526,7 +1540,7 @@ export default {
   startPerformance, pausePerformance, resumePerformance, endPerformance, closeVoting, stopAndNext, restartPerformance, toggleMute,
   getCurrentPerformance, getAdminCurrentPerformance,
   submitVote, sendReaction,
-  sendMessage, getAdminPendingMessages, approveMessage, rejectMessage, deleteAdminMessage, deleteApprovedMessage,
+  sendMessage, sendAdminMessage, getAdminPendingMessages, approveMessage, rejectMessage, deleteAdminMessage, deleteApprovedMessage,
   startQuiz, endQuiz, answerQuiz, getActiveQuiz, closeQuizVoting, showQuizResults, showQuizLeaderboard,
   getQuizResults, getAdminLeaderboard,
   getLeaderboard, getDisplayData,

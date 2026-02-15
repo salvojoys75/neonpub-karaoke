@@ -15,6 +15,9 @@ const STYLES = `
   :root {
     --glass-bg: rgba(15, 15, 20, 0.7);
     --glass-border: rgba(255, 255, 255, 0.1);
+    --sidebar-w: 24vw;
+    --topbar-h: 7vh;
+    --karaoke-bar-h: 10vh;
   }
 
   body { 
@@ -51,40 +54,47 @@ const STYLES = `
   }
   
   .text-glow { text-shadow: 0 0 30px rgba(217,70,239, 0.6); }
+
+  /* Layout responsivo — si scala su qualsiasi schermo/proiettore */
+  .dj-topbar     { height: var(--topbar-h); }
+  .dj-sidebar    { width: var(--sidebar-w); top: calc(var(--topbar-h) + 1vh); right: 1vw; bottom: 1vh; }
+  .dj-content    { top: var(--topbar-h); right: calc(var(--sidebar-w) + 1.5vw); bottom: 0; left: 0; }
+  .dj-karaoke-bar { height: var(--karaoke-bar-h); }
+  .dj-karaoke-player { bottom: var(--karaoke-bar-h); }
 `;
 
 const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => {
   const messagesString = messages && messages.length > 0 ? messages.map(m => `${m.nickname}: ${m.text}`).join('   •   ') : '';
   
   return (
-  <div className="absolute top-0 left-0 right-0 h-24 z-[100] flex items-center justify-between px-8 bg-gradient-to-b from-black/90 via-black/60 to-transparent">
+  <div className="dj-topbar absolute top-0 left-0 right-0 z-[100] flex items-center justify-between px-8 bg-gradient-to-b from-black/90 via-black/60 to-transparent">
       <div className="flex items-center gap-5">
           {logoUrl ? (
-            <img src={logoUrl} alt="Logo" className="w-16 h-16 rounded-xl border-2 border-white/20 shadow-lg object-contain bg-black p-1" />
+            <img src={logoUrl} alt="Logo" className="h-[5vh] w-[5vh] rounded-xl border-2 border-white/20 shadow-lg object-contain bg-black p-1" />
           ) : (
-            <div className="w-16 h-16 rounded-xl bg-fuchsia-600 flex items-center justify-center border-2 border-white/20 shadow-lg font-black text-xl">DJ</div>
+            <div className="h-[5vh] w-[5vh] rounded-xl bg-fuchsia-600 flex items-center justify-center border-2 border-white/20 shadow-lg font-black text-[2vh]">DJ</div>
           )}
           <div>
-              <h1 className="text-3xl font-black text-white tracking-wider drop-shadow-md uppercase">{pubName || "DISCOJOYS"}</h1>
+              <h1 className="text-[2.5vh] font-black text-white tracking-wider drop-shadow-md uppercase">{pubName || "DISCOJOYS"}</h1>
               <div className="flex items-center gap-3">
-                  <span className="bg-red-600 px-2 py-0.5 rounded text-[10px] font-bold tracking-widest uppercase animate-pulse shadow-[0_0_10px_red]">LIVE</span>
-                  {isMuted && <span className="text-white bg-red-900 px-2 py-0.5 rounded text-[10px] font-bold tracking-widest border border-red-500">AUDIO OFF</span>}
+                  <span className="bg-red-600 px-2 py-0.5 rounded text-[1vh] font-bold tracking-widest uppercase animate-pulse shadow-[0_0_10px_red]">LIVE</span>
+                  {isMuted && <span className="text-white bg-red-900 px-2 py-0.5 rounded text-[1vh] font-bold tracking-widest border border-red-500">AUDIO OFF</span>}
               </div>
           </div>
       </div>
       
-      <div className="flex-1 mx-16 h-14 glass-panel rounded-full flex items-center px-4 overflow-hidden relative">
+      <div className="flex-1 mx-8 h-[4.5vh] glass-panel rounded-full flex items-center px-4 overflow-hidden relative">
           {messagesString ? (
              <div className="ticker-wrap">
-                 <div className="ticker-content text-white text-lg font-medium flex items-center gap-8">
-                     <MessageSquare className="w-5 h-5 text-fuchsia-400 inline-block shrink-0"/>
+                 <div className="ticker-content text-white text-[1.8vh] font-medium flex items-center gap-8">
+                     <MessageSquare className="w-[2vh] h-[2vh] text-fuchsia-400 inline-block shrink-0"/>
                      <span>{messagesString}</span>
                      <span className="ml-8">{messagesString}</span>
                  </div>
              </div>
           ) : (
              <div className="ticker-wrap">
-                 <div className="ticker-content text-white/40 text-sm font-medium uppercase tracking-widest flex items-center gap-8">
+                 <div className="ticker-content text-white/40 text-[1.4vh] font-medium uppercase tracking-widest flex items-center gap-8">
                      <span>🎵 Prenota la tua canzone</span>
                      <span>📸 Carica il tuo avatar</span>
                      <span>🏆 Scala la classifica</span>
@@ -100,8 +110,8 @@ const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => {
 
       <div className="flex flex-col items-end">
           <div className="glass-panel px-4 py-2 rounded-xl flex items-center gap-3">
-              <Users className="w-5 h-5 text-fuchsia-400"/> 
-              <span className="text-2xl font-mono font-bold">{onlineCount}</span>
+              <Users className="w-[2vh] h-[2vh] text-fuchsia-400"/> 
+              <span className="text-[2.5vh] font-mono font-bold">{onlineCount}</span>
           </div>
       </div>
   </div>
@@ -126,14 +136,14 @@ const AdminMessageOverlay = ({ message }) => {
 };
 
 const Sidebar = ({ pubCode, queue, leaderboard }) => (
-  <div className="absolute top-28 right-6 bottom-6 w-[350px] z-[90] flex flex-col gap-6">
+  <div className="dj-sidebar absolute z-[90] flex flex-col gap-[1.5vh]">
       <div className="glass-panel p-6 rounded-3xl flex flex-col items-center justify-center relative overflow-hidden">
           <div className="absolute inset-0 bg-fuchsia-600/10 blur-xl"></div>
           <div className="bg-white p-3 rounded-2xl mb-4 shadow-2xl relative z-10">
-              <QRCodeSVG value={`${window.location.origin}/join/${pubCode}`} size={180} level="M" />
+              <QRCodeSVG value={`${window.location.origin}/join/${pubCode}`} size={Math.round(window.innerWidth * 0.14)} level="M" />
           </div>
-          <div className="text-5xl font-black text-white tracking-widest font-mono drop-shadow-xl relative z-10">{pubCode}</div>
-          <div className="text-xs text-white/60 uppercase mt-2 font-bold tracking-[0.2em] relative z-10">Scansiona per entrare</div>
+          <div className="text-[3.5vw] font-black text-white tracking-widest font-mono drop-shadow-xl relative z-10">{pubCode}</div>
+          <div className="text-[0.9vw] text-white/60 uppercase mt-2 font-bold tracking-[0.2em] relative z-10">Scansiona per entrare</div>
       </div>
       
       <div className="glass-panel rounded-3xl flex flex-col overflow-hidden relative" style={{maxHeight: '45%'}}>
@@ -226,7 +236,7 @@ const Sidebar = ({ pubCode, queue, leaderboard }) => (
 const KaraokeMode = ({ perf, isMuted }) => {
     return (
         <div className="w-full h-full relative">
-            <div className="absolute inset-0 bottom-[100px] bg-black">
+            <div className="absolute inset-0 dj-karaoke-player bg-black">
                 <KaraokePlayer 
                     key={perf.id} 
                     url={perf.youtube_url}
@@ -236,32 +246,31 @@ const KaraokeMode = ({ perf, isMuted }) => {
                     startedAt={perf.started_at}
                 />
             </div>
-            {/* Fascia nera con banner esteso — riempie lo spazio sotto il player */}
-            <div className="absolute bottom-0 left-0 right-0 h-[100px] bg-black z-[70] flex items-center px-6 gap-5 border-t border-white/5">
+            <div className="dj-karaoke-bar absolute bottom-0 left-0 right-0 bg-black z-[70] flex items-center px-[2vw] gap-[1.5vw] border-t border-white/5">
                 
                 <div className="relative shrink-0">
                     {perf.user_avatar ? (
-                        <img src={perf.user_avatar} className="w-16 h-16 rounded-full border-2 border-fuchsia-500/80 object-cover bg-zinc-900 shadow-lg" alt="Singer" />
+                        <img src={perf.user_avatar} className="w-[7vh] h-[7vh] rounded-full border-2 border-fuchsia-500/80 object-cover bg-zinc-900 shadow-lg" alt="Singer" />
                     ) : (
-                        <div className="w-16 h-16 rounded-full border-2 border-fuchsia-500/80 bg-fuchsia-600/40 flex items-center justify-center shadow-lg">
-                            <Mic2 className="w-8 h-8 text-white" />
+                        <div className="w-[7vh] h-[7vh] rounded-full border-2 border-fuchsia-500/80 bg-fuchsia-600/40 flex items-center justify-center shadow-lg">
+                            <Mic2 className="w-[4vh] h-[4vh] text-white" />
                         </div>
                     )}
-                    <div className="absolute -bottom-1 -right-1 bg-red-600 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full border border-white/20">LIVE</div>
+                    <div className="absolute -bottom-1 -right-1 bg-red-600 text-white text-[1vh] font-bold px-1.5 py-0.5 rounded-full border border-white/20">LIVE</div>
                 </div>
 
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                        <Mic2 className="w-4 h-4 text-fuchsia-400 shrink-0" />
-                        <span className="text-lg font-bold text-white truncate">{perf.user_nickname}</span>
+                        <Mic2 className="w-[1.8vh] h-[1.8vh] text-fuchsia-400 shrink-0" />
+                        <span className="text-[1.8vh] font-bold text-white truncate">{perf.user_nickname}</span>
                     </div>
-                    <h1 className="text-2xl font-black text-white leading-none truncate text-glow">{perf.song_title}</h1>
-                    <p className="text-sm text-white/50 uppercase tracking-wide mt-1 truncate">{perf.song_artist}</p>
+                    <h1 className="text-[2.8vh] font-black text-white leading-none truncate text-glow">{perf.song_title}</h1>
+                    <p className="text-[1.4vh] text-white/50 uppercase tracking-wide mt-1 truncate">{perf.song_artist}</p>
                 </div>
 
-                <div className="shrink-0 text-right border-l border-white/10 pl-5">
-                    <div className="text-xs text-white/30 uppercase tracking-widest mb-1">In onda</div>
-                    <div className="text-fuchsia-400 text-sm font-bold">🎤 Karaoke Live</div>
+                <div className="shrink-0 text-right border-l border-white/10 pl-[1.5vw]">
+                    <div className="text-[1.2vh] text-white/30 uppercase tracking-widest mb-1">In onda</div>
+                    <div className="text-fuchsia-400 text-[1.4vh] font-bold">🎤 Karaoke Live</div>
                 </div>
             </div>
         </div>
@@ -582,7 +591,7 @@ export default function PubDisplay() {
                 </div>
             )}
             
-            <div className="absolute top-24 bottom-0 left-0 right-[362px] z-10">
+            <div className="dj-content absolute z-10">
                 {Content}
             </div>
             

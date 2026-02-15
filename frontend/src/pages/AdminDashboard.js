@@ -789,10 +789,14 @@ export default function AdminDashboard() {
 
   const handleSendMessage = async () => {
       if(!adminMessage) return;
-      await api.sendMessage({ text: adminMessage });
-      setShowMessageModal(false); 
-      setAdminMessage("");
-      toast.success("Messaggio Inviato");
+      try {
+          await api.sendAdminMessage({ text: adminMessage });
+          setShowMessageModal(false); 
+          setAdminMessage("");
+          toast.success("Messaggio inviato in sovraimpressione");
+      } catch(e) {
+          toast.error("Errore invio: " + e.message);
+      }
   };
 
   const launchCustomQuiz = async () => {
