@@ -897,11 +897,9 @@ export const sendAdminMessage = async (text) => {
 
 export const importCustomQuiz = async (questions) => {
   const event = await getAdminEvent();
-  const { data: { user } } = await supabase.auth.getUser();
   let count = 0;
   for (const q of questions) {
-    const { error } = await supabase.from('quiz_catalog').insert({
-      operator_id: user.id,
+    const payload = {
       category: 'Personalizzata',
       question: q.question,
       options: q.options,
@@ -909,10 +907,16 @@ export const importCustomQuiz = async (questions) => {
       points: q.points || 10,
       media_url: q.media_url || null,
       media_type: q.media_type || 'text',
+      is_active: true,
       is_custom: true,
       event_id: event.id
-    });
-    if (!error) count++;
+    };
+    const { error } = await supabase.from('quiz_catalog').insert(payload);
+    if (error) {
+      console.error('❌ importCustomQuiz error:', error.message, error.details, 'payload:', payload);
+    } else {
+      count++;
+    }
   }
   return { count };
 }
