@@ -27,7 +27,511 @@ async function getAdminEvent() {
 
   return data
 }
+// ============================================================
+// GESTIONE GIOCHI ARCADE
+// ============================================================
 
+/**
+ * Crea un nuovo gioco arcade
+ */
+export const createArcadeGame = async ({
+  gameType = 'song_guess',
+  trackId,
+  trackTitle,
+  trackArtist,
+  trackUrl,
+  correctAnswer,
+  pointsReward = 100,
+  maxAttempts = 3,
+  penaltySeconds = 10,
+  mediaType = 'spotify',
+  category = 'Generale'
+}) => {
+  try {
+    const event = await getAdminEvent();
+    
+    // Chiudi eventuali giochi attivi precedenti
+    await supabase
+      .from('arcade_games')
+      .update({ status: 'ended', ended_at: new Date().toISOString() })
+      .eq('event_id', event.id)
+      .in('status', ['setup', 'waiting', 'active', 'paused']);
+    
+    // Crea nuovo gioco
+    const { data, error } = await supabase
+      .from('arcade_games')
+      .insert({
+        event_id: event.id,
+        game_type: gameType,
+        status: 'setup',
+        track_id: trackId,
+        track_title: trackTitle,
+        track_artist: trackArtist,
+        track_url: trackUrl,
+        correct_answer: correctAnswer,
+        points_reward: pointsReward,
+        max_attempts: maxAttempts,
+        penalty_seconds: penaltySeconds,
+        media_type: mediaType,
+        category: category
+      })
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    console.log('✅ Gioco arcade creato:', data);
+    return { data };
+  } catch (error) {
+    console.error('❌ Errore creazione gioco arcade:', error);
+    throw error;
+  }
+};
+
+/**
+ * Avvia il gioco (lo rende attivo e visibile)
+ */
+export const startArcadeGame = async (gameId) => {
+  try {
+    const { data, error } = await supabase
+      .from('arcade_games')
+      .update({
+        status: 'active',
+        started_at: new Date().toISOString()
+      })
+      .eq('id', gameId)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    console.log('▶️ Gioco arcade avviato:', data);
+    return { data };
+  } catch (error) {
+    console.error('❌ Errore avvio gioco:', error);
+    throw error;
+  }
+};
+
+/**
+ * Metti in pausa il gioco
+ */
+export const pauseArcadeGame = async (gameId) => {
+  try {
+    const { data, error } = await supabase
+      .from('arcade_games')
+      .update({ status: 'paused' })
+      .eq('id', gameId)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return { data };
+  } catch (error) {
+    console.error('❌ Errore pausa gioco:', error);
+    throw error;
+  }
+};
+
+/**
+ * Riprendi il gioco
+ */
+export const resumeArcadeGame = async (gameId) => {
+  try {
+    const { data, error } = await supabase
+      .from('arcade_games')
+      .update({ status: 'active' })
+      .eq('id', gameId)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return { data };
+  } catch (error) {
+    console.error('❌ Errore ripresa gioco:', error);
+    throw error;
+  }
+};
+
+/**
+ * Termina il gioco
+ */
+export const endArcadeGame = async (gameId) => {
+  try {
+    const { data, error } = await supabase
+      .from('arcade_games')
+      .update({
+        status: 'ended',
+        ended_at: new Date().toISOString()
+      })
+      .eq('id', gameId)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    console.log('🛑 Gioco arcade terminato:', data);
+    return { data };
+  } catch (error) {
+    console.error('❌ Errore terminazione gioco:', error);
+    throw error;
+  }
+};
+
+/**
+ * Ottieni il gioco arcade attivo
+ */
+export const getActiveArcadeGame = async () => {
+  try {
+    const event = await getAdminEvent();
+    
+    const { data, error } = await supabase
+      .from('arcade_games')
+      .select('*')
+      .eq('event_id', event.id)
+      .in('status', ['setup', 'waiting', 'active', 'paused'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+    
+    if (error && error.code !== 'PGRST116') throw error; // PGRST116 = no rows
+    
+    return { data: data || null };
+  } catch (error) {
+    console.error('❌ Errore caricamento gioco attivo:', error);
+    return { data: null };
+  }
+};
+
+// ============================================================
+// GESTIONE PRENOTAZIONI
+// ============================================================
+
+/**
+ * Prenota una risposta (chiamata dall'app partecipante)
+ */
+export const bookArcadeAnswer = async (gameId, participantId) => {
+  try {
+    // Verifica che il gioco sia attivo
+    const { data: game, error: gameError } = await supabase
+      .from('arcade_games')
+      .select('*')
+      .eq('id', gameId)
+      .single();
+    
+    if (gameError) throw gameError;
+    
+    if (game.status !== 'active') {
+      throw new Error('Il gioco non è attivo');
+    }
+    
+    // Verifica che il partecipante non abbia già una prenotazione pending
+    const { data: existingBooking } = await supabase
+      .from('arcade_bookings')
+      .select('*')
+      .eq('game_id', gameId)
+      .eq('participant_id', participantId)
+      .eq('status', 'pending')
+      .single();
+    
+    if (existingBooking) {
+      throw new Error('Hai già una prenotazione in corso');
+    }
+    
+    // Verifica penalità (se ha sbagliato di recente)
+    const { data: recentWrong } = await supabase
+      .from('arcade_bookings')
+      .select('validated_at')
+      .eq('game_id', gameId)
+      .eq('participant_id', participantId)
+      .eq('status', 'wrong')
+      .order('validated_at', { ascending: false })
+      .limit(1)
+      .single();
+    
+    if (recentWrong) {
+      const penaltyEnd = new Date(recentWrong.validated_at);
+      penaltyEnd.setSeconds(penaltyEnd.getSeconds() + game.penalty_seconds);
+      
+      if (new Date() < penaltyEnd) {
+        const remainingSeconds = Math.ceil((penaltyEnd - new Date()) / 1000);
+        throw new Error(`Devi aspettare ancora ${remainingSeconds} secondi`);
+      }
+    }
+    
+    // Crea la prenotazione
+    const { data, error } = await supabase
+      .from('arcade_bookings')
+      .insert({
+        game_id: gameId,
+        participant_id: participantId,
+        status: 'pending',
+        response_time: null // Verrà calcolato alla validazione
+      })
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    console.log('👆 Prenotazione creata:', data);
+    return { data };
+  } catch (error) {
+    console.error('❌ Errore prenotazione:', error);
+    throw error;
+  }
+};
+
+/**
+ * Valida una risposta (chiamata dall'operatore)
+ */
+export const validateArcadeAnswer = async (bookingId, isCorrect, givenAnswer = null) => {
+  try {
+    // Ottieni la prenotazione
+    const { data: booking, error: bookingError } = await supabase
+      .from('arcade_bookings')
+      .select('*, arcade_games(*)')
+      .eq('id', bookingId)
+      .single();
+    
+    if (bookingError) throw bookingError;
+    
+    const game = booking.arcade_games;
+    
+    // Calcola tempo di risposta
+    const responseTime = new Date() - new Date(booking.booked_at);
+    const responseSeconds = Math.floor(responseTime / 1000);
+    
+    // Determina punti
+    let pointsAwarded = 0;
+    if (isCorrect) {
+      pointsAwarded = game.points_reward;
+    }
+    
+    // Aggiorna la prenotazione
+    const { data: updatedBooking, error: updateError } = await supabase
+      .from('arcade_bookings')
+      .update({
+        status: isCorrect ? 'correct' : 'wrong',
+        validated_at: new Date().toISOString(),
+        points_awarded: pointsAwarded,
+        given_answer: givenAnswer,
+        response_time: `${responseSeconds} seconds`
+      })
+      .eq('id', bookingId)
+      .select()
+      .single();
+    
+    if (updateError) throw updateError;
+    
+    // Se è corretta, aggiorna il gioco
+    if (isCorrect) {
+      // Incrementa i punti del partecipante
+      const { error: pointsError } = await supabase
+        .from('participants')
+        .update({
+          score: supabase.rpc('increment_score', { 
+            row_id: booking.participant_id, 
+            increment_value: pointsAwarded 
+          })
+        })
+        .eq('id', booking.participant_id);
+      
+      if (pointsError) {
+        // Fallback se rpc non funziona
+        const { data: participant } = await supabase
+          .from('participants')
+          .select('score')
+          .eq('id', booking.participant_id)
+          .single();
+        
+        await supabase
+          .from('participants')
+          .update({ score: (participant?.score || 0) + pointsAwarded })
+          .eq('id', booking.participant_id);
+      }
+      
+      // Imposta il vincitore e chiudi il gioco
+      await supabase
+        .from('arcade_games')
+        .update({
+          status: 'ended',
+          winner_id: booking.participant_id,
+          ended_at: new Date().toISOString()
+        })
+        .eq('id', game.id);
+      
+      console.log('🎉 Risposta corretta! Gioco terminato');
+    } else {
+      // Incrementa il contatore tentativi
+      const newAttempts = (game.attempts_count || 0) + 1;
+      
+      await supabase
+        .from('arcade_games')
+        .update({ attempts_count: newAttempts })
+        .eq('id', game.id);
+      
+      // Se raggiunti max tentativi, chiudi il gioco
+      if (newAttempts >= game.max_attempts) {
+        await supabase
+          .from('arcade_games')
+          .update({
+            status: 'ended',
+            ended_at: new Date().toISOString()
+          })
+          .eq('id', game.id);
+        
+        console.log('🛑 Max tentativi raggiunti, gioco chiuso');
+      } else {
+        console.log('❌ Risposta sbagliata, gioco continua');
+      }
+    }
+    
+    return { data: updatedBooking, isCorrect };
+  } catch (error) {
+    console.error('❌ Errore validazione:', error);
+    throw error;
+  }
+};
+
+/**
+ * Ottieni tutte le prenotazioni di un gioco
+ */
+export const getArcadeBookings = async (gameId) => {
+  try {
+    const { data, error } = await supabase
+      .from('arcade_bookings')
+      .select(`
+        *,
+        participants:participant_id (
+          id,
+          nickname,
+          avatar_url,
+          score
+        )
+      `)
+      .eq('game_id', gameId)
+      .order('booking_order', { ascending: true });
+    
+    if (error) throw error;
+    
+    return { data: data || [] };
+  } catch (error) {
+    console.error('❌ Errore caricamento prenotazioni:', error);
+    throw error;
+  }
+};
+
+/**
+ * Ottieni la prenotazione corrente (pending più vecchia)
+ */
+export const getCurrentBooking = async (gameId) => {
+  try {
+    const { data, error } = await supabase
+      .from('arcade_bookings')
+      .select(`
+        *,
+        participants:participant_id (
+          id,
+          nickname,
+          avatar_url
+        )
+      `)
+      .eq('game_id', gameId)
+      .eq('status', 'pending')
+      .order('booking_order', { ascending: true })
+      .limit(1)
+      .single();
+    
+    if (error && error.code !== 'PGRST116') throw error;
+    
+    return { data: data || null };
+  } catch (error) {
+    console.error('❌ Errore caricamento prenotazione corrente:', error);
+    return { data: null };
+  }
+};
+
+/**
+ * Cancella una prenotazione (se il partecipante cambia idea)
+ */
+export const cancelArcadeBooking = async (bookingId) => {
+  try {
+    const { data, error } = await supabase
+      .from('arcade_bookings')
+      .update({ status: 'cancelled' })
+      .eq('id', bookingId)
+      .eq('status', 'pending') // Solo se ancora pending
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    console.log('🚫 Prenotazione cancellata:', data);
+    return { data };
+  } catch (error) {
+    console.error('❌ Errore cancellazione prenotazione:', error);
+    throw error;
+  }
+};
+
+// ============================================================
+// STATISTICHE ARCADE
+// ============================================================
+
+/**
+ * Ottieni la classifica arcade dell'evento
+ */
+export const getArcadeLeaderboard = async () => {
+  try {
+    const event = await getAdminEvent();
+    
+    const { data, error } = await supabase
+      .from('arcade_bookings')
+      .select(`
+        participant_id,
+        points_awarded,
+        status,
+        participants:participant_id (
+          id,
+          nickname,
+          avatar
+        ),
+        arcade_games!inner (
+          event_id
+        )
+      `)
+      .eq('arcade_games.event_id', event.id)
+      .eq('status', 'correct');
+    
+    if (error) throw error;
+    
+    // Aggrega i punti per partecipante
+    const leaderboard = {};
+    data.forEach(booking => {
+      const pid = booking.participant_id;
+      if (!leaderboard[pid]) {
+        leaderboard[pid] = {
+          participant_id: pid,
+          nickname: booking.participants.nickname,
+          avatar: booking.participants.avatar_url,
+          wins: 0,
+          points: 0
+        };
+      }
+      leaderboard[pid].wins += 1;
+      leaderboard[pid].points += booking.points_awarded;
+    });
+    
+    // Converti in array e ordina
+    const sorted = Object.values(leaderboard)
+      .sort((a, b) => b.points - a.points || b.wins - a.wins);
+    
+    return { data: sorted };
+  } catch (error) {
+    console.error('❌ Errore caricamento classifica arcade:', error);
+    throw error;
+  }
+};
 export const createPub = async (data) => {
   const { data: user } = await supabase.auth.getUser()
   if (!user?.user) throw new Error('Not authenticated')
@@ -1611,7 +2115,19 @@ export default {
   startPerformance, pausePerformance, resumePerformance, endPerformance, closeVoting, stopAndNext, restartPerformance, toggleMute,
   getCurrentPerformance, getAdminCurrentPerformance,
   submitVote, sendReaction,
-  sendMessage, sendAdminMessage, getAdminPendingMessages, approveMessage, rejectMessage, deleteAdminMessage, deleteApprovedMessage, importCustomQuiz,
+  sendMessage, sendAdminMessage, getAdminPendingMessages, approveMessage, rejectMessage, deleteAdminMessage, deleteApprovedMessage, createArcadeGame,
+  startArcadeGame,
+  pauseArcadeGame,
+  resumeArcadeGame,
+  endArcadeGame,
+  getActiveArcadeGame,
+  bookArcadeAnswer,
+  validateArcadeAnswer,
+  getArcadeBookings,
+  getCurrentBooking,
+  cancelArcadeBooking,
+  getArcadeLeaderboard,
+importCustomQuiz,
   startQuiz, endQuiz, answerQuiz, getActiveQuiz, closeQuizVoting, showQuizResults, showQuizLeaderboard,
   getQuizResults, getAdminLeaderboard,
   getLeaderboard, getDisplayData,

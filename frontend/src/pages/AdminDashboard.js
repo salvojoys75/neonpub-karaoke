@@ -21,6 +21,7 @@ import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import api, { createPub, updateEventSettings, uploadLogo } from "@/lib/api";
 import TermsModal from '@/components/TermsModal';
+import ArcadePanel from '@/components/admin/ArcadePanel'; // o @/components/ArcadePanel
 
 // Componente bottone elimina domanda con doppio step — evita cancellazioni accidentali
 function DeleteQuizQuestionButton({ question, onConfirm }) {
@@ -1420,6 +1421,9 @@ export default function AdminDashboard() {
                      <TabsTrigger value="settings" className="text-xs px-1 data-[state=active]:bg-zinc-700/30" title="Impostazioni">
                         <Settings className="w-5 h-5 text-zinc-400" />
                      </TabsTrigger>
+<TabsTrigger value="arcade" className="text-xs px-1 data-[state=active]:bg-yellow-900/30" title="Arcade">
+  <Trophy className="w-5 h-5 text-yellow-400" />
+</TabsTrigger>
                      <TabsTrigger value="extraction" className="text-xs px-1 data-[state=active]:bg-purple-900/30" title="Estrazione Casuale">
                         <Dices className="w-5 h-5 text-purple-400" />
                      </TabsTrigger>
@@ -1717,6 +1721,12 @@ export default function AdminDashboard() {
                        )}
                    </div>
                )}
+{libraryTab === 'arcade' && (
+  <ArcadePanel 
+    quizCatalog={quizCatalog}
+    onRefresh={loadData}
+  />
+)}
 {libraryTab === 'extraction' && (
                    <div className="space-y-4 pt-2">
                        {/* HEADER */}
