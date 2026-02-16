@@ -1899,15 +1899,14 @@ export default function AdminDashboard() {
                                        frameBorder="0"
                                        allowFullScreen=""
                                        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                                       className="rounded-lg"
+                                       className="rounded-lg max-w-full"
                                     />
                                  </div>
                               ) : activeQuizData.media_url.includes('youtube') || activeQuizData.media_url.includes('youtu.be') ? (
-                                 <div className="aspect-video rounded-lg overflow-hidden bg-black">
+                                 <div className="w-full max-w-full" style={{ aspectRatio: '16/9' }}>
                                     <iframe
-                                       src={`https://www.youtube.com/embed/${activeQuizData.media_url.match(/(?:youtu\.be\/|v\/|watch\?v=|&v=)([^#&?]{11})/)?.[1]}?controls=1&autoplay=1`}
-                                       width="100%"
-                                       height="100%"
+                                       src={`https://www.youtube.com/embed/${activeQuizData.media_url.match(/(?:youtu\.be\/|v\/|watch\?v=|&v=)([^#&?]{11})/)?.[1]}?controls=1&mute=1`}
+                                       className="w-full h-full rounded-lg"
                                        frameBorder="0"
                                        allow="autoplay; encrypted-media"
                                        allowFullScreen
