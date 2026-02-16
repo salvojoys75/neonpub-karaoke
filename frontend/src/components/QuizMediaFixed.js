@@ -87,9 +87,9 @@ const SpotifyPlayer = memo(({ trackId, isBackground = true }) => {
         </div>
       )}
 
-      {/* Audio mode overlay */}
+      {/* Audio mode overlay - CORRETTO: z-index più basso */}
       {!isLoading && (
-        <div className="absolute inset-0 z-15 flex flex-col items-center justify-center bg-gradient-to-t from-green-900/30 to-black pointer-events-none">
+        <div className="absolute inset-0 z-5 flex flex-col items-center justify-center bg-gradient-to-t from-green-900/30 to-black pointer-events-none">
           <div className="relative mb-32">
             <div className="absolute inset-0 bg-green-500 rounded-full blur-3xl animate-pulse opacity-40" />
             <Music className="w-32 h-32 text-white relative z-10" />
@@ -248,26 +248,26 @@ const YouTubePlayer = memo(({ videoId, isAudioMode, isBackground = true }) => {
         </div>
       )}
 
-      {/* Audio Block Warning */}
+      {/* Audio Block Warning - CORRETTO: z-index altissimo per essere sempre visibile */}
       {audioBlocked && !isLoading && (
-        <div className="absolute top-10 left-1/2 -translate-x-1/2 z-50" style={{ pointerEvents: 'auto' }}>
+        <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[9999]" style={{ pointerEvents: 'auto' }}>
           <button 
             onClick={handleUnblockAudio}
-            className="bg-red-600 text-white px-6 py-3 rounded-full font-bold animate-bounce flex items-center gap-2 shadow-lg hover:bg-red-700 transition"
+            className="bg-red-600 text-white px-8 py-6 rounded-full font-bold animate-bounce flex items-center gap-3 shadow-2xl hover:bg-red-700 transition text-2xl border-4 border-white"
           >
-            <Volume2 className="w-5 h-5" /> CLICCA PER ATTIVARE L'AUDIO
+            <Volume2 className="w-8 h-8" /> CLICCA QUI PER ATTIVARE L'AUDIO
           </button>
         </div>
       )}
 
-      {/* Audio mode overlay */}
+      {/* Audio mode overlay - CORRETTO: z-index più basso per non sovrapporsi alle risposte */}
       {isAudioMode && !isLoading && (
-        <div className="absolute inset-0 z-15 flex flex-col items-center justify-center bg-gradient-to-t from-fuchsia-900/50 to-black pointer-events-none">
+        <div className="absolute inset-0 z-5 flex flex-col items-center justify-center bg-gradient-to-t from-fuchsia-900/50 to-black pointer-events-none">
           <div className="relative">
             <div className="absolute inset-0 bg-fuchsia-500 rounded-full blur-3xl animate-pulse opacity-40" />
             <Music className="w-32 h-32 text-white relative z-10" />
           </div>
-          <p className="mt-8 text-2xl text-fuchsia-200 font-mono tracking-widest uppercase">Ascolta la traccia</p>
+          {/* Testo rimosso per evitare sovrapposizioni con le risposte */}
         </div>
       )}
     </div>
