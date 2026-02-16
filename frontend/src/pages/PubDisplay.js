@@ -282,28 +282,37 @@ const VotingMode = ({ perf }) => (
         <div className="text-center relative z-10">
             <Star className="w-56 h-56 text-yellow-400 mx-auto mb-12 drop-shadow-[0_0_100px_rgba(234,179,8,0.6)] animate-pulse" />
             <h1 className="text-9xl font-black text-white leading-none mb-8 drop-shadow-2xl tracking-tight uppercase">Vota!</h1>
-            <p className="text-4xl text-white/70 mb-6">{perf.user_nickname}</p>
-            <p className="text-3xl text-fuchsia-400 font-bold">{perf.song_title}</p>
+            <div className="glass-panel px-16 py-10 rounded-[3rem] inline-block border-4 border-fuchsia-500 shadow-[0_0_80px_rgba(217,70,239,0.4)]">
+                <div className="text-4xl text-fuchsia-300 font-bold tracking-wider mb-4 uppercase">Ha Cantato</div>
+                <div className="text-8xl font-black text-white">{perf.user_nickname}</div>
+            </div>
+            <p className="text-4xl text-white/70 mt-16 font-bold animate-pulse">Usa l'app per votare da 1 a 5 stelle</p>
         </div>
     </div>
 );
 
 const ScoreMode = ({ perf }) => (
     <div className="w-full h-full flex flex-col items-center justify-center animated-bg p-8">
-        <div className="bg-yellow-500/10 blur-[200px] w-[800px] h-[800px] absolute rounded-full animate-pulse"></div>
+        <div className="bg-yellow-400/10 blur-[250px] w-[900px] h-[900px] absolute rounded-full animate-pulse"></div>
         <div className="text-center relative z-10">
-            <Trophy className="w-48 h-48 text-yellow-400 mx-auto mb-8 drop-shadow-[0_0_80px_rgba(234,179,8,0.6)]" />
-            <h1 className="text-8xl font-black text-white mb-6">{perf.user_nickname}</h1>
-            <div className="text-[15rem] font-black leading-none font-mono drop-shadow-2xl" style={{
-                background: 'linear-gradient(135deg, #fbbf24, #f59e0b, #d97706)',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-            }}>
-                {perf.average_score?.toFixed(1) || "0.0"}
+            <div className="glass-panel px-20 py-12 rounded-[4rem] border-8 border-yellow-500 shadow-[0_0_120px_rgba(234,179,8,0.5)] inline-block">
+                <div className="text-4xl uppercase text-yellow-300 font-black tracking-[0.5em] mb-8">Punteggio</div>
+                <div className="text-7xl font-black text-white mb-10">{perf.user_nickname}</div>
+                <div className="flex justify-center gap-6 mb-10">
+                    {[1,2,3,4,5].map(star => (
+                        <Star 
+                            key={star} 
+                            className={`w-24 h-24 ${star <= Math.round(perf.average_score || 0) ? 'text-yellow-400 fill-yellow-400 drop-shadow-[0_0_30px_rgba(250,204,21,0.8)]' : 'text-white/20'}`}
+                        />
+                    ))}
+                </div>
+                <div className="text-[10rem] font-black text-yellow-400 font-mono drop-shadow-2xl leading-none">
+                    {perf.average_score?.toFixed(1) || "0.0"}
+                </div>
+                <p className="text-3xl text-white mt-12 font-bold bg-white/10 px-10 py-4 rounded-full backdrop-blur-md border border-white/20 inline-block">
+                    {perf.song_title}
+                </p>
             </div>
-            <p className="text-3xl text-white mt-12 font-bold bg-white/10 px-10 py-4 rounded-full backdrop-blur-md border border-white/20 inline-block">
-                {perf.song_title}
-            </p>
         </div>
     </div>
 );
@@ -490,7 +499,6 @@ export default function PubDisplay() {
             const res = await api.getDisplayData(pubCode);
             if(res.data) {
                 let finalData = res.data;
-
                 const q = finalData.active_quiz;
 
                 if(q && q.status === 'showing_results') {
@@ -506,32 +514,6 @@ export default function PubDisplay() {
                         active_quiz: {
                             ...q,
                             leaderboard: finalData.leaderboard
-                        }
-                    };
-                }
-
-                // ── ARCADE: carica vincitore se la partita è terminata ──
-                const arcade = finalData.active_arcade;
-                if (arcade && arcade.status === 'ended' && arcade.winner_id) {
-                    const { data: winner } = await supabase
-                        .from('participants')
-                        .select('id, nickname, avatar_url')
-                        .eq('id', arcade.winner_id)
-                        .single();
-                    finalData = {
-                        ...finalData,
-                        arcade_result: { winner }
-                    };
-                }
-
-                // ── ARCADE: carica prenotazione corrente se attiva ──
-                if (arcade && arcade.status === 'active') {
-                    const { data: currentBooking } = await api.getCurrentBooking(arcade.id);
-                    finalData = {
-                        ...finalData,
-                        active_arcade: {
-                            ...arcade,
-                            current_booking: currentBooking
                         }
                     };
                 }
@@ -568,16 +550,13 @@ export default function PubDisplay() {
     const recentMessages = approved_messages ? approved_messages.slice(0, 10) : [];
 
     const isQuiz = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
-    // ── MODIFICA 4: aggiunta isArcade ──
-    const isArcade = data.active_arcade && ['active', 'paused', 'ended'].includes(data.active_arcade.status);
-    const isKaraoke = !isQuiz && !isArcade && perf && ['live', 'paused'].includes(perf.status);
-    const isVoting = !isQuiz && !isArcade && perf && perf.status === 'voting';
-    const isScore = !isQuiz && !isArcade && perf && perf.status === 'ended';
+    const isArcade = data.active_arcade && ['active', 'paused'].includes(data.active_arcade.status);
+    const isKaraoke = !isQuiz && perf && ['live', 'paused'].includes(perf.status);
+    const isVoting = !isQuiz && perf && perf.status === 'voting';
+    const isScore = !isQuiz && perf && perf.status === 'ended';
     
     let Content = null;
     if (isQuiz) Content = <QuizMode quiz={quiz} result={quizResult} />;
-    // ── MODIFICA 5: aggiunto ArcadeMode ──
-    else if (isArcade) Content = <ArcadeMode arcade={data.active_arcade} result={data.arcade_result} />;
     else if (isVoting) Content = <VotingMode perf={perf} />;
     else if (isScore) Content = <ScoreMode perf={perf} />;
     else if (isKaraoke) Content = <KaraokeMode perf={perf} isMuted={isMuted} />;

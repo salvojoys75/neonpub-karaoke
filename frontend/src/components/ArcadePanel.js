@@ -1,25 +1,20 @@
 // ============================================================
 // 🎮 ARCADE PANEL - Sezione Arcade per AdminDashboard
-// Da integrare come nuovo tab in AdminDashboard.js
 // ============================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { 
   Play, Square, Check, X, Music, Trophy, 
-  Clock, Users, Zap, AlertCircle, Pause 
+  Users, Zap, AlertCircle, Pause, Volume2, VolumeX
 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as api from '@/lib/api';
 
-// ============================================================
-// COMPONENTE PRINCIPALE
-// ============================================================
-
 export default function ArcadePanel({ 
-  quizCatalog = [], // Catalogo quiz esistente (con Spotify/YouTube)
+  quizCatalog = [],
   onRefresh 
 }) {
   const [activeGame, setActiveGame] = useState(null);
@@ -27,12 +22,15 @@ export default function ArcadePanel({
   const [currentBooking, setCurrentBooking] = useState(null);
   const [loading, setLoading] = useState(false);
   
+  // Player
+  const [isPlayerVisible, setIsPlayerVisible] = useState(true);
+  const [newBookingAlert, setNewBookingAlert] = useState(false);
+  const prevBookingIdRef = useRef(null);
+
   // Setup nuovo gioco
   const [showSetup, setShowSetup] = useState(false);
   const [selectedTrack, setSelectedTrack] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  
-  // Filtro catalogo
   const [filteredTracks, setFilteredTracks] = useState([]);
 
   // ============================================================
@@ -41,29 +39,42 @@ export default function ArcadePanel({
 
   useEffect(() => {
     loadArcadeData();
-    
-    // Polling ogni 2 secondi per aggiornamenti real-time
     const interval = setInterval(loadArcadeData, 2000);
     return () => clearInterval(interval);
   }, []);
 
   const loadArcadeData = async () => {
     try {
-      // Carica gioco attivo
       const { data: game } = await api.getActiveArcadeGame();
       setActiveGame(game);
       
-      // Se c'è un gioco attivo, carica le prenotazioni
       if (game) {
         const { data: allBookings } = await api.getArcadeBookings(game.id);
         setBookings(allBookings || []);
         
-        // Trova la prenotazione corrente (pending)
         const { data: current } = await api.getCurrentBooking(game.id);
+        
+        // ── Nuova prenotazione arrivata? Nascondi player + alert ──
+        if (current && current.id !== prevBookingIdRef.current) {
+          prevBookingIdRef.current = current.id;
+          setIsPlayerVisible(false);   // nasconde iframe → musica si ferma
+          setNewBookingAlert(true);
+          toast.info(`🎤 ${current.participants?.nickname} si è prenotato!`);
+        }
+
+        // ── Nessuna prenotazione → rimostra player ──
+        if (!current && prevBookingIdRef.current !== null) {
+          prevBookingIdRef.current = null;
+          setIsPlayerVisible(true);
+          setNewBookingAlert(false);
+        }
+
         setCurrentBooking(current);
       } else {
         setBookings([]);
         setCurrentBooking(null);
+        prevBookingIdRef.current = null;
+        setNewBookingAlert(false);
       }
     } catch (error) {
       console.error('Errore caricamento arcade:', error);
@@ -71,11 +82,10 @@ export default function ArcadePanel({
   };
 
   // ============================================================
-  // GESTIONE NUOVO GIOCO
+  // FILTRO CATALOGO
   // ============================================================
 
   useEffect(() => {
-    // Filtra catalogo quando cambia la ricerca
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       const filtered = quizCatalog.filter(q => 
@@ -83,9 +93,8 @@ export default function ArcadePanel({
         q.category?.toLowerCase().includes(query) ||
         (q.media_url && q.media_type === 'spotify')
       );
-      setFilteredTracks(filtered.slice(0, 20)); // Max 20 risultati
+      setFilteredTracks(filtered.slice(0, 20));
     } else {
-      // Mostra solo tracce con media (Spotify/YouTube)
       setFilteredTracks(
         quizCatalog
           .filter(q => q.media_url && (q.media_type === 'spotify' || q.media_type === 'audio'))
@@ -94,22 +103,20 @@ export default function ArcadePanel({
     }
   }, [searchQuery, quizCatalog]);
 
-  const handleCreateGame = async () => {
-    if (!selectedTrack) {
-      toast.error('Seleziona una traccia!');
-      return;
-    }
+  // ============================================================
+  // CREA GIOCO
+  // ============================================================
 
+  const handleCreateGame = async () => {
+    if (!selectedTrack) { toast.error('Seleziona una traccia!'); return; }
     setLoading(true);
     try {
-      // Estrai titolo dalla domanda (es: "Indovina questa canzone" → usa opzione corretta)
       const correctAnswer = selectedTrack.options[selectedTrack.correct_index];
-      
       const { data } = await api.createArcadeGame({
         gameType: 'song_guess',
         trackId: selectedTrack.media_url,
-        trackTitle: correctAnswer, // Titolo corretto dalla risposta
-        trackArtist: '', // Non abbiamo artist nel catalogo, usa vuoto
+        trackTitle: correctAnswer,
+        trackArtist: '',
         trackUrl: selectedTrack.media_url,
         correctAnswer: correctAnswer.toLowerCase().trim(),
         pointsReward: selectedTrack.points || 100,
@@ -118,17 +125,14 @@ export default function ArcadePanel({
         mediaType: selectedTrack.media_type === 'spotify' ? 'spotify' : 'youtube',
         category: selectedTrack.category || 'Generale'
       });
-
       toast.success('Gioco creato!');
       setActiveGame(data);
       setShowSetup(false);
       setSelectedTrack(null);
       setSearchQuery('');
-      
-      // Avvia automaticamente
+      setIsPlayerVisible(true);
       await handleStartGame(data.id);
     } catch (error) {
-      console.error('Errore creazione gioco:', error);
       toast.error('Errore: ' + error.message);
     } finally {
       setLoading(false);
@@ -144,43 +148,40 @@ export default function ArcadePanel({
       await api.startArcadeGame(gameId || activeGame.id);
       toast.success('🎮 Gioco avviato!');
       loadArcadeData();
-    } catch (error) {
-      toast.error('Errore: ' + error.message);
-    }
+    } catch (error) { toast.error('Errore: ' + error.message); }
   };
 
   const handlePauseGame = async () => {
     try {
       await api.pauseArcadeGame(activeGame.id);
+      setIsPlayerVisible(false);
       toast.info('⏸️ Gioco in pausa');
       loadArcadeData();
-    } catch (error) {
-      toast.error('Errore: ' + error.message);
-    }
+    } catch (error) { toast.error('Errore: ' + error.message); }
   };
 
   const handleResumeGame = async () => {
     try {
       await api.resumeArcadeGame(activeGame.id);
+      setIsPlayerVisible(true);
+      setNewBookingAlert(false);
       toast.success('▶️ Gioco ripreso!');
       loadArcadeData();
-    } catch (error) {
-      toast.error('Errore: ' + error.message);
-    }
+    } catch (error) { toast.error('Errore: ' + error.message); }
   };
 
   const handleEndGame = async () => {
     if (!confirm('Terminare il gioco?')) return;
-    
     try {
       await api.endArcadeGame(activeGame.id);
       toast.info('🛑 Gioco terminato');
       setActiveGame(null);
       setBookings([]);
       setCurrentBooking(null);
-    } catch (error) {
-      toast.error('Errore: ' + error.message);
-    }
+      setIsPlayerVisible(true);
+      setNewBookingAlert(false);
+      prevBookingIdRef.current = null;
+    } catch (error) { toast.error('Errore: ' + error.message); }
   };
 
   // ============================================================
@@ -189,26 +190,126 @@ export default function ArcadePanel({
 
   const handleValidate = async (isCorrect) => {
     if (!currentBooking) return;
-
     try {
-      const { data, isCorrect: validated } = await api.validateArcadeAnswer(
-        currentBooking.id,
-        isCorrect,
-        null // givenAnswer - opzionale, l'operatore ascolta a voce
-      );
+      await api.validateArcadeAnswer(currentBooking.id, isCorrect, null);
 
-      if (validated) {
-        toast.success(`🎉 ${currentBooking.participants.nickname} ha vinto!`);
+      if (isCorrect) {
+        toast.success(`🎉 ${currentBooking.participants?.nickname} ha vinto!`);
+        setIsPlayerVisible(false);
+        setNewBookingAlert(false);
       } else {
-        toast.error(`❌ Risposta sbagliata`);
+        toast.error('❌ Risposta sbagliata');
+        // Rimostra player automaticamente → musica riparte
+        setIsPlayerVisible(true);
+        setNewBookingAlert(false);
+        prevBookingIdRef.current = null;
       }
 
-      // Ricarica dati
       setTimeout(loadArcadeData, 500);
     } catch (error) {
-      console.error('Errore validazione:', error);
       toast.error('Errore: ' + error.message);
     }
+  };
+
+  // ============================================================
+  // HELPER PLAYER
+  // ============================================================
+
+  const getSpotifyEmbedUrl = (url) => {
+    if (!url) return null;
+    // Formato: https://open.spotify.com/track/XXXXX o solo ID
+    const match = url.match(/(?:track\/)([a-zA-Z0-9]+)/);
+    const id = match ? match[1] : (/^[a-zA-Z0-9]{22}$/.test(url) ? url : null);
+    if (!id) return null;
+    return `https://open.spotify.com/embed/track/${id}?utm_source=generator&theme=0`;
+  };
+
+  const getYoutubeEmbedUrl = (url) => {
+    if (!url) return null;
+    const match = url.match(/(?:youtu\.be\/|v\/|watch\?v=|&v=)([^#&?]{11})/);
+    return match ? `https://www.youtube.com/embed/${match[1]}?controls=1` : null;
+  };
+
+  const renderPlayer = (game) => {
+    if (!game?.track_url) return null;
+
+    const spotifyUrl = getSpotifyEmbedUrl(game.track_url);
+    const youtubeUrl = getYoutubeEmbedUrl(game.track_url);
+
+    return (
+      <div className={`mb-3 rounded-lg overflow-hidden border transition-all duration-300 ${
+        newBookingAlert 
+          ? 'border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.5)]' 
+          : 'border-zinc-700'
+      }`}>
+        {/* Header player */}
+        <div className={`flex items-center justify-between px-3 py-2 text-xs font-bold uppercase tracking-widest ${
+          newBookingAlert ? 'bg-red-900/40 text-red-400' : 'bg-zinc-900 text-zinc-400'
+        }`}>
+          <div className="flex items-center gap-2">
+            {isPlayerVisible 
+              ? <Volume2 className="w-3 h-3 text-green-400" /> 
+              : <VolumeX className="w-3 h-3 text-red-400" />
+            }
+            <span>{isPlayerVisible ? 'MUSICA IN RIPRODUZIONE' : newBookingAlert ? '⚡ PRENOTAZIONE ARRIVATA — MUSICA IN PAUSA' : 'MUSICA IN PAUSA'}</span>
+          </div>
+          <button
+            onClick={() => {
+              setIsPlayerVisible(!isPlayerVisible);
+              if (!isPlayerVisible) setNewBookingAlert(false);
+            }}
+            className="text-zinc-500 hover:text-white transition text-[10px] underline"
+          >
+            {isPlayerVisible ? 'nascondi' : 'rimostra'}
+          </button>
+        </div>
+
+        {/* iframe — visibile/nascosto */}
+        <div style={{ display: isPlayerVisible ? 'block' : 'none' }}>
+          {spotifyUrl ? (
+            <iframe
+              src={spotifyUrl}
+              width="100%"
+              height="80"
+              frameBorder="0"
+              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+              className="block"
+            />
+          ) : youtubeUrl ? (
+            <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
+              <iframe
+                src={youtubeUrl}
+                className="absolute top-0 left-0 w-full h-full"
+                frameBorder="0"
+                allow="autoplay; encrypted-media"
+                allowFullScreen
+              />
+            </div>
+          ) : (
+            <div className="text-xs text-zinc-500 text-center py-3">
+              URL non riconosciuto: {game.track_url}
+            </div>
+          )}
+        </div>
+
+        {/* Placeholder quando nascosto */}
+        {!isPlayerVisible && (
+          <div 
+            className={`py-3 text-center text-sm font-bold cursor-pointer transition-all ${
+              newBookingAlert 
+                ? 'bg-red-900/20 text-red-400 animate-pulse' 
+                : 'bg-zinc-900 text-zinc-500'
+            }`}
+            onClick={() => { setIsPlayerVisible(true); setNewBookingAlert(false); }}
+          >
+            {newBookingAlert 
+              ? '⚡ Clicca per riavviare la musica dopo la risposta' 
+              : '▶️ Clicca per riavviare la musica'
+            }
+          </div>
+        )}
+      </div>
+    );
   };
 
   // ============================================================
@@ -249,7 +350,8 @@ export default function ArcadePanel({
               <div className="space-y-1 p-2">
                 {filteredTracks.length === 0 ? (
                   <div className="text-center py-8 text-zinc-600 text-sm">
-                    Nessuna traccia trovata
+                    Nessuna traccia trovata.<br/>
+                    <span className="text-xs text-zinc-700">Assicurati che le domande abbiano media_type spotify o audio</span>
                   </div>
                 ) : (
                   filteredTracks.map((track) => (
@@ -266,7 +368,7 @@ export default function ArcadePanel({
                         {track.options[track.correct_index]}
                       </div>
                       <div className="text-xs text-zinc-500">
-                        {track.category} • {track.points || 100} punti
+                        {track.category} • {track.points || 100} punti • {track.media_type}
                       </div>
                     </button>
                   ))
@@ -274,14 +376,36 @@ export default function ArcadePanel({
               </div>
             </ScrollArea>
 
+            {/* Anteprima traccia selezionata */}
+            {selectedTrack?.media_url && (
+              <div className="border border-zinc-700 rounded-lg overflow-hidden">
+                <div className="text-xs text-zinc-500 px-3 py-1 bg-zinc-900">Anteprima</div>
+                {getSpotifyEmbedUrl(selectedTrack.media_url) ? (
+                  <iframe
+                    src={getSpotifyEmbedUrl(selectedTrack.media_url)}
+                    width="100%"
+                    height="80"
+                    frameBorder="0"
+                    allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                  />
+                ) : getYoutubeEmbedUrl(selectedTrack.media_url) ? (
+                  <div className="relative w-full" style={{ paddingTop: '30%' }}>
+                    <iframe
+                      src={getYoutubeEmbedUrl(selectedTrack.media_url)}
+                      className="absolute top-0 left-0 w-full h-full"
+                      frameBorder="0"
+                      allow="autoplay; encrypted-media"
+                    />
+                  </div>
+                ) : null}
+              </div>
+            )}
+
             <div className="flex gap-2">
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => {
-                  setShowSetup(false);
-                  setSelectedTrack(null);
-                }}
+                onClick={() => { setShowSetup(false); setSelectedTrack(null); }}
                 className="flex-1"
               >
                 Annulla
@@ -315,10 +439,11 @@ export default function ArcadePanel({
   const completedBookings = bookings.filter(b => b.status !== 'pending');
 
   return (
-    <div className="space-y-4">
-      {/* HEADER */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-        <div className="flex items-center justify-between mb-3">
+    <div className="space-y-3">
+
+      {/* HEADER STATO */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
+        <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <div className={`w-3 h-3 rounded-full animate-pulse ${
               activeGame.status === 'active' ? 'bg-green-500' :
@@ -327,46 +452,44 @@ export default function ArcadePanel({
             }`} />
             <span className="text-xs uppercase font-bold text-zinc-400">
               {activeGame.status === 'active' ? '🔴 IN ONDA' :
-               activeGame.status === 'paused' ? '⏸️ IN PAUSA' :
-               '⏳ IN ATTESA'}
+               activeGame.status === 'paused' ? '⏸️ IN PAUSA' : '⏳'}
             </span>
           </div>
-          
           <div className="flex items-center gap-2 text-xs text-zinc-500">
             <Users className="w-3 h-3" />
-            {bookings.length} tentativi
+            {bookings.length} tentativi • 🏆 {activeGame.points_reward}pt • 🎯 {activeGame.attempts_count || 0}/{activeGame.max_attempts}
           </div>
         </div>
-
-        <div className="text-lg font-bold text-white mb-1">
-          {activeGame.track_title}
-        </div>
-        <div className="text-sm text-zinc-400 flex items-center gap-4">
-          <span>🎵 {activeGame.media_type === 'spotify' ? 'Spotify' : 'YouTube'}</span>
-          <span>🏆 {activeGame.points_reward} punti</span>
-          <span>🎯 {activeGame.attempts_count}/{activeGame.max_attempts} tentativi</span>
+        <div className="text-sm font-bold text-white truncate">{activeGame.track_title}</div>
+        <div className="text-xs text-green-400 mt-1 font-mono">
+          Risposta: {activeGame.correct_answer}
         </div>
       </div>
 
+      {/* PLAYER */}
+      {activeGame.status !== 'ended' && renderPlayer(activeGame)}
+
       {/* PRENOTAZIONE CORRENTE */}
       {currentBooking ? (
-        <div className="bg-fuchsia-900/20 border-2 border-fuchsia-600 rounded-lg p-4">
-          <div className="text-xs uppercase font-bold text-fuchsia-400 mb-3 flex items-center gap-2">
+        <div className={`border-2 rounded-lg p-3 transition-all ${
+          newBookingAlert ? 'bg-red-900/20 border-red-500 animate-pulse' : 'bg-fuchsia-900/20 border-fuchsia-600'
+        }`}>
+          <div className="text-xs uppercase font-bold text-fuchsia-400 mb-2 flex items-center gap-2">
             <Zap className="w-4 h-4" />
             AL MICROFONO
           </div>
 
-          <div className="flex items-center gap-4 mb-4">
-            {currentBooking.participants.avatar_url && (
+          <div className="flex items-center gap-3 mb-3">
+            {currentBooking.participants?.avatar_url && (
               <img
                 src={currentBooking.participants.avatar_url}
                 alt="avatar"
-                className="w-16 h-16 rounded-full border-2 border-fuchsia-500"
+                className="w-12 h-12 rounded-full border-2 border-fuchsia-500"
               />
             )}
             <div className="flex-1">
-              <div className="text-2xl font-black text-white">
-                {currentBooking.participants.nickname}
+              <div className="text-xl font-black text-white">
+                {currentBooking.participants?.nickname}
               </div>
               <div className="text-xs text-zinc-400">
                 Prenotato {Math.floor((new Date() - new Date(currentBooking.booked_at)) / 1000)}s fa
@@ -374,53 +497,40 @@ export default function ArcadePanel({
             </div>
           </div>
 
-          <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 mb-4">
-            <div className="text-xs text-zinc-500 mb-1">Risposta Corretta:</div>
-            <div className="text-lg font-bold text-green-400">
-              {activeGame.correct_answer}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2">
             <Button
               size="lg"
               onClick={() => handleValidate(false)}
-              className="bg-red-600 hover:bg-red-500 h-14 text-lg font-bold"
+              className="bg-red-600 hover:bg-red-500 h-12 text-base font-bold"
             >
-              <X className="w-6 h-6 mr-2" />
-              SBAGLIATO
+              <X className="w-5 h-5 mr-1" /> SBAGLIATO
             </Button>
             <Button
               size="lg"
               onClick={() => handleValidate(true)}
-              className="bg-green-600 hover:bg-green-500 h-14 text-lg font-bold"
+              className="bg-green-600 hover:bg-green-500 h-12 text-base font-bold"
             >
-              <Check className="w-6 h-6 mr-2" />
-              CORRETTO
+              <Check className="w-5 h-5 mr-1" /> CORRETTO
             </Button>
           </div>
         </div>
       ) : activeGame.status === 'active' ? (
-        <div className="bg-yellow-900/20 border border-yellow-600 rounded-lg p-4 text-center">
-          <AlertCircle className="w-8 h-8 text-yellow-500 mx-auto mb-2" />
-          <div className="text-sm font-bold text-yellow-400">
-            In attesa di prenotazioni...
-          </div>
+        <div className="bg-yellow-900/20 border border-yellow-600 rounded-lg p-3 text-center">
+          <AlertCircle className="w-6 h-6 text-yellow-500 mx-auto mb-1" />
+          <div className="text-sm font-bold text-yellow-400">In attesa di prenotazioni...</div>
           <div className="text-xs text-zinc-500 mt-1">
-            I partecipanti possono prenotarsi dall'app
+            La musica sta suonando — i partecipanti possono prenotarsi dall'app
           </div>
         </div>
       ) : null}
 
-      {/* CRONOLOGIA PRENOTAZIONI */}
+      {/* CRONOLOGIA */}
       {completedBookings.length > 0 && (
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
-          <div className="text-xs uppercase font-bold text-zinc-500 mb-2">
-            📜 Cronologia
-          </div>
-          <ScrollArea className="h-32">
+          <div className="text-xs uppercase font-bold text-zinc-500 mb-2">📜 Cronologia</div>
+          <ScrollArea className="h-28">
             <div className="space-y-1">
-              {completedBookings.map((booking, idx) => (
+              {completedBookings.map((booking) => (
                 <div
                   key={booking.id}
                   className={`flex items-center justify-between p-2 rounded text-sm ${
@@ -431,11 +541,9 @@ export default function ArcadePanel({
                 >
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-xs">{booking.booking_order}.</span>
-                    <span>{booking.participants.nickname}</span>
+                    <span>{booking.participants?.nickname}</span>
                   </div>
-                  <span className="text-xs">
-                    {booking.status === 'correct' ? '✅' : '❌'}
-                  </span>
+                  <span>{booking.status === 'correct' ? '✅' : '❌'}</span>
                 </div>
               ))}
             </div>
@@ -446,34 +554,17 @@ export default function ArcadePanel({
       {/* CONTROLLI */}
       <div className="flex gap-2">
         {activeGame.status === 'active' ? (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handlePauseGame}
-            className="flex-1"
-          >
-            <Pause className="w-3 h-3 mr-1" />
-            Pausa
+          <Button size="sm" variant="outline" onClick={handlePauseGame} className="flex-1">
+            <Pause className="w-3 h-3 mr-1" /> Pausa
           </Button>
         ) : activeGame.status === 'paused' ? (
-          <Button
-            size="sm"
-            onClick={handleResumeGame}
-            className="flex-1 bg-green-600"
-          >
-            <Play className="w-3 h-3 mr-1" />
-            Riprendi
+          <Button size="sm" onClick={handleResumeGame} className="flex-1 bg-green-600">
+            <Play className="w-3 h-3 mr-1" /> Riprendi
           </Button>
         ) : null}
         
-        <Button
-          size="sm"
-          variant="destructive"
-          onClick={handleEndGame}
-          className="flex-1"
-        >
-          <Square className="w-3 h-3 mr-1" />
-          Termina Gioco
+        <Button size="sm" variant="destructive" onClick={handleEndGame} className="flex-1">
+          <Square className="w-3 h-3 mr-1" /> Termina
         </Button>
       </div>
     </div>
