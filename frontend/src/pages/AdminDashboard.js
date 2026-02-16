@@ -21,7 +21,7 @@ import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import api, { createPub, updateEventSettings, uploadLogo } from "@/lib/api";
 import TermsModal from '@/components/TermsModal';
-import ArcadePanel from '@/components/admin/ArcadePanel'; // o @/components/ArcadePanel
+import ArcadePanel from '@/components/ArcadePanel';
 
 // Componente bottone elimina domanda con doppio step — evita cancellazioni accidentali
 function DeleteQuizQuestionButton({ question, onConfirm }) {
