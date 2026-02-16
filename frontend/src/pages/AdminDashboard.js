@@ -94,6 +94,9 @@ export default function AdminDashboard() {
   
   const [showYoutubeModal, setShowYoutubeModal] = useState(false);
   const [showCustomQuizModal, setShowCustomQuizModal] = useState(false);
+  const [customQuizTab, setCustomQuizTab] = useState('crea');
+  const [customQuizJson, setCustomQuizJson] = useState('');
+  const [importingCustom, setImportingCustom] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
   
   const [showImportModal, setShowImportModal] = useState(false);
@@ -813,6 +816,30 @@ export default function AdminDashboard() {
 });
           setShowCustomQuizModal(false); toast.success("Quiz Custom Lanciato!"); loadData();
       } catch(e) { toast.error("Errore quiz custom: " + e.message); }
+  };
+
+  const handleImportCustomQuiz = async () => {
+      if (!customQuizJson.trim()) return toast.error("Incolla il JSON prima");
+      setImportingCustom(true);
+      try {
+          const parsed = JSON.parse(customQuizJson);
+          const questions = Array.isArray(parsed) ? parsed : (parsed.questions || []);
+          if (questions.length === 0) return toast.error("Nessuna domanda trovata nel JSON");
+          const valid = questions.filter(q => q.question && Array.isArray(q.options) && q.options.length >= 2 && typeof q.correct_index === 'number');
+          if (valid.length === 0) return toast.error("Formato JSON non valido — controlla la struttura");
+          const result = await api.importCustomQuiz(valid);
+          toast.success(`✅ ${result.count} domande personalizzate caricate!`);
+          if (valid.length < questions.length) toast.warning(`${questions.length - valid.length} domande saltate per formato errato`);
+          setCustomQuizJson('');
+          setCustomQuizTab('crea');
+          setShowCustomQuizModal(false);
+          loadData();
+      } catch(e) {
+          if (e instanceof SyntaxError) toast.error("JSON non valido — controlla la sintassi");
+          else toast.error("Errore: " + e.message);
+      } finally {
+          setImportingCustom(false);
+      }
   };
 
   const launchCatalogQuiz = async (item) => {
@@ -1869,10 +1896,23 @@ export default function AdminDashboard() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showCustomQuizModal} onOpenChange={setShowCustomQuizModal}>
+      <Dialog open={showCustomQuizModal} onOpenChange={(open) => { setShowCustomQuizModal(open); if (!open) { setCustomQuizTab('crea'); setCustomQuizJson(''); } }}>
           <DialogContent className="bg-zinc-900 border-zinc-800 max-h-[90vh] overflow-y-auto">
               <DialogHeader><DialogTitle>Crea Quiz Musicale</DialogTitle></DialogHeader>
-              <div className="space-y-4 pt-4">
+
+              {/* TAB SWITCHER */}
+              <div className="flex gap-1 bg-zinc-950 p-1 rounded-lg mt-1">
+                  <button onClick={() => setCustomQuizTab('crea')} className={`flex-1 text-xs py-2 rounded-md font-bold transition-all ${customQuizTab === 'crea' ? 'bg-fuchsia-600 text-white shadow' : 'text-zinc-400 hover:text-white'}`}>
+                      ✏️ Crea Domanda
+                  </button>
+                  <button onClick={() => setCustomQuizTab('personalizzate')} className={`flex-1 text-xs py-2 rounded-md font-bold transition-all ${customQuizTab === 'personalizzate' ? 'bg-purple-600 text-white shadow' : 'text-zinc-400 hover:text-white'}`}>
+                      🎂 Personalizzate
+                  </button>
+              </div>
+
+              {/* TAB CREA DOMANDA — invariato */}
+              {customQuizTab === 'crea' && (
+              <div className="space-y-4 pt-2">
                   <div>
                       <label className="text-xs text-zinc-500 mb-1">Categoria</label>
                       <Select value={quizCategory} onValueChange={setQuizCategory}>
@@ -1918,6 +1958,44 @@ export default function AdminDashboard() {
                   </div>
                   <Button className="w-full bg-fuchsia-600 mt-4 h-12 text-lg font-bold" onClick={launchCustomQuiz}>LANCIA QUIZ</Button>
               </div>
+              )}
+
+              {/* TAB DOMANDE PERSONALIZZATE */}
+              {customQuizTab === 'personalizzate' && (
+              <div className="space-y-4 pt-2">
+                  <div className="bg-purple-900/20 border border-purple-500/30 rounded-lg p-3">
+                      <p className="text-xs text-purple-300 font-bold mb-1">🎂 Manche Personalizzata</p>
+                      <p className="text-xs text-zinc-400 leading-relaxed">Incolla il JSON generato dall'AI con le domande dell'evento (compleanno, festa a tema, ecc.). Le domande vengono aggiunte al catalogo e scadono automaticamente con l'evento.</p>
+                  </div>
+
+                  <div>
+                      <label className="text-xs text-zinc-500 mb-1 block">JSON Domande</label>
+                      <Textarea
+                          value={customQuizJson}
+                          onChange={e => setCustomQuizJson(e.target.value)}
+                          placeholder={`[\n  {\n    "question": "Dove si sono conosciuti Mario e Laura?",\n    "options": ["Al mare", "All'università", "A una festa", "In palestra"],\n    "correct_index": 1,\n    "points": 10\n  }\n]`}
+                          className="bg-zinc-950 border-zinc-700 font-mono text-xs h-52"
+                      />
+                  </div>
+
+                  <div className="bg-zinc-800/60 rounded-lg p-3 space-y-1 text-xs text-zinc-400">
+                      <p className="font-bold text-zinc-300 mb-2">Formato JSON richiesto:</p>
+                      <p>• <code className="text-fuchsia-300">question</code> — testo della domanda</p>
+                      <p>• <code className="text-fuchsia-300">options</code> — array di 2–4 risposte</p>
+                      <p>• <code className="text-fuchsia-300">correct_index</code> — indice risposta corretta (0, 1, 2 o 3)</p>
+                      <p>• <code className="text-fuchsia-300">points</code> — punti base (opzionale, default 10)</p>
+                      <p className="text-zinc-500 mt-2 italic">Il bonus velocità verrà applicato automaticamente in base al tempo di risposta.</p>
+                  </div>
+
+                  <Button
+                      className="w-full bg-purple-600 hover:bg-purple-500 h-12 text-base font-bold"
+                      onClick={handleImportCustomQuiz}
+                      disabled={importingCustom || !customQuizJson.trim()}
+                  >
+                      {importingCustom ? '⏳ Caricamento...' : '🎂 Carica Domande Personalizzate'}
+                  </Button>
+              </div>
+              )}
           </DialogContent>
       </Dialog>
 

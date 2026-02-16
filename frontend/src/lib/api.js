@@ -772,6 +772,7 @@ export const startQuiz = async (data) => {
     correct_index: data.correct_index, 
     points: data.points, 
     status: 'active',
+    started_at: new Date().toISOString(),
     media_url: data.media_url || null,
     media_type: data.media_type || 'text',
     quiz_catalog_id: data.quiz_catalog_id || null
@@ -824,10 +825,31 @@ export const getQuizResults = async (quizId) => {
 
 export const answerQuiz = async (data) => {
   const participant = getParticipantFromToken()
-  const { data: quiz, error: quizError } = await supabase.from('quizzes').select('correct_index, points').eq('id', data.quiz_id).single();
+  const { data: quiz, error: quizError } = await supabase.from('quizzes').select('correct_index, points, started_at').eq('id', data.quiz_id).single();
   if (quizError) throw quizError;
+
   const isCorrect = quiz.correct_index === data.answer_index;
-  const pointsEarned = isCorrect ? quiz.points : 0;
+
+  // Punti con bonus velocità:
+  // Punti base = quiz.points (es. 10)
+  // Bonus = fino a +10 punti extra se rispondi entro 5s, scala a 0 oltre 30s
+  // Totale max = 20 punti, totale min (risposta corretta lenta) = 10 punti
+  let pointsEarned = 0;
+  if (isCorrect) {
+    const basePoints = quiz.points || 10;
+    let timeBonus = 0;
+    if (quiz.started_at) {
+      const elapsedMs = Date.now() - new Date(quiz.started_at).getTime();
+      const elapsedSec = Math.max(0, elapsedMs / 1000);
+      const maxWindow = 30; // secondi
+      const maxBonus = basePoints; // bonus max = punti base (raddoppio se fulmineo)
+      if (elapsedSec < maxWindow) {
+        timeBonus = Math.round(maxBonus * (1 - elapsedSec / maxWindow));
+      }
+    }
+    pointsEarned = (quiz.points || 10) + timeBonus;
+  }
+
   const { data: ans, error } = await supabase.from('quiz_answers').insert({
     quiz_id: data.quiz_id, participant_id: participant.participant_id, answer_index: data.answer_index, is_correct: isCorrect
   }).select().single()
@@ -871,6 +893,28 @@ export const sendAdminMessage = async (text) => {
   }).select().single();
   if (error) throw error;
   return { data: message };
+}
+
+export const importCustomQuiz = async (questions) => {
+  const event = await getAdminEvent();
+  const { data: { user } } = await supabase.auth.getUser();
+  let count = 0;
+  for (const q of questions) {
+    const { error } = await supabase.from('quiz_catalog').insert({
+      operator_id: user.id,
+      category: 'Personalizzata',
+      question: q.question,
+      options: q.options,
+      correct_index: q.correct_index,
+      points: q.points || 10,
+      media_url: q.media_url || null,
+      media_type: q.media_type || 'text',
+      is_custom: true,
+      event_id: event.id
+    });
+    if (!error) count++;
+  }
+  return { count };
 }
 
 export const deleteAdminMessage = async (id) => {
@@ -1546,7 +1590,7 @@ export default {
   startPerformance, pausePerformance, resumePerformance, endPerformance, closeVoting, stopAndNext, restartPerformance, toggleMute,
   getCurrentPerformance, getAdminCurrentPerformance,
   submitVote, sendReaction,
-  sendMessage, sendAdminMessage, getAdminPendingMessages, approveMessage, rejectMessage, deleteAdminMessage, deleteApprovedMessage,
+  sendMessage, sendAdminMessage, getAdminPendingMessages, approveMessage, rejectMessage, deleteAdminMessage, deleteApprovedMessage, importCustomQuiz,
   startQuiz, endQuiz, answerQuiz, getActiveQuiz, closeQuizVoting, showQuizResults, showQuizLeaderboard,
   getQuizResults, getAdminLeaderboard,
   getLeaderboard, getDisplayData,
