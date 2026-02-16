@@ -9,14 +9,98 @@ const getYoutubeId = (url) => {
   return (match && match[2].length === 11) ? match[2] : null;
 };
 
+// Helper per estrarre ID Spotify
+const getSpotifyId = (url) => {
+  if (!url) return null;
+  // Supporta formati: spotify:track:ID, https://open.spotify.com/track/ID, o solo l'ID
+  const trackMatch = url.match(/(?:spotify:track:|track\/)([a-zA-Z0-9]+)/);
+  if (trackMatch) return trackMatch[1];
+  // Se è già un ID puro (22 caratteri alfanumerici)
+  if (/^[a-zA-Z0-9]{22}$/.test(url)) return url;
+  return null;
+};
+
 // Helper per determinare tipo media
 const getMediaType = (url, type) => {
-  if (type === 'audio') return 'audio';
-  if (type === 'video' || (url && (url.includes('youtube.com') || url.includes('youtu.be')))) {
+  if (!url) return 'unknown';
+  
+  // Se è specificato come audio o video, rispetta quello
+  if (type === 'audio') {
+    // Controlla se è Spotify
+    if (url.includes('spotify') || url.match(/^[a-zA-Z0-9]{22}$/)) {
+      return 'spotify';
+    }
+    // Altrimenti è YouTube audio
     return 'youtube';
   }
+  
+  if (type === 'spotify') return 'spotify';
+  
+  if (type === 'video' || url.includes('youtube.com') || url.includes('youtu.be')) {
+    return 'youtube';
+  }
+  
+  // Auto-detect Spotify
+  if (url.includes('spotify') || url.match(/^[a-zA-Z0-9]{22}$/)) {
+    return 'spotify';
+  }
+  
   return 'unknown';
 };
+
+// ====================================================
+// SPOTIFY PLAYER COMPONENT
+// ====================================================
+const SpotifyPlayer = memo(({ trackId, isBackground = true }) => {
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    // Spotify embed si carica automaticamente
+    const timer = setTimeout(() => setIsLoading(false), 1500);
+    return () => clearTimeout(timer);
+  }, []);
+
+  return (
+    <div className="absolute inset-0 bg-black flex items-center justify-center overflow-hidden">
+      {/* Overlay scuro solo in modalità background */}
+      {isBackground && <div className="absolute inset-0 bg-black/50 z-10 pointer-events-none" />}
+      
+      {/* Spotify Embed */}
+      <div className="absolute inset-0 flex items-center justify-center z-20">
+        <iframe
+          src={`https://open.spotify.com/embed/track/${trackId}?utm_source=generator&theme=0`}
+          width="100%"
+          height="152"
+          frameBorder="0"
+          allowFullScreen=""
+          allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+          loading="lazy"
+          className="max-w-md"
+          style={{ borderRadius: '12px' }}
+        />
+      </div>
+      
+      {/* Loader */}
+      {isLoading && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black">
+          <Loader2 className="w-16 h-16 text-fuchsia-500 animate-spin" />
+        </div>
+      )}
+
+      {/* Audio mode overlay */}
+      {!isLoading && (
+        <div className="absolute inset-0 z-15 flex flex-col items-center justify-center bg-gradient-to-t from-green-900/30 to-black pointer-events-none">
+          <div className="relative mb-32">
+            <div className="absolute inset-0 bg-green-500 rounded-full blur-3xl animate-pulse opacity-40" />
+            <Music className="w-32 h-32 text-white relative z-10" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}, (prev, next) => {
+  return prev.trackId === next.trackId;
+});
 
 // ====================================================
 // YOUTUBE PLAYER COMPONENT - Completamente isolato
@@ -140,7 +224,7 @@ const YouTubePlayer = memo(({ videoId, isAudioMode, isBackground = true }) => {
         playerRef.current = null;
       }
     };
-  }, [videoId]); // Dipende SOLO dal videoId - non cambia mai durante la vita del componente
+  }, [videoId]);
 
   return (
     <div className="absolute inset-0 bg-black flex items-center justify-center overflow-hidden">
@@ -189,40 +273,65 @@ const YouTubePlayer = memo(({ videoId, isAudioMode, isBackground = true }) => {
     </div>
   );
 }, (prev, next) => {
-  // Non re-renderizzare MAI - il videoId non cambia durante la vita del componente
   return prev.videoId === next.videoId;
 });
 
 // ====================================================
 // QUIZ MEDIA FIXED - Componente principale
-// Crea/distrugge YouTubePlayer solo quando cambia video
+// Supporta YouTube E Spotify
 // ====================================================
 const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult, isBackground = true }) => {
   const detectedType = getMediaType(mediaUrl, mediaType);
-  const videoId = getYoutubeId(mediaUrl);
-  const isAudioMode = mediaType === 'audio';
-
+  
   // Se è risultato, non mostrare media
   if (isResult) return null;
 
-  // Se non c'è media o non è YouTube
-  if (!mediaUrl || detectedType !== 'youtube' || !videoId) {
+  // Se non c'è media
+  if (!mediaUrl) {
     return <div className="absolute inset-0 bg-black" />;
   }
 
-  // Render YouTube Player con key stabile basata su videoId
-  // Il key fa sì che React crei un NUOVO componente solo quando cambia il videoId
-  // e NON quando cambiano altri props del padre
-  return (
-    <YouTubePlayer 
-      key={videoId}
-      videoId={videoId} 
-      isAudioMode={isAudioMode}
-      isBackground={isBackground}
-    />
-  );
+  // SPOTIFY
+  if (detectedType === 'spotify') {
+    const trackId = getSpotifyId(mediaUrl);
+    if (!trackId) {
+      console.error('Invalid Spotify URL:', mediaUrl);
+      return <div className="absolute inset-0 bg-black" />;
+    }
+    
+    return (
+      <SpotifyPlayer 
+        key={trackId}
+        trackId={trackId}
+        isBackground={isBackground}
+      />
+    );
+  }
+
+  // YOUTUBE
+  if (detectedType === 'youtube') {
+    const videoId = getYoutubeId(mediaUrl);
+    if (!videoId) {
+      console.error('Invalid YouTube URL:', mediaUrl);
+      return <div className="absolute inset-0 bg-black" />;
+    }
+    
+    const isAudioMode = mediaType === 'audio';
+    
+    return (
+      <YouTubePlayer 
+        key={videoId}
+        videoId={videoId} 
+        isAudioMode={isAudioMode}
+        isBackground={isBackground}
+      />
+    );
+  }
+
+  // Tipo sconosciuto
+  return <div className="absolute inset-0 bg-black" />;
+  
 }, (prev, next) => {
-  // Regola di re-render: SOLO se cambia URL o isResult
   return prev.mediaUrl === next.mediaUrl && 
          prev.mediaType === next.mediaType &&
          prev.isResult === next.isResult &&
