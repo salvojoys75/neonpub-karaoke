@@ -492,7 +492,7 @@ export const loadQuizModule = async (moduleId) => {
     const alreadyLinkedIds = new Set(alreadyLinked?.map(l => l.quiz_catalog_id) || []);
     const toLink = allQuestionIds.filter(id => !alreadyLinkedIds.has(id));
     
-    // Collega all'evento
+    // Collega all'evento usando upsert per evitare errori duplicate key
     if (toLink.length > 0) {
         const links = toLink.map(qid => ({
             event_id: event.id,
@@ -501,7 +501,10 @@ export const loadQuizModule = async (moduleId) => {
         
         const { error: linkError } = await supabase
             .from('event_quiz_catalog')
-            .insert(links);
+            .upsert(links, {
+                onConflict: 'event_id,quiz_catalog_id',
+                ignoreDuplicates: true
+            });
         
         if (linkError) throw linkError;
     }
@@ -918,9 +921,13 @@ export const importCustomQuiz = async (questions) => {
       continue;
     }
     // Aggiungi anche a event_quiz_catalog così appare nel catalogo dell'evento
-    const { error: linkError } = await supabase.from('event_quiz_catalog').insert({
+    // FIX: usa upsert per evitare errori duplicate key
+    const { error: linkError } = await supabase.from('event_quiz_catalog').upsert({
       event_id: event.id,
       quiz_catalog_id: inserted.id
+    }, {
+      onConflict: 'event_id,quiz_catalog_id',
+      ignoreDuplicates: true
     });
     if (linkError) {
       console.error('❌ event_quiz_catalog link error:', linkError.message);
