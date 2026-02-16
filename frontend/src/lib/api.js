@@ -911,9 +911,18 @@ export const importCustomQuiz = async (questions) => {
       is_custom: true,
       event_id: event.id
     };
-    const { error } = await supabase.from('quiz_catalog').insert(payload);
+    const { data: inserted, error } = await supabase.from('quiz_catalog').insert(payload).select().single();
     if (error) {
-      console.error('❌ importCustomQuiz error:', error.message, error.details, 'payload:', payload);
+      console.error('❌ importCustomQuiz error:', error.message, error.details);
+      continue;
+    }
+    // Aggiungi anche a event_quiz_catalog così appare nel catalogo dell'evento
+    const { error: linkError } = await supabase.from('event_quiz_catalog').insert({
+      event_id: event.id,
+      quiz_catalog_id: inserted.id
+    });
+    if (linkError) {
+      console.error('❌ event_quiz_catalog link error:', linkError.message);
     } else {
       count++;
     }
