@@ -56,7 +56,6 @@ const SpotifyPlayer = memo(({ trackId, isBackground = true }) => {
 
   return (
     <div className="absolute inset-0 bg-black flex items-center justify-center overflow-hidden">
-      {isBackground && <div className="absolute inset-0 bg-black/50 z-10 pointer-events-none" />}
       
       <div className="absolute inset-0 flex items-center justify-center z-20" style={{ pointerEvents: 'auto' }}>
         <iframe
@@ -80,12 +79,12 @@ const SpotifyPlayer = memo(({ trackId, isBackground = true }) => {
 
       {!isLoading && showPrompt && (
         <div 
-          className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[9999]"
+          className="fixed top-20 left-1/2 -translate-x-1/2 z-[9999]"
           onClick={() => setShowPrompt(false)}
           style={{ pointerEvents: 'auto', cursor: 'pointer' }}
         >
-          <div className="bg-green-600 text-white px-8 py-6 rounded-full font-bold animate-bounce flex items-center gap-3 shadow-2xl border-4 border-white text-2xl">
-            <Music className="w-8 h-8" /> CLICCA PLAY SUL PLAYER
+          <div className="bg-green-600 text-white px-6 py-4 rounded-full font-bold animate-pulse flex items-center gap-2 shadow-2xl border-4 border-white text-xl">
+            <Music className="w-6 h-6" /> ▶️ Clicca PLAY sul widget qui sotto
           </div>
         </div>
       )}
