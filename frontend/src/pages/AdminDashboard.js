@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import api, { createPub, updateEventSettings, uploadLogo } from "@/lib/api";
+import TermsModal from '@/components/TermsModal';
 
 // Componente bottone elimina domanda con doppio step — evita cancellazioni accidentali
 function DeleteQuizQuestionButton({ question, onConfirm }) {
@@ -51,7 +52,7 @@ function DeleteQuizQuestionButton({ question, onConfirm }) {
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
-  const { isAuthenticated, logout } = useAuth();
+  const { isAuthenticated, logout, user } = useAuth();
   
   // --- STATI GLOBALI ---
   const [appState, setAppState] = useState("loading");
@@ -1375,7 +1376,10 @@ export default function AdminDashboard() {
   const queuedReqs = queue.filter(r => r.status === 'queued');
 
   return (
-    <div className="h-screen bg-[#050505] text-white flex flex-col overflow-hidden">
+  <div className="h-screen bg-[#050505] text-white flex flex-col overflow-hidden">
+    
+    {/* MODALE TERMINI E CONDIZIONI */}
+    <TermsModal userId={user?.id} />
       
       <header className="h-14 border-b border-white/10 flex items-center justify-between px-4 bg-zinc-900">
          <div className="flex items-center gap-4">
