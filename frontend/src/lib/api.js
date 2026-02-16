@@ -1475,7 +1475,7 @@ export const getDisplayData = async (pubCode) => {
   }
 
   // FIX: Filtri rigorosi per event_id su TUTTE le tabelle
-  const [perf, queue, lb, activeQuiz, adminMsg, approvedMsgs] = await Promise.all([
+  const [perf, queue, lb, activeQuiz, adminMsg, approvedMsgs, activeArcade] = await Promise.all([
     supabase.from('performances').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).in('status', ['live','voting','paused','ended']).order('started_at', {ascending: false}).limit(1).maybeSingle(),
     supabase.from('song_requests').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).eq('status', 'queued').order('requested_at', {ascending: true}).limit(10), 
     supabase.from('participants').select('nickname, score, avatar_url').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
@@ -1483,7 +1483,9 @@ export const getDisplayData = async (pubCode) => {
     // Messaggio REGIA
     supabase.from('messages').select('*').eq('event_id', event.id).is('participant_id', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle(),
     // Messaggi UTENTI
-    supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).not('participant_id', 'is', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(10)
+    supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).not('participant_id', 'is', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(10),
+// 🎮 ARCADE GAME ATTIVO
+supabase.from('arcade_games').select('*').eq('event_id', event.id).in('status', ['setup', 'waiting', 'active', 'paused', 'ended']).order('created_at', {ascending: false}).limit(1).maybeSingle()
   ])
 
   let currentPerformance = perf.data ? {...perf.data, user_nickname: perf.data.participants?.nickname, user_avatar: perf.data.participants?.avatar_url} : null;
@@ -1510,6 +1512,8 @@ export const getDisplayData = async (pubCode) => {
       active_quiz: activeQuiz.data,
       admin_message: adminMsg.data,
       extraction_data: event.extraction_data,
+      // 🎮 ARCADE
+      active_arcade: activeArcade.data,
       // FILTRO: solo messaggi UTENTI (con participants.nickname)
       approved_messages: approvedMsgs.data?.filter(m => m.participants?.nickname).map(m => ({text: m.text, nickname: m.participants?.nickname})) || []
     }
