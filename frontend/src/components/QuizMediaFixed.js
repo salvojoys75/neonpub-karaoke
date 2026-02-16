@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback, memo } from 'react';
-import { Loader2, Music, Volume2 } from 'lucide-react';
+import { Loader2, Music, Volume2, VolumeX } from 'lucide-react';
 
 // Helper per estrarre ID YouTube
 const getYoutubeId = (url) => {
@@ -12,10 +12,8 @@ const getYoutubeId = (url) => {
 // Helper per estrarre ID Spotify
 const getSpotifyId = (url) => {
   if (!url) return null;
-  // Supporta formati: spotify:track:ID, https://open.spotify.com/track/ID, o solo l'ID
   const trackMatch = url.match(/(?:spotify:track:|track\/)([a-zA-Z0-9]+)/);
   if (trackMatch) return trackMatch[1];
-  // Se è già un ID puro (22 caratteri alfanumerici)
   if (/^[a-zA-Z0-9]{22}$/.test(url)) return url;
   return null;
 };
@@ -24,13 +22,10 @@ const getSpotifyId = (url) => {
 const getMediaType = (url, type) => {
   if (!url) return 'unknown';
   
-  // Se è specificato come audio o video, rispetta quello
   if (type === 'audio') {
-    // Controlla se è Spotify
     if (url.includes('spotify') || url.match(/^[a-zA-Z0-9]{22}$/)) {
       return 'spotify';
     }
-    // Altrimenti è YouTube audio
     return 'youtube';
   }
   
@@ -40,7 +35,6 @@ const getMediaType = (url, type) => {
     return 'youtube';
   }
   
-  // Auto-detect Spotify
   if (url.includes('spotify') || url.match(/^[a-zA-Z0-9]{22}$/)) {
     return 'spotify';
   }
@@ -53,20 +47,18 @@ const getMediaType = (url, type) => {
 // ====================================================
 const SpotifyPlayer = memo(({ trackId, isBackground = true }) => {
   const [isLoading, setIsLoading] = useState(true);
+  const [showPrompt, setShowPrompt] = useState(true);
 
   useEffect(() => {
-    // Spotify embed si carica automaticamente
     const timer = setTimeout(() => setIsLoading(false), 1500);
     return () => clearTimeout(timer);
   }, []);
 
   return (
     <div className="absolute inset-0 bg-black flex items-center justify-center overflow-hidden">
-      {/* Overlay scuro solo in modalità background */}
       {isBackground && <div className="absolute inset-0 bg-black/50 z-10 pointer-events-none" />}
       
-      {/* Spotify Embed */}
-      <div className="absolute inset-0 flex items-center justify-center z-20">
+      <div className="absolute inset-0 flex items-center justify-center z-20" style={{ pointerEvents: 'auto' }}>
         <iframe
           src={`https://open.spotify.com/embed/track/${trackId}?utm_source=generator&theme=0`}
           width="100%"
@@ -80,14 +72,24 @@ const SpotifyPlayer = memo(({ trackId, isBackground = true }) => {
         />
       </div>
       
-      {/* Loader */}
       {isLoading && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-black">
           <Loader2 className="w-16 h-16 text-fuchsia-500 animate-spin" />
         </div>
       )}
 
-      {/* Audio mode overlay - CORRETTO: z-index più basso */}
+      {!isLoading && showPrompt && (
+        <div 
+          className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[9999]"
+          onClick={() => setShowPrompt(false)}
+          style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+        >
+          <div className="bg-green-600 text-white px-8 py-6 rounded-full font-bold animate-bounce flex items-center gap-3 shadow-2xl border-4 border-white text-2xl">
+            <Music className="w-8 h-8" /> CLICCA PLAY SUL PLAYER
+          </div>
+        </div>
+      )}
+
       {!isLoading && (
         <div className="absolute inset-0 z-5 flex flex-col items-center justify-center bg-gradient-to-t from-green-900/30 to-black pointer-events-none">
           <div className="relative mb-32">
@@ -103,26 +105,34 @@ const SpotifyPlayer = memo(({ trackId, isBackground = true }) => {
 });
 
 // ====================================================
-// YOUTUBE PLAYER COMPONENT - Completamente isolato
-// Non si re-renderizza MAI a meno che cambi l'URL
+// YOUTUBE PLAYER COMPONENT - VERSIONE CORRETTA
+// Parte SEMPRE mutato, mostra bottone per unmute
 // ====================================================
 const YouTubePlayer = memo(({ videoId, isAudioMode, isBackground = true }) => {
   const playerRef = useRef(null);
   const containerIdRef = useRef(`yt-quiz-${Date.now()}`);
   const [isLoading, setIsLoading] = useState(true);
-  const [audioBlocked, setAudioBlocked] = useState(false);
+  const [isMuted, setIsMuted] = useState(true); // SEMPRE mutato all'inizio
+  const [playerReady, setPlayerReady] = useState(false);
   const isInitRef = useRef(false);
 
-  const handleUnblockAudio = useCallback(() => {
-    if (playerRef.current) {
+  // Funzione per attivare l'audio
+  const handleUnmute = useCallback(() => {
+    console.log('🔊 Tentativo unmute...');
+    if (playerRef.current && playerReady) {
       try {
         playerRef.current.unMute();
         playerRef.current.setVolume(100);
         playerRef.current.playVideo();
-        setAudioBlocked(false);
-      } catch (e) {}
+        setIsMuted(false);
+        console.log('✅ Audio attivato!');
+      } catch (e) {
+        console.error('❌ Errore unmute:', e);
+      }
+    } else {
+      console.warn('⚠️ Player non pronto');
     }
-  }, []);
+  }, [playerReady]);
 
   useEffect(() => {
     if (!videoId || isInitRef.current) return;
@@ -143,6 +153,7 @@ const YouTubePlayer = memo(({ videoId, isAudioMode, isBackground = true }) => {
       }
 
       try {
+        console.log('🎬 Inizializzo YouTube player...');
         playerRef.current = new window.YT.Player(containerId, {
           videoId: videoId,
           playerVars: {
@@ -154,7 +165,7 @@ const YouTubePlayer = memo(({ videoId, isAudioMode, isBackground = true }) => {
             modestbranding: 1,
             rel: 0,
             showinfo: 0,
-            mute: 0,
+            mute: 1, // ⭐ PARTE SEMPRE MUTATO
             playsinline: 1,
             origin: window.location.origin,
             loop: 1,
@@ -162,36 +173,26 @@ const YouTubePlayer = memo(({ videoId, isAudioMode, isBackground = true }) => {
           },
           events: {
             onReady: (event) => {
+              console.log('✅ YouTube player ready');
+              setPlayerReady(true);
               event.target.setVolume(100);
-              event.target.unMute();
               event.target.playVideo();
-
-              setTimeout(() => {
-                try {
-                  if (event.target.isMuted && event.target.isMuted()) {
-                    setAudioBlocked(true);
-                  } else {
-                    setAudioBlocked(false);
-                  }
-                } catch (e) {}
-              }, 800);
+              setIsLoading(false);
             },
             onStateChange: (event) => {
               if (event.data === 1) { // PLAYING
+                console.log('▶️ Video playing');
                 setIsLoading(false);
-                try {
-                  if (!event.target.isMuted()) {
-                    setAudioBlocked(false);
-                  }
-                } catch (e) {}
               }
             },
-            onError: () => {
+            onError: (err) => {
+              console.error('❌ YouTube error:', err);
               setIsLoading(false);
             }
           }
         });
       } catch (e) {
+        console.error('❌ Errore init player:', e);
         setIsLoading(false);
       }
     };
@@ -213,7 +214,6 @@ const YouTubePlayer = memo(({ videoId, isAudioMode, isBackground = true }) => {
       initPlayer();
     }
 
-    // Cleanup SOLO on unmount definitivo
     return () => {
       if (playerRef.current) {
         try {
@@ -228,7 +228,6 @@ const YouTubePlayer = memo(({ videoId, isAudioMode, isBackground = true }) => {
 
   return (
     <div className="absolute inset-0 bg-black flex items-center justify-center overflow-hidden">
-      {/* Overlay scuro solo in modalità background */}
       {isBackground && <div className="absolute inset-0 bg-black/50 z-10 pointer-events-none" />}
       
       {/* Container YouTube */}
@@ -248,26 +247,33 @@ const YouTubePlayer = memo(({ videoId, isAudioMode, isBackground = true }) => {
         </div>
       )}
 
-      {/* Audio Block Warning - CORRETTO: z-index altissimo per essere sempre visibile */}
-      {audioBlocked && !isLoading && (
+      {/* BOTTONE UNMUTE - SEMPRE VISIBILE finché è mutato */}
+      {!isLoading && isMuted && playerReady && (
         <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[9999]" style={{ pointerEvents: 'auto' }}>
           <button 
-            onClick={handleUnblockAudio}
+            onClick={handleUnmute}
             className="bg-red-600 text-white px-8 py-6 rounded-full font-bold animate-bounce flex items-center gap-3 shadow-2xl hover:bg-red-700 transition text-2xl border-4 border-white"
           >
-            <Volume2 className="w-8 h-8" /> CLICCA QUI PER ATTIVARE L'AUDIO
+            <VolumeX className="w-8 h-8" /> CLICCA PER ATTIVARE L'AUDIO
           </button>
         </div>
       )}
 
-      {/* Audio mode overlay - CORRETTO: z-index più basso per non sovrapporsi alle risposte */}
+      {/* Icona audio attivo */}
+      {!isLoading && !isMuted && (
+        <div className="fixed top-8 right-8 z-[9999] bg-green-600 text-white px-4 py-2 rounded-full flex items-center gap-2 shadow-lg">
+          <Volume2 className="w-5 h-5" />
+          <span className="font-bold">Audio attivo</span>
+        </div>
+      )}
+
+      {/* Audio mode overlay */}
       {isAudioMode && !isLoading && (
         <div className="absolute inset-0 z-5 flex flex-col items-center justify-center bg-gradient-to-t from-fuchsia-900/50 to-black pointer-events-none">
           <div className="relative">
             <div className="absolute inset-0 bg-fuchsia-500 rounded-full blur-3xl animate-pulse opacity-40" />
             <Music className="w-32 h-32 text-white relative z-10" />
           </div>
-          {/* Testo rimosso per evitare sovrapposizioni con le risposte */}
         </div>
       )}
     </div>
@@ -278,15 +284,12 @@ const YouTubePlayer = memo(({ videoId, isAudioMode, isBackground = true }) => {
 
 // ====================================================
 // QUIZ MEDIA FIXED - Componente principale
-// Supporta YouTube E Spotify
 // ====================================================
 const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult, isBackground = true }) => {
   const detectedType = getMediaType(mediaUrl, mediaType);
   
-  // Se è risultato, non mostrare media
   if (isResult) return null;
 
-  // Se non c'è media
   if (!mediaUrl) {
     return <div className="absolute inset-0 bg-black" />;
   }
@@ -328,7 +331,6 @@ const QuizMediaFixed = memo(({ mediaUrl, mediaType, isResult, isBackground = tru
     );
   }
 
-  // Tipo sconosciuto
   return <div className="absolute inset-0 bg-black" />;
   
 }, (prev, next) => {
