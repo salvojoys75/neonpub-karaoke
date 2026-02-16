@@ -1882,13 +1882,13 @@ export default function AdminDashboard() {
                )}
                
                {eventState.active_module === 'quiz' && activeQuizData && (
-                  <div className="w-full max-w-4xl">
-                     <div className="bg-zinc-900/80 border border-white/10 p-6 rounded-2xl shadow-2xl">
+                  <div className="w-full h-full px-4 overflow-y-auto">
+                     <div className="bg-zinc-900/80 border border-white/10 p-4 rounded-2xl shadow-2xl max-w-full">
                         {/* PLAYER SPOTIFY/YOUTUBE */}
                         {activeQuizData.media_url && (
-                           <div className="mb-6 bg-zinc-950 border border-zinc-800 rounded-lg p-4">
-                              <div className="text-xs text-zinc-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                 <Music2 className="w-4 h-4"/> Player Audio/Video - CLICCA PLAY QUI ▶️
+                           <div className="mb-4 bg-zinc-950 border border-zinc-800 rounded-lg p-3 overflow-hidden">
+                              <div className="text-xs text-zinc-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+                                 <Music2 className="w-3 h-3"/> Player - Clicca Play ▶️
                               </div>
                               {activeQuizData.media_url.includes('spotify') || /^[a-zA-Z0-9]{22}$/.test(activeQuizData.media_url) ? (
                                  <div className="flex justify-center">
@@ -1899,38 +1899,39 @@ export default function AdminDashboard() {
                                        frameBorder="0"
                                        allowFullScreen=""
                                        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                                       className="rounded-lg max-w-full"
+                                       className="rounded-lg"
+                                       style={{ maxWidth: '100%' }}
                                     />
                                  </div>
                               ) : activeQuizData.media_url.includes('youtube') || activeQuizData.media_url.includes('youtu.be') ? (
-                                 <div className="w-full max-w-full" style={{ aspectRatio: '16/9' }}>
+                                 <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
                                     <iframe
                                        src={`https://www.youtube.com/embed/${activeQuizData.media_url.match(/(?:youtu\.be\/|v\/|watch\?v=|&v=)([^#&?]{11})/)?.[1]}?controls=1&mute=1`}
-                                       className="w-full h-full rounded-lg"
+                                       className="absolute top-0 left-0 w-full h-full rounded-lg"
                                        frameBorder="0"
                                        allow="autoplay; encrypted-media"
                                        allowFullScreen
                                     />
                                  </div>
                               ) : (
-                                 <div className="text-xs text-zinc-500 text-center py-4">URL media: {activeQuizData.media_url}</div>
+                                 <div className="text-xs text-zinc-500 text-center py-4">URL: {activeQuizData.media_url}</div>
                               )}
                            </div>
                         )}
                         
                         {/* DOMANDA */}
-                        <div className="text-center mb-6">
-                           <div className="text-xs text-zinc-400 uppercase tracking-widest mb-2">Domanda in Onda</div>
-                           <h2 className="text-3xl font-black text-white">{activeQuizData.question}</h2>
+                        <div className="text-center mb-4">
+                           <div className="text-xs text-zinc-400 uppercase tracking-widest mb-1">Domanda in Onda</div>
+                           <h2 className="text-2xl font-black text-white leading-tight">{activeQuizData.question}</h2>
                         </div>
                         
                         {/* RISPOSTE */}
-                        <div className="grid grid-cols-2 gap-3 mb-4">
+                        <div className="grid grid-cols-2 gap-2">
                            {activeQuizData.options?.map((opt, i) => (
-                              <div key={i} className={`border-2 rounded-lg p-3 text-left ${i === activeQuizData.correct_index ? 'border-green-500 bg-green-900/20' : 'border-zinc-700 bg-zinc-800'}`}>
-                                 <span className="font-mono font-bold text-lg mr-2">{String.fromCharCode(65+i)}</span>
+                              <div key={i} className={`border-2 rounded-lg p-2 text-left text-sm ${i === activeQuizData.correct_index ? 'border-green-500 bg-green-900/20' : 'border-zinc-700 bg-zinc-800'}`}>
+                                 <span className="font-mono font-bold mr-1">{String.fromCharCode(65+i)}</span>
                                  <span className="text-white">{opt}</span>
-                                 {i === activeQuizData.correct_index && <span className="ml-2 text-green-400">✓ CORRETTA</span>}
+                                 {i === activeQuizData.correct_index && <span className="ml-1 text-green-400 text-xs">✓</span>}
                               </div>
                            ))}
                         </div>
