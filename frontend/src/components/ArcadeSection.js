@@ -63,8 +63,24 @@ const ArcadeSection = ({ participant }) => {
   // ============================================================
 
   const handleBook = async () => {
-    if (!activeGame || !participant?.id) return;
+    console.log('🎮 PRENOTA CLICCATO!');
+    console.log('activeGame:', activeGame);
+    console.log('participant:', participant);
+    console.log('participant.id:', participant?.id);
+    
+    if (!activeGame) {
+      console.error('❌ ERRORE: activeGame è null/undefined');
+      toast.error('Nessun gioco attivo!');
+      return;
+    }
+    
+    if (!participant?.id) {
+      console.error('❌ ERRORE: participant.id è undefined');
+      toast.error('Errore autenticazione!');
+      return;
+    }
 
+    console.log('✅ Chiamo API bookArcadeAnswer...');
     setLoading(true);
     try {
       await api.bookArcadeAnswer(activeGame.id, participant.id);
