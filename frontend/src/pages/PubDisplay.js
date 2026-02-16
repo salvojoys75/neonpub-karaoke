@@ -579,8 +579,17 @@ export default function PubDisplay() {
 
     const recentMessages = approved_messages ? approved_messages.slice(0, 10) : [];
 
+    // ⚠️ PRIORITÀ MODULI: Quiz > Arcade (solo se realmente attivo) > Karaoke/Voting/Score
     const isQuiz = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
-    const isArcade = data.active_arcade && ['active', 'paused', 'ended'].includes(data.active_arcade.status);
+    
+    // Arcade è attivo SOLO se:
+    // - status è 'active' o 'paused', OPPURE
+    // - status è 'ended' E c'è un winner_id (mostra vincitore per 10 secondi)
+    const isArcade = data.active_arcade && (
+      ['active', 'paused'].includes(data.active_arcade.status) ||
+      (data.active_arcade.status === 'ended' && data.active_arcade.winner_id)
+    );
+    
     const isKaraoke = !isQuiz && !isArcade && perf && ['live', 'paused'].includes(perf.status);
     const isVoting = !isQuiz && !isArcade && perf && perf.status === 'voting';
     const isScore = !isQuiz && !isArcade && perf && perf.status === 'ended';

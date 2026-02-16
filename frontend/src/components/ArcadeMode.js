@@ -1,12 +1,16 @@
 // ============================================================
-// 🎮 ARCADE MODE - Display Pubblico (maxischermo)
-// Nessun player audio — solo animazione grafica
+// 🎮 ARCADE MODE - Display Pubblico con SPOTIFY NASCOSTO
+// Player Spotify nascosto che si ferma automaticamente al cambio frame
 // ============================================================
 
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Trophy } from 'lucide-react';
 
-// Animazione onde musicali CSS inline
+// 🔊 Suono di prenotazione (beep forte)
+const BOOKING_SOUND = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjWL0fPTgjMGHm7A7+OZUQ8Q');
+BOOKING_SOUND.volume = 1.0;
+
+// Animazione onde musicali CSS
 const WAVE_STYLES = `
   @keyframes wave1 { 0%,100%{height:20px} 50%{height:60px} }
   @keyframes wave2 { 0%,100%{height:40px} 50%{height:90px} }
@@ -53,13 +57,69 @@ const MusicWaves = ({ paused = false, size = 'large' }) => {
   );
 };
 
-const ArcadeMode = ({ arcade, result }) => {
+// 🎵 SPOTIFY PLAYER NASCOSTO
+// Si ferma automaticamente quando il componente viene smontato (cambio frame)
+const HiddenSpotifyPlayer = ({ trackUrl, isActive }) => {
+  const iframeRef = useRef(null);
   
-  // ── VINCITORE ──
+  const getSpotifyEmbedUrl = (url) => {
+    if (!url) return null;
+    if (url.includes('embed.spotify.com')) return url;
+    
+    const match = url.match(/track\/([a-zA-Z0-9]+)/);
+    if (match) {
+      // Autoplay quando il frame viene caricato
+      return `https://open.spotify.com/embed/track/${match[1]}?utm_source=generator`;
+    }
+    return null;
+  };
+
+  const embedUrl = getSpotifyEmbedUrl(trackUrl);
+  if (!embedUrl || !isActive) return null;
+
+  // Player completamente nascosto - la musica parte/si ferma automaticamente
+  return (
+    <iframe
+      ref={iframeRef}
+      src={embedUrl}
+      width="0"
+      height="0"
+      frameBorder="0"
+      allow="autoplay; encrypted-media"
+      style={{ position: 'absolute', opacity: 0, pointerEvents: 'none' }}
+    />
+  );
+};
+
+const ArcadeMode = ({ arcade, result }) => {
+  const prevBookingRef = useRef(null);
+
+  // 🔊 Suona beep quando arriva nuova prenotazione
+  useEffect(() => {
+    if (arcade?.current_booking && arcade.current_booking.id !== prevBookingRef.current) {
+      prevBookingRef.current = arcade.current_booking.id;
+      
+      // Riproduci suono forte
+      BOOKING_SOUND.currentTime = 0;
+      BOOKING_SOUND.play().catch(e => console.log('Audio beep failed:', e));
+    }
+    
+    // Reset quando non c'è più prenotazione
+    if (!arcade?.current_booking) {
+      prevBookingRef.current = null;
+    }
+  }, [arcade?.current_booking]);
+
+  // ══════════════════════════════════════════════════════════
+  // FRAME 1: VINCITORE (gioco ended con winner)
+  // ══════════════════════════════════════════════════════════
   if (result && result.winner) {
     return (
       <div className="w-full h-full flex flex-col bg-gradient-to-br from-green-900 via-black to-black relative overflow-hidden">
         <style>{WAVE_STYLES}</style>
+        
+        {/* NO PLAYER - Gioco finito */}
+        
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute top-0 left-1/4 w-96 h-96 bg-green-500/20 rounded-full blur-[150px] animate-pulse"></div>
           <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-yellow-500/20 rounded-full blur-[150px] animate-pulse"></div>
@@ -94,25 +154,19 @@ const ArcadeMode = ({ arcade, result }) => {
     );
   }
 
-  // ── IN PAUSA ──
-  if (arcade.status === 'paused') {
-    return (
-      <div className="w-full h-full flex flex-col bg-gradient-to-br from-zinc-900 via-black to-black items-center justify-center">
-        <style>{WAVE_STYLES}</style>
-        <div className="flex flex-col items-center gap-8">
-          <MusicWaves paused={true} size="large" />
-          <div className="text-4xl font-bold text-zinc-400 uppercase tracking-widest">Gioco in Pausa</div>
-        </div>
-      </div>
-    );
-  }
-
-  // ── QUALCUNO AL MICROFONO ──
+  // ══════════════════════════════════════════════════════════
+  // FRAME 2: QUALCUNO AL MICROFONO (booking attivo)
+  // ══════════════════════════════════════════════════════════
+  // Quando arriva una prenotazione, questo frame si monta
+  // e automaticamente smonta il frame precedente → Spotify si ferma
   if (arcade.current_booking) {
     const booking = arcade.current_booking;
     return (
       <div className="w-full h-full flex flex-col bg-gradient-to-br from-fuchsia-900 via-black to-black relative overflow-hidden">
         <style>{WAVE_STYLES}</style>
+        
+        {/* NO PLAYER - Musica fermata dal cambio frame */}
+        
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-fuchsia-500/30 rounded-full blur-[150px] animate-pulse"></div>
           <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/30 rounded-full blur-[150px] animate-pulse"></div>
@@ -154,10 +208,17 @@ const ArcadeMode = ({ arcade, result }) => {
     );
   }
 
-  // ── GIOCO ATTIVO — aspetta prenotazioni ──
+  // ══════════════════════════════════════════════════════════
+  // FRAME 3: GIOCO ATTIVO - "PRENOTA ORA" + SPOTIFY
+  // ══════════════════════════════════════════════════════════
+  // Questo frame mostra "PRENOTA ORA" e ha il player Spotify nascosto
+  // Quando arriva una prenotazione, si smonta e si monta Frame 2
   return (
     <div className="w-full h-full flex flex-col bg-gradient-to-br from-[#0d0d1a] via-black to-[#0d0d1a] relative overflow-hidden">
       <style>{WAVE_STYLES}</style>
+      
+      {/* 🎵 SPOTIFY PLAYER NASCOSTO - Si ferma automaticamente quando questo componente si smonta */}
+      {arcade.track_url && <HiddenSpotifyPlayer trackUrl={arcade.track_url} isActive={true} />}
 
       {/* Sfondo glow */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -174,7 +235,7 @@ const ArcadeMode = ({ arcade, result }) => {
           </div>
         </div>
 
-        {/* Onde musicali animate — GRANDI */}
+        {/* Onde musicali animate – GRANDI */}
         <div className="mb-12">
           <MusicWaves paused={false} size="large" />
         </div>

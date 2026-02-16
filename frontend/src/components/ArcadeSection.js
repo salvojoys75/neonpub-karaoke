@@ -1,13 +1,17 @@
 // ============================================================
-// 🎮 ARCADE SECTION - App Partecipante
-// Da integrare in ClientApp.js
+// 🎮 ARCADE SECTION - App Partecipante SENZA PLAYER
+// La musica si sente dall'ambiente (casse del locale)
 // ============================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { Trophy, Zap, Clock, CheckCircle, XCircle, Music } from 'lucide-react';
+import { Trophy, Zap, CheckCircle, XCircle, Music, Volume2 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as api from '@/lib/api';
+
+// 🔊 Suono di conferma prenotazione
+const BOOKING_SOUND = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjWL0fPTgjMGHm7A7+OZUQ8Q');
+BOOKING_SOUND.volume = 1.0;
 
 const ArcadeSection = ({ participant }) => {
   const [activeGame, setActiveGame] = useState(null);
@@ -21,8 +25,6 @@ const ArcadeSection = ({ participant }) => {
 
   useEffect(() => {
     loadArcadeData();
-    
-    // Polling ogni 2 secondi
     const interval = setInterval(loadArcadeData, 2000);
     return () => clearInterval(interval);
   }, [participant?.id]);
@@ -33,12 +35,11 @@ const ArcadeSection = ({ participant }) => {
       setActiveGame(game);
 
       if (game && participant?.id) {
-        // Cerca la mia prenotazione
         const { data: bookings } = await api.getArcadeBookings(game.id);
         const mine = bookings?.find(b => b.participant_id === participant.id && b.status === 'pending');
         setMyBooking(mine || null);
 
-        // Calcola penalità se presente
+        // Penalità
         const lastWrong = bookings?.find(
           b => b.participant_id === participant.id && b.status === 'wrong'
         );
@@ -67,7 +68,12 @@ const ArcadeSection = ({ participant }) => {
     setLoading(true);
     try {
       await api.bookArcadeAnswer(activeGame.id, participant.id);
-      toast.success('🎤 Sei prenotato!');
+      
+      // 🔊 Suono conferma
+      BOOKING_SOUND.currentTime = 0;
+      BOOKING_SOUND.play().catch(e => console.log('Audio failed:', e));
+      
+      toast.success('🎤 Sei prenotato! Preparati al microfono!');
       loadArcadeData();
     } catch (error) {
       console.error('Errore prenotazione:', error);
@@ -122,12 +128,6 @@ const ArcadeSection = ({ participant }) => {
         <div className="glass-panel p-6 rounded-2xl border-2 border-fuchsia-500/50">
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <span className="text-zinc-400">Posizione:</span>
-              <span className="text-2xl font-bold text-fuchsia-400">
-                #{myBooking.booking_order}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
               <span className="text-zinc-400">Punti in palio:</span>
               <span className="text-2xl font-bold text-yellow-400 flex items-center gap-2">
                 <Trophy className="w-5 h-5" />
@@ -140,7 +140,7 @@ const ArcadeSection = ({ participant }) => {
         {/* Istruzioni */}
         <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
           <p className="text-zinc-300 text-center text-sm">
-            📢 Quando il DJ ti chiama, dai la tua risposta al microfono!
+            📢 Quando il DJ ti chiama, vai al microfono e dai la tua risposta!
           </p>
         </div>
 
@@ -193,7 +193,7 @@ const ArcadeSection = ({ participant }) => {
         {/* Info */}
         <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
           <p className="text-zinc-400 text-center text-sm">
-            💡 Usa questo tempo per pensare meglio alla risposta!
+            💡 Usa questo tempo per ascoltare meglio la canzone!
           </p>
         </div>
       </div>
@@ -209,8 +209,8 @@ const ArcadeSection = ({ participant }) => {
       
       {/* Header */}
       <div className="text-center">
-        <div className="w-20 h-20 rounded-full bg-yellow-600 flex items-center justify-center mx-auto mb-4 animate-bounce">
-          <Music className="w-10 h-10 text-white" />
+        <div className="w-20 h-20 rounded-full bg-yellow-600 flex items-center justify-center mx-auto mb-4">
+          <Volume2 className="w-10 h-10 text-white animate-pulse" />
         </div>
         <h2 className="text-3xl font-black text-white mb-2">
           Indovina la Canzone
@@ -239,6 +239,16 @@ const ArcadeSection = ({ participant }) => {
         </div>
       </div>
 
+      {/* Indicatore audio */}
+      <div className="bg-fuchsia-900/20 border-2 border-fuchsia-500/30 rounded-xl p-4">
+        <div className="flex items-center gap-3 justify-center">
+          <Music className="w-6 h-6 text-fuchsia-400 animate-pulse" />
+          <p className="text-fuchsia-200 text-center text-sm font-medium">
+            🔊 Ascolta la musica dalle casse del locale
+          </p>
+        </div>
+      </div>
+
       {/* Bottone PRENOTA */}
       <Button
         onClick={handleBook}
@@ -247,7 +257,7 @@ const ArcadeSection = ({ participant }) => {
       >
         {loading ? (
           <>
-            <div className="spinner mr-3"></div>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mr-3"></div>
             Prenotazione...
           </>
         ) : (
@@ -264,17 +274,16 @@ const ArcadeSection = ({ participant }) => {
           ⚡ Il primo che prenota va al microfono!
         </p>
         <p className="text-zinc-500 text-center text-xs">
-          Se sbagli, dovrai aspettare {activeGame.penalty_seconds} secondi prima di riprovare
+          Se sbagli, aspetterai {activeGame.penalty_seconds} secondi prima di riprovare
         </p>
       </div>
 
       {/* Progress bar visivo */}
       <div className="relative h-2 bg-zinc-800 rounded-full overflow-hidden">
         <div 
-          className="absolute inset-y-0 left-0 bg-gradient-to-r from-yellow-600 to-orange-600 animate-pulse"
+          className="absolute inset-y-0 left-0 bg-gradient-to-r from-yellow-600 to-orange-600 transition-all duration-500"
           style={{ 
-            width: `${((activeGame.attempts_count || 0) / activeGame.max_attempts) * 100}%`,
-            transition: 'width 0.5s ease'
+            width: `${((activeGame.attempts_count || 0) / activeGame.max_attempts) * 100}%`
           }}
         ></div>
       </div>
