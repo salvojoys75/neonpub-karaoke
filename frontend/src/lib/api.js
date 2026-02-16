@@ -191,12 +191,11 @@ export const getActiveArcadeGame = async () => {
       .eq('event_id', event.id)
       .in('status', ['setup', 'waiting', 'active', 'paused'])
       .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+      .limit(1);
     
-    if (error && error.code !== 'PGRST116') throw error; // PGRST116 = no rows
+    if (error) throw error;
     
-    return { data: data || null };
+    return { data: data?.[0] || null };
   } catch (error) {
     console.error('❌ Errore caricamento gioco attivo:', error);
     return { data: null };
@@ -439,12 +438,11 @@ export const getCurrentBooking = async (gameId) => {
       .eq('game_id', gameId)
       .eq('status', 'pending')
       .order('booking_order', { ascending: true })
-      .limit(1)
-      .single();
+      .limit(1);
     
-    if (error && error.code !== 'PGRST116') throw error;
+    if (error) throw error;
     
-    return { data: data || null };
+    return { data: data?.[0] || null };
   } catch (error) {
     console.error('❌ Errore caricamento prenotazione corrente:', error);
     return { data: null };
