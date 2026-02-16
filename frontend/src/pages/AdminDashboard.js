@@ -103,6 +103,7 @@ export default function AdminDashboard() {
   const [importText, setImportText] = useState("");
   const [showModulesModal, setShowModulesModal] = useState(false);
   const [quizModules, setQuizModules] = useState([]);
+  const [moduleFilter, setModuleFilter] = useState('Tutti');
 
   // --- YOUTUBE VARS ---
   const [youtubeUrl, setYoutubeUrl] = useState("");
@@ -1999,41 +2000,66 @@ export default function AdminDashboard() {
           </DialogContent>
       </Dialog>
 
-      <Dialog open={showModulesModal} onOpenChange={setShowModulesModal}>
-          <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl max-h-[80vh]">
+      <Dialog open={showModulesModal} onOpenChange={(open) => { setShowModulesModal(open); if (!open) setModuleFilter('Tutti'); }}>
+          <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl max-h-[85vh] flex flex-col">
               <DialogHeader><DialogTitle className="flex items-center gap-2"><Dices className="w-5 h-5 text-purple-400"/> Carica Moduli Quiz</DialogTitle></DialogHeader>
-              <ScrollArea className="h-[500px] pr-4">
-                  <div className="space-y-3 pt-4">
+
+              {/* FILTRI CATEGORIA */}
+              {quizModules.length > 0 && (() => {
+                  const cats = ['Tutti', ...Array.from(new Set(quizModules.map(m => m.category).filter(Boolean)))];
+                  return (
+                      <div className="flex flex-wrap gap-1.5 pt-1 pb-2 border-b border-zinc-700">
+                          {cats.map(cat => (
+                              <button
+                                  key={cat}
+                                  onClick={() => setModuleFilter(cat)}
+                                  className={`text-xs px-3 py-1 rounded-full font-bold transition-all ${moduleFilter === cat ? 'bg-purple-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700'}`}
+                              >
+                                  {cat}
+                              </button>
+                          ))}
+                      </div>
+                  );
+              })()}
+
+              <ScrollArea className="flex-1 pr-4">
+                  <div className="space-y-3 pt-3">
                       {quizModules.length === 0 ? (
                           <div className="text-center py-8 text-zinc-500">
                               <p>Nessun modulo disponibile</p>
                               <p className="text-xs mt-2">Aggiungi moduli nella tabella quiz_library</p>
                           </div>
                       ) : (
-                          quizModules.map(module => (
-                              <Card 
-                                  key={module.id} 
-                                  className="bg-zinc-800 border-zinc-700 hover:border-purple-500 cursor-pointer transition" 
+                          quizModules
+                              .filter(m => moduleFilter === 'Tutti' || m.category === moduleFilter)
+                              .map(module => (
+                              <Card
+                                  key={module.id}
+                                  className="bg-zinc-800 border-zinc-700 hover:border-purple-500 cursor-pointer transition"
                                   onClick={() => handleLoadModule(module.id, module.name)}
                               >
-                                  <CardHeader>
+                                  <CardHeader className="py-3">
                                       <div className="flex justify-between items-start">
                                           <div className="flex-1">
                                               <CardTitle className="text-base text-white">{module.name}</CardTitle>
-                                              <div className="flex gap-2 mt-1">
+                                              <div className="flex gap-2 mt-1 flex-wrap">
                                                   <span className="text-xs px-2 py-0.5 bg-purple-900/50 text-purple-300 rounded">{module.category}</span>
                                                   <span className="text-xs text-zinc-500">{module.questions?.length || 0} domande</span>
                                               </div>
                                               {module.description && <p className="text-xs text-zinc-400 mt-2">{module.description}</p>}
                                           </div>
+                                          <div className="text-[10px] text-zinc-600 ml-2 self-center">▶ Carica</div>
                                       </div>
                                   </CardHeader>
                               </Card>
                           ))
                       )}
+                      {quizModules.length > 0 && quizModules.filter(m => moduleFilter === 'Tutti' || m.category === moduleFilter).length === 0 && (
+                          <div className="text-center py-8 text-zinc-500 text-sm italic">Nessun modulo per questa categoria</div>
+                      )}
                   </div>
               </ScrollArea>
-              <div className="pt-4 border-t border-zinc-700 text-xs text-zinc-500">
+              <div className="pt-3 border-t border-zinc-700 text-xs text-zinc-500">
                   💡 Click su un modulo per caricarlo nel catalogo. Le domande duplicate vengono saltate automaticamente.
               </div>
           </DialogContent>
