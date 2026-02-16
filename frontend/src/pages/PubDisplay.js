@@ -536,14 +536,28 @@ export default function PubDisplay() {
                     };
                 }
 
-                // Prenotazione corrente se attivo
+                // Coda prenotazioni e ultimo errore se attivo
                 if (arcade && arcade.status === 'active') {
-                    const { data: currentBooking } = await api.getCurrentBooking(arcade.id);
+                    const { data: allBookings } = await api.getArcadeBookings(arcade.id);
+                    
+                    // Filtra solo pending, ordinati per booking_order
+                    const pendingQueue = allBookings
+                        ?.filter(b => b.status === 'pending')
+                        .sort((a, b) => a.booking_order - b.booking_order) || [];
+                    
+                    // Trova ultimo errore (recente)
+                    const recentErrors = allBookings
+                        ?.filter(b => b.status === 'wrong')
+                        .sort((a, b) => new Date(b.validated_at) - new Date(a.validated_at));
+                    
+                    const lastError = recentErrors && recentErrors.length > 0 ? recentErrors[0] : null;
+                    
                     finalData = {
                         ...finalData,
                         active_arcade: {
                             ...arcade,
-                            current_booking: currentBooking
+                            booking_queue: pendingQueue,
+                            last_error: lastError
                         }
                     };
                 }
@@ -596,7 +610,12 @@ export default function PubDisplay() {
     
     let Content = null;
     if (isQuiz) Content = <QuizMode quiz={quiz} result={quizResult} />;
-    else if (isArcade) Content = <ArcadeMode arcade={data.active_arcade} result={data.arcade_result} />;
+    else if (isArcade) Content = <ArcadeMode 
+      arcade={data.active_arcade} 
+      result={data.arcade_result} 
+      bookingQueue={data.active_arcade?.booking_queue || []}
+      lastError={data.active_arcade?.last_error}
+    />;
     else if (isVoting) Content = <VotingMode perf={perf} />;
     else if (isScore) Content = <ScoreMode perf={perf} />;
     else if (isKaraoke) Content = <KaraokeMode perf={perf} isMuted={isMuted} />;

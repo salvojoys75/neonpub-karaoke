@@ -45,7 +45,9 @@ export const createArcadeGame = async ({
   maxAttempts = 3,
   penaltySeconds = 10,
   mediaType = 'spotify',
-  category = 'Generale'
+  category = 'Generale',
+  question = 'Indovina la canzone!',
+  options = []
 }) => {
   try {
     const event = await getAdminEvent();
@@ -73,7 +75,9 @@ export const createArcadeGame = async ({
         max_attempts: maxAttempts,
         penalty_seconds: penaltySeconds,
         media_type: mediaType,
-        category: category
+        category: category,
+        question: question,
+        options: options  // 🎯 Salva domanda e opzioni
       })
       .select()
       .single();

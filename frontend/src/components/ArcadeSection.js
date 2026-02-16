@@ -1,11 +1,11 @@
 // ============================================================
-// 🎮 ARCADE SECTION - App Partecipante SENZA PLAYER
+// 🎮 ARCADE SECTION - App Partecipante CON DOMANDA E RISPOSTE
 // La musica si sente dall'ambiente (casse del locale)
 // ============================================================
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Trophy, Zap, CheckCircle, XCircle, Music, Volume2 } from 'lucide-react';
+import { Trophy, Zap, XCircle, Music } from 'lucide-react';
 import { toast } from 'sonner';
 import * as api from '@/lib/api';
 
@@ -63,24 +63,16 @@ const ArcadeSection = ({ participant }) => {
   // ============================================================
 
   const handleBook = async () => {
-    console.log('🎮 PRENOTA CLICCATO!');
-    console.log('activeGame:', activeGame);
-    console.log('participant:', participant);
-    console.log('participant.id:', participant?.id);
-    
     if (!activeGame) {
-      console.error('❌ ERRORE: activeGame è null/undefined');
       toast.error('Nessun gioco attivo!');
       return;
     }
     
     if (!participant?.id) {
-      console.error('❌ ERRORE: participant.id è undefined');
       toast.error('Errore autenticazione!');
       return;
     }
 
-    console.log('✅ Chiamo API bookArcadeAnswer...');
     setLoading(true);
     try {
       await api.bookArcadeAnswer(activeGame.id, participant.id);
@@ -140,16 +132,44 @@ const ArcadeSection = ({ participant }) => {
           </p>
         </div>
 
-        {/* Card info */}
-        <div className="glass-panel p-6 rounded-2xl border-2 border-fuchsia-500/50">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-zinc-400">Punti in palio:</span>
-              <span className="text-2xl font-bold text-yellow-400 flex items-center gap-2">
-                <Trophy className="w-5 h-5" />
-                {activeGame.points_reward}
-              </span>
+        {/* 🎵 DOMANDA */}
+        {activeGame.question && (
+          <div className="bg-fuchsia-900/30 border-2 border-fuchsia-500 rounded-2xl p-6">
+            <div className="text-sm text-fuchsia-300 uppercase tracking-widest mb-2">Domanda:</div>
+            <div className="text-2xl font-black text-white">
+              {activeGame.question}
             </div>
+          </div>
+        )}
+
+        {/* 📝 OPZIONI */}
+        {activeGame.options && activeGame.options.length > 0 && (
+          <div className="space-y-3">
+            <div className="text-xs text-zinc-500 uppercase tracking-widest">Opzioni:</div>
+            {activeGame.options.map((option, index) => (
+              <div
+                key={index}
+                className="glass-panel px-4 py-3 rounded-xl border border-white/20"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-fuchsia-600 flex items-center justify-center text-sm font-black text-white shrink-0">
+                    {String.fromCharCode(65 + index)}
+                  </div>
+                  <div className="text-base font-bold text-white">
+                    {option}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Info punti */}
+        <div className="glass-panel p-4 rounded-xl border-2 border-yellow-500/30 text-center">
+          <div className="text-zinc-400 text-sm mb-1">Punti in palio:</div>
+          <div className="text-3xl font-bold text-yellow-400 flex items-center justify-center gap-2">
+            <Trophy className="w-6 h-6" />
+            {activeGame.points_reward}
           </div>
         </div>
 
@@ -206,6 +226,26 @@ const ArcadeSection = ({ participant }) => {
           </div>
         </div>
 
+        {/* Mostra comunque domanda e risposte */}
+        {activeGame.question && (
+          <div className="bg-zinc-900/50 border border-zinc-700 rounded-xl p-4">
+            <div className="text-xs text-zinc-500 uppercase tracking-widest mb-2">Domanda:</div>
+            <div className="text-lg font-bold text-zinc-300 mb-4">
+              {activeGame.question}
+            </div>
+            {activeGame.options && activeGame.options.length > 0 && (
+              <div className="space-y-2">
+                {activeGame.options.map((option, index) => (
+                  <div key={index} className="flex items-center gap-2 text-sm text-zinc-400">
+                    <span className="font-mono font-bold">{String.fromCharCode(65 + index)}:</span>
+                    <span>{option}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Info */}
         <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
           <p className="text-zinc-400 text-center text-sm">
@@ -225,16 +265,48 @@ const ArcadeSection = ({ participant }) => {
       
       {/* Header */}
       <div className="text-center">
-        <div className="w-20 h-20 rounded-full bg-yellow-600 flex items-center justify-center mx-auto mb-4">
-          <Volume2 className="w-10 h-10 text-white animate-pulse" />
+        <div className="w-20 h-20 rounded-full bg-fuchsia-600 flex items-center justify-center mx-auto mb-4">
+          <Music className="w-10 h-10 text-white animate-pulse" />
         </div>
         <h2 className="text-3xl font-black text-white mb-2">
           Indovina la Canzone
         </h2>
-        <p className="text-yellow-300 text-lg">
+        <p className="text-fuchsia-300 text-lg">
           🎵 Ascolta e prenota!
         </p>
       </div>
+
+      {/* 🎵 DOMANDA */}
+      {activeGame.question && (
+        <div className="bg-fuchsia-900/30 border-2 border-fuchsia-500 rounded-2xl p-6">
+          <div className="text-sm text-fuchsia-300 uppercase tracking-widest mb-2">Domanda:</div>
+          <div className="text-2xl font-black text-white">
+            {activeGame.question}
+          </div>
+        </div>
+      )}
+
+      {/* 📝 OPZIONI DI RISPOSTA */}
+      {activeGame.options && activeGame.options.length > 0 && (
+        <div className="space-y-3">
+          <div className="text-xs text-zinc-500 uppercase tracking-widest">Opzioni:</div>
+          {activeGame.options.map((option, index) => (
+            <div
+              key={index}
+              className="glass-panel px-4 py-3 rounded-xl border border-white/20 hover:border-fuchsia-500/50 transition-all"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-fuchsia-600 flex items-center justify-center text-sm font-black text-white shrink-0">
+                  {String.fromCharCode(65 + index)}
+                </div>
+                <div className="text-base font-bold text-white">
+                  {option}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Info gioco */}
       <div className="glass-panel p-6 rounded-2xl border-2 border-yellow-500/30">
@@ -287,7 +359,7 @@ const ArcadeSection = ({ participant }) => {
       {/* Info aggiuntive */}
       <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 space-y-2">
         <p className="text-zinc-300 text-center text-sm font-medium">
-          ⚡ Il primo che prenota va al microfono!
+          ⚡ Primi 5 che prenotano vanno in coda!
         </p>
         <p className="text-zinc-500 text-center text-xs">
           Se sbagli, aspetterai {activeGame.penalty_seconds} secondi prima di riprovare

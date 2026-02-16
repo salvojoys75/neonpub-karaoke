@@ -1,14 +1,18 @@
 // ============================================================
-// 🎮 ARCADE MODE - Display Pubblico con SPOTIFY NASCOSTO
-// Player Spotify nascosto che si ferma automaticamente al cambio frame
+// 🎮 ARCADE MODE - Display Pubblico FLUIDO E PROFESSIONALE
+// Sistema a coda con 5 prenotazioni, domanda/risposte sempre visibili
 // ============================================================
 
-import React, { useEffect, useRef } from 'react';
-import { Trophy } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Trophy, Users, XCircle } from 'lucide-react';
 
 // 🔊 Suono di prenotazione (beep forte)
 const BOOKING_SOUND = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjWL0fPTgjMGHm7A7+OZUQ8Q');
 BOOKING_SOUND.volume = 1.0;
+
+// 🔊 Suono di errore (buzz)
+const ERROR_SOUND = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAAD/////zJmZmZmZmWZmZmZmZmYzMzMzMzMzAAAAAAAAAP////+ZmZmZmZmZZmZmZmZmZjMzMzMzMzMAAAAAAAAAzMzMzMzMzJmZmZmZmZlmZmZmZmZmMzMzMzMzMwAAAAAAAAD/////zMzMzMzMzJmZmZmZmZlmZmZmZmZmMzMzMzMzMw==');
+ERROR_SOUND.volume = 0.8;
 
 // Animazione onde musicali CSS
 const WAVE_STYLES = `
@@ -30,6 +34,19 @@ const WAVE_STYLES = `
   .bar8{animation:wave8 0.65s ease-in-out infinite 0.1s}
   @keyframes wavePaused { 0%,100%{height:8px} }
   .bar-paused { animation: wavePaused 1s ease-in-out infinite !important; opacity: 0.3; }
+  
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    10%, 30%, 50%, 70%, 90% { transform: translateX(-10px); }
+    20%, 40%, 60%, 80% { transform: translateX(10px); }
+  }
+  .shake-animation { animation: shake 0.5s; }
+  
+  @keyframes pulse-red {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+    50% { box-shadow: 0 0 0 20px rgba(239, 68, 68, 0); }
+  }
+  .pulse-red-animation { animation: pulse-red 1s infinite; }
 `;
 
 const MusicWaves = ({ paused = false, size = 'large' }) => {
@@ -58,8 +75,8 @@ const MusicWaves = ({ paused = false, size = 'large' }) => {
 };
 
 // 🎵 SPOTIFY PLAYER NASCOSTO
-// Si ferma automaticamente quando il componente viene smontato (cambio frame)
-const HiddenSpotifyPlayer = ({ trackUrl, isActive }) => {
+// Si ferma quando qualcuno si prenota (hasBooking = true)
+const HiddenSpotifyPlayer = ({ trackUrl, isPlaying }) => {
   const iframeRef = useRef(null);
   
   const getSpotifyEmbedUrl = (url) => {
@@ -68,16 +85,15 @@ const HiddenSpotifyPlayer = ({ trackUrl, isActive }) => {
     
     const match = url.match(/track\/([a-zA-Z0-9]+)/);
     if (match) {
-      // Autoplay quando il frame viene caricato
       return `https://open.spotify.com/embed/track/${match[1]}?utm_source=generator`;
     }
     return null;
   };
 
   const embedUrl = getSpotifyEmbedUrl(trackUrl);
-  if (!embedUrl || !isActive) return null;
+  if (!embedUrl || !isPlaying) return null;
 
-  // Player completamente nascosto - la musica parte/si ferma automaticamente
+  // Player completamente nascosto
   return (
     <iframe
       ref={iframeRef}
@@ -91,24 +107,37 @@ const HiddenSpotifyPlayer = ({ trackUrl, isActive }) => {
   );
 };
 
-const ArcadeMode = ({ arcade, result }) => {
-  const prevBookingRef = useRef(null);
+const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => {
+  const prevBookingCountRef = useRef(0);
+  const [showError, setShowError] = useState(false);
 
   // 🔊 Suona beep quando arriva nuova prenotazione
   useEffect(() => {
-    if (arcade?.current_booking && arcade.current_booking.id !== prevBookingRef.current) {
-      prevBookingRef.current = arcade.current_booking.id;
+    if (bookingQueue.length > prevBookingCountRef.current) {
+      prevBookingCountRef.current = bookingQueue.length;
       
-      // Riproduci suono forte
+      // Riproduci suono di prenotazione
       BOOKING_SOUND.currentTime = 0;
       BOOKING_SOUND.play().catch(e => console.log('Audio beep failed:', e));
     }
     
-    // Reset quando non c'è più prenotazione
-    if (!arcade?.current_booking) {
-      prevBookingRef.current = null;
+    if (bookingQueue.length === 0) {
+      prevBookingCountRef.current = 0;
     }
-  }, [arcade?.current_booking]);
+  }, [bookingQueue]);
+
+  // 🔊 Mostra feedback errore
+  useEffect(() => {
+    if (lastError) {
+      setShowError(true);
+      ERROR_SOUND.currentTime = 0;
+      ERROR_SOUND.play().catch(e => console.log('Error sound failed:', e));
+      
+      // Nascondi dopo 3 secondi
+      const timer = setTimeout(() => setShowError(false), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [lastError]);
 
   // ══════════════════════════════════════════════════════════
   // FRAME 1: VINCITORE (gioco ended con winner)
@@ -117,8 +146,6 @@ const ArcadeMode = ({ arcade, result }) => {
     return (
       <div className="w-full h-full flex flex-col bg-gradient-to-br from-green-900 via-black to-black relative overflow-hidden">
         <style>{WAVE_STYLES}</style>
-        
-        {/* NO PLAYER - Gioco finito */}
         
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute top-0 left-1/4 w-96 h-96 bg-green-500/20 rounded-full blur-[150px] animate-pulse"></div>
@@ -155,70 +182,19 @@ const ArcadeMode = ({ arcade, result }) => {
   }
 
   // ══════════════════════════════════════════════════════════
-  // FRAME 2: QUALCUNO AL MICROFONO (booking attivo)
+  // FRAME 2: GIOCO ATTIVO CON DOMANDA E RISPOSTE
   // ══════════════════════════════════════════════════════════
-  // Quando arriva una prenotazione, questo frame si monta
-  // e automaticamente smonta il frame precedente → Spotify si ferma
-  if (arcade.current_booking) {
-    const booking = arcade.current_booking;
-    return (
-      <div className="w-full h-full flex flex-col bg-gradient-to-br from-fuchsia-900 via-black to-black relative overflow-hidden">
-        <style>{WAVE_STYLES}</style>
-        
-        {/* NO PLAYER - Musica fermata dal cambio frame */}
-        
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-fuchsia-500/30 rounded-full blur-[150px] animate-pulse"></div>
-          <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/30 rounded-full blur-[150px] animate-pulse"></div>
-        </div>
+  
+  // Musica suona solo se NON ci sono prenotazioni
+  const hasBookings = bookingQueue && bookingQueue.length > 0;
+  const isPlaying = !hasBookings;
 
-        <div className="relative z-10 flex-1 flex flex-col items-center justify-center p-12">
-          {/* Onde in pausa */}
-          <div className="mb-8">
-            <MusicWaves paused={true} size="large" />
-          </div>
-
-          <div className="bg-fuchsia-600/90 backdrop-blur-xl px-12 py-4 rounded-full mb-8 shadow-[0_0_60px_rgba(192,38,211,0.6)] border-2 border-white/20 animate-pulse">
-            <div className="text-2xl font-black text-white uppercase tracking-[0.3em]">
-              🎤 AL MICROFONO
-            </div>
-          </div>
-
-          <div className="glass-panel p-12 rounded-[3rem] max-w-3xl w-full border-4 border-fuchsia-500/50">
-            <div className="flex flex-col items-center mb-6">
-              {booking.participants?.avatar_url && (
-                <img src={booking.participants.avatar_url} alt="avatar"
-                  className="w-40 h-40 rounded-full border-4 border-fuchsia-500 shadow-2xl mb-6 ring-8 ring-fuchsia-500/30" />
-              )}
-              <div className="text-8xl font-black text-white text-center leading-none">
-                {booking.participants?.nickname || 'Partecipante'}
-              </div>
-              <div className="text-2xl text-fuchsia-200 font-medium mt-4">Sta dando la risposta...</div>
-            </div>
-          </div>
-
-          <div className="mt-8 glass-panel px-8 py-4 rounded-full border-2 border-yellow-500/30">
-            <div className="text-3xl font-bold text-yellow-400 flex items-center gap-3">
-              <Trophy className="w-8 h-8" />
-              {arcade.points_reward} punti in palio
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ══════════════════════════════════════════════════════════
-  // FRAME 3: GIOCO ATTIVO - "PRENOTA ORA" + SPOTIFY
-  // ══════════════════════════════════════════════════════════
-  // Questo frame mostra "PRENOTA ORA" e ha il player Spotify nascosto
-  // Quando arriva una prenotazione, si smonta e si monta Frame 2
   return (
     <div className="w-full h-full flex flex-col bg-gradient-to-br from-[#0d0d1a] via-black to-[#0d0d1a] relative overflow-hidden">
       <style>{WAVE_STYLES}</style>
       
-      {/* 🎵 SPOTIFY PLAYER NASCOSTO - Si ferma automaticamente quando questo componente si smonta */}
-      {arcade.track_url && <HiddenSpotifyPlayer trackUrl={arcade.track_url} isActive={true} />}
+      {/* 🎵 SPOTIFY PLAYER - Si ferma quando ci sono prenotazioni */}
+      {arcade.track_url && <HiddenSpotifyPlayer trackUrl={arcade.track_url} isPlaying={isPlaying} />}
 
       {/* Sfondo glow */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -226,35 +202,123 @@ const ArcadeMode = ({ arcade, result }) => {
         <div className="absolute bottom-1/4 right-1/4 w-[500px] h-[500px] bg-purple-600/15 rounded-full blur-[180px] animate-pulse" style={{animationDelay:'1s'}}></div>
       </div>
 
-      <div className="relative z-10 flex-1 flex flex-col items-center justify-center p-12">
-
-        {/* Badge categoria */}
-        <div className="bg-fuchsia-600/80 backdrop-blur-xl px-10 py-3 rounded-full mb-10 border border-white/20 transform -rotate-1">
-          <div className="text-xl font-black text-white uppercase tracking-[0.3em]">
-            🎵 Indovina la Canzone
+      {/* 🚨 OVERLAY ERRORE */}
+      {showError && lastError && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-red-900/40 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-red-600/90 backdrop-blur-xl px-16 py-8 rounded-[3rem] border-4 border-red-400 shadow-[0_0_100px_rgba(239,68,68,0.8)] shake-animation">
+            <div className="flex items-center gap-6">
+              <XCircle className="w-24 h-24 text-white pulse-red-animation" />
+              <div>
+                <div className="text-4xl font-black text-white mb-2">❌ SBAGLIATO!</div>
+                <div className="text-2xl text-red-100">{lastError.participant?.nickname}</div>
+              </div>
+            </div>
           </div>
         </div>
+      )}
 
-        {/* Onde musicali animate – GRANDI */}
-        <div className="mb-12">
-          <MusicWaves paused={false} size="large" />
-        </div>
+      <div className="relative z-10 flex-1 flex flex-col items-center justify-center p-8">
 
-        {/* Call to action */}
-        <div className="text-center mb-12">
-          <div
-            className="font-black text-white mb-6 leading-none tracking-tight drop-shadow-2xl"
-            style={{ fontSize: 'clamp(4rem, 10vw, 9rem)' }}
-          >
-            PRENOTA ORA!
+        {/* 🎵 DOMANDA */}
+        {arcade.question && (
+          <div className="bg-fuchsia-600/90 backdrop-blur-xl px-12 py-6 rounded-[3rem] mb-8 shadow-[0_0_60px_rgba(192,38,211,0.6)] border-4 border-fuchsia-400 max-w-5xl w-full">
+            <div className="text-5xl font-black text-white text-center leading-tight">
+              {arcade.question}
+            </div>
           </div>
-          <div className="text-3xl text-fuchsia-200 font-medium">
-            👆 Usa l'app per prenotarti
+        )}
+
+        {/* 📝 OPZIONI DI RISPOSTA */}
+        {arcade.options && arcade.options.length > 0 && (
+          <div className="grid grid-cols-2 gap-6 mb-8 max-w-5xl w-full">
+            {arcade.options.map((option, index) => (
+              <div
+                key={index}
+                className="glass-panel px-8 py-6 rounded-2xl border-2 border-white/20 hover:border-fuchsia-500/50 transition-all"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-full bg-fuchsia-600 flex items-center justify-center text-2xl font-black text-white shrink-0">
+                    {String.fromCharCode(65 + index)}
+                  </div>
+                  <div className="text-2xl font-bold text-white">
+                    {option}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
+        )}
+
+        {/* 🎤 CODA PRENOTAZIONI (primi 5) */}
+        {hasBookings ? (
+          <div className="glass-panel p-6 rounded-2xl border-4 border-fuchsia-500 max-w-4xl w-full mb-6">
+            <div className="flex items-center gap-3 mb-4">
+              <Users className="w-8 h-8 text-fuchsia-400" />
+              <div className="text-2xl font-black text-white uppercase">
+                🎤 Prenotati ({bookingQueue.length})
+              </div>
+            </div>
+            
+            <div className="space-y-3">
+              {bookingQueue.slice(0, 5).map((booking, index) => (
+                <div
+                  key={booking.id}
+                  className={`flex items-center gap-4 p-4 rounded-xl ${
+                    index === 0
+                      ? 'bg-fuchsia-600/50 border-2 border-fuchsia-400 animate-pulse'
+                      : 'bg-white/5'
+                  }`}
+                >
+                  <div className="w-12 h-12 rounded-full bg-yellow-500 flex items-center justify-center text-2xl font-black text-black shrink-0">
+                    {index + 1}
+                  </div>
+                  
+                  {booking.participants?.avatar_url && (
+                    <img
+                      src={booking.participants.avatar_url}
+                      alt="avatar"
+                      className="w-16 h-16 rounded-full border-2 border-white/30"
+                    />
+                  )}
+                  
+                  <div className="flex-1">
+                    <div className="text-3xl font-black text-white">
+                      {booking.participants?.nickname || 'Partecipante'}
+                    </div>
+                    {index === 0 && (
+                      <div className="text-lg text-fuchsia-200 font-medium mt-1">
+                        👉 Al microfono adesso!
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Onde musicali animate */}
+            <div className="mb-8">
+              <MusicWaves paused={false} size="large" />
+            </div>
+
+            {/* Call to action */}
+            <div className="text-center mb-8">
+              <div
+                className="font-black text-white mb-6 leading-none tracking-tight drop-shadow-2xl"
+                style={{ fontSize: 'clamp(4rem, 10vw, 8rem)' }}
+              >
+                PRENOTA ORA!
+              </div>
+              <div className="text-3xl text-fuchsia-200 font-medium">
+                📱 Usa l'app per prenotarti
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Info gioco */}
-        <div className="flex gap-8 items-center flex-wrap justify-center">
+        <div className="flex gap-6 items-center flex-wrap justify-center">
           <div className="glass-panel px-8 py-4 rounded-full border-2 border-fuchsia-500/40">
             <div className="text-3xl font-bold text-fuchsia-300 flex items-center gap-3">
               <Trophy className="w-8 h-8 text-yellow-400" />
@@ -272,7 +336,7 @@ const ArcadeMode = ({ arcade, result }) => {
       {/* Footer */}
       <div className="relative z-10 p-6 text-center">
         <div className="text-lg text-zinc-600 uppercase tracking-widest">
-          Il primo che prenota risponde al microfono
+          {hasBookings ? '🎤 Ascolta le risposte dei concorrenti' : '🎵 Ascolta la canzone e prenota quando sei pronto!'}
         </div>
       </div>
     </div>

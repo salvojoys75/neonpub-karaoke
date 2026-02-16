@@ -54,18 +54,16 @@ export default function ArcadePanel({
         
         const { data: current } = await api.getCurrentBooking(game.id);
         
-        // ── Nuova prenotazione arrivata? Nascondi player + alert ──
+        // ── Nuova prenotazione arrivata? Solo alert, il player CONTINUA ──
         if (current && current.id !== prevBookingIdRef.current) {
           prevBookingIdRef.current = current.id;
-          setIsPlayerVisible(false);   // nasconde iframe → musica si ferma
           setNewBookingAlert(true);
           toast.info(`🎤 ${current.participants?.nickname} si è prenotato!`);
         }
 
-        // ── Nessuna prenotazione → rimostra player ──
+        // ── Nessuna prenotazione → rimuovi alert ──
         if (!current && prevBookingIdRef.current !== null) {
           prevBookingIdRef.current = null;
-          setIsPlayerVisible(true);
           setNewBookingAlert(false);
         }
 
@@ -112,6 +110,11 @@ export default function ArcadePanel({
     setLoading(true);
     try {
       const correctAnswer = selectedTrack.options[selectedTrack.correct_index];
+      
+      // IMPORTANTE: Mantieni il player visibile PRIMA di creare il gioco
+      // così la musica continua a suonare
+      setIsPlayerVisible(true);
+      
       const { data } = await api.createArcadeGame({
         gameType: 'song_guess',
         trackId: selectedTrack.media_url,
@@ -123,14 +126,19 @@ export default function ArcadePanel({
         maxAttempts: 5,
         penaltySeconds: 10,
         mediaType: selectedTrack.media_type === 'spotify' ? 'spotify' : 'youtube',
-        category: selectedTrack.category || 'Generale'
+        category: selectedTrack.category || 'Generale',
+        // 🎯 AGGIUNGI domanda e opzioni per mostrarle nel display
+        question: selectedTrack.question || 'Indovina la canzone!',
+        options: selectedTrack.options || []
       });
-      toast.success('Gioco creato!');
+      
+      toast.success('🎮 Gioco creato e avviato!');
       setActiveGame(data);
       setShowSetup(false);
       setSelectedTrack(null);
       setSearchQuery('');
-      setIsPlayerVisible(true);
+      
+      // Avvia il gioco mantenendo il player attivo
       await handleStartGame(data.id);
     } catch (error) {
       toast.error('Errore: ' + error.message);
@@ -199,8 +207,8 @@ export default function ArcadePanel({
         setNewBookingAlert(false);
       } else {
         toast.error('❌ Risposta sbagliata');
-        // Rimostra player automaticamente → musica riparte
-        setIsPlayerVisible(true);
+        // NON rimostrare player automaticamente
+        // Il DJ deve farlo manualmente cliccando "Riprendi" o riavviando
         setNewBookingAlert(false);
         prevBookingIdRef.current = null;
       }
