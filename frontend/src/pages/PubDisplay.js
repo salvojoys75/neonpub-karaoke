@@ -402,9 +402,8 @@ const QuizMode = ({ quiz, result }) => {
 
     return (
     <div className="w-full h-full flex flex-col bg-[#080808] relative p-12 overflow-hidden">
-        <QuizMediaFixed mediaUrl={quiz.media_url} mediaType={quiz.media_type} isResult={!!result} />
-        
-        <div className="absolute inset-0 bg-black/70 z-10 pointer-events-none"></div>
+        {/* SFONDO NERO SEMPLICE - niente video/audio */}
+        <div className="absolute inset-0 bg-gradient-to-b from-zinc-900 to-black z-0"></div>
 
         <div className="relative z-20 flex-1 flex flex-col items-center justify-center">
             <div className="bg-fuchsia-600 text-white px-10 py-4 rounded-full font-black text-xl uppercase tracking-[0.3em] mb-12 shadow-[0_0_40px_rgba(217,70,239,0.6)] transform -rotate-2 border-2 border-white/20">
