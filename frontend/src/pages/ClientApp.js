@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase"; 
 import api from "@/lib/api";
-
+import ArcadeSection from '@/components/ArcadeSection';
 const EMOJIS = ["❤️", "🔥", "👏", "🎤", "⭐", "🎉"];
 const REACTION_LIMIT = 5;
 
@@ -111,6 +111,15 @@ export default function ClientApp() {
 
   if (!isAuthenticated) return null;
 
+  // Tabs config — aggiunto Arcade
+  const tabs = [
+    { id: "home", icon: Home, label: "Home" },
+    { id: "songs", icon: Music, label: "Canzoni" },
+    { id: "arcade", icon: Trophy, label: "Arcade" },
+    { id: "leaderboard", icon: Trophy, label: "Classifica" },
+    { id: "profile", icon: User, label: "Profilo" },
+  ];
+
   return (
     <div className="min-h-screen bg-[#050505] flex flex-col pb-24 font-sans text-white">
       <header className="sticky top-0 z-40 bg-[#050505]/90 backdrop-blur-md p-4 flex justify-between items-center border-b border-white/5">
@@ -135,11 +144,16 @@ export default function ClientApp() {
           </div>
         )}
         {activeTab === "songs" && (<div className="space-y-4"><h2 className="text-xl font-bold">Le Mie Richieste</h2>{myRequests.map(song => (<div key={song.id} className="glass rounded-xl p-4"><p className="font-medium">{song.title}</p><div className="flex justify-between mt-1"><p className="text-sm text-zinc-500">{song.artist}</p><span className={`text-xs uppercase px-2 py-1 rounded ${song.status==='queued' ? 'bg-green-500/20 text-green-400' : 'bg-zinc-800 text-zinc-500'}`}>{song.status}</span></div></div>))}</div>)}
+        {/* ── TAB ARCADE ── */}
+        {activeTab === "arcade" && (
+          <ArcadeSection participant={{ id: user?.user?.id, nickname: user?.nickname, avatar_url: user?.avatar_url }} />
+        )}
         {activeTab === "leaderboard" && (<div className="space-y-4"><h2 className="text-xl font-bold text-yellow-500">Classifica Quiz</h2>{leaderboard.map((player, index) => (<div key={index} className="glass rounded-xl p-4 flex items-center gap-4"><span className={`text-2xl font-bold w-8 ${index===0 ? 'text-yellow-400' : 'text-zinc-500'}`}>#{index + 1}</span><span className="flex-1 font-medium">{player.nickname}</span><span className="font-bold text-cyan-400">{player.score}</span></div>))}</div>)}
         {activeTab === "profile" && (<div className="space-y-6 text-center pt-8"><div className="w-24 h-24 rounded-full bg-fuchsia-500/20 flex items-center justify-center mx-auto border-2 border-fuchsia-500/50"><User className="w-12 h-12 text-fuchsia-400" /></div><div><h2 className="text-2xl font-bold">{user?.nickname}</h2><p className="text-zinc-500">{user?.pub_name}</p></div><Button onClick={logout} variant="outline" className="w-full border-red-500/50 text-red-400 hover:bg-red-950">Esci dal Pub</Button></div>)}
       </main>
+      {/* ── NAVBAR con tab Arcade ── */}
       <nav className="mobile-nav safe-bottom bg-[#0a0a0a] border-t border-white/10 flex justify-around p-2 fixed bottom-0 w-full z-40">
-        {[ { id: "home", icon: Home, label: "Home" }, { id: "songs", icon: Music, label: "Canzoni" }, { id: "leaderboard", icon: Trophy, label: "Classifica" }, { id: "profile", icon: User, label: "Profilo" } ].map(tab => (<button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center gap-1 p-2 rounded-lg transition ${activeTab === tab.id ? 'text-fuchsia-500' : 'text-zinc-500'}`}><tab.icon className="w-6 h-6" /><span className="text-[10px]">{tab.label}</span></button>))}
+        {tabs.map(tab => (<button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center gap-1 p-2 rounded-lg transition ${activeTab === tab.id ? 'text-fuchsia-500' : 'text-zinc-500'}`}><tab.icon className="w-6 h-6" /><span className="text-[10px]">{tab.label}</span></button>))}
       </nav>
       <Dialog open={showRequestModal} onOpenChange={setShowRequestModal}><DialogContent className="bg-zinc-900 border-zinc-800"><DialogHeader><DialogTitle>Richiedi Canzone</DialogTitle></DialogHeader><form onSubmit={handleRequestSong} className="space-y-4 mt-4"><Input value={songTitle} onChange={(e) => setSongTitle(e.target.value)} placeholder="Titolo" className="bg-zinc-800 border-zinc-700"/><Input value={songArtist} onChange={(e) => setSongArtist(e.target.value)} placeholder="Artista" className="bg-zinc-800 border-zinc-700"/><Input value={songYoutubeUrl} onChange={(e) => setSongYoutubeUrl(e.target.value)} placeholder="Link YouTube (facoltativo)" className="bg-zinc-800 border-zinc-700"/><Button type="submit" className="w-full bg-fuchsia-600 hover:bg-fuchsia-700">Invia</Button></form></DialogContent></Dialog>
       <Dialog open={showVoteModal} onOpenChange={setShowVoteModal}><DialogContent className="bg-zinc-900 border-zinc-800 text-center"><DialogHeader><DialogTitle>Vota l'Esibizione!</DialogTitle></DialogHeader><div className="flex justify-center gap-2 py-4">{[1, 2, 3, 4, 5].map(star => (<button key={star} onClick={() => setSelectedStars(star)}><Star className={`w-10 h-10 ${selectedStars >= star ? 'text-yellow-500 fill-yellow-500' : 'text-zinc-600'}`} /></button>))}</div><Button onClick={handleVote} disabled={selectedStars === 0} className="w-full bg-yellow-500 text-black">Conferma Voto</Button></DialogContent></Dialog>

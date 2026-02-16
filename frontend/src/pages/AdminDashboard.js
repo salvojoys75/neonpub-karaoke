@@ -1404,7 +1404,7 @@ export default function AdminDashboard() {
          <aside className="col-span-4 border-r border-white/10 bg-zinc-900/50 flex flex-col">
             <div className="p-2 border-b border-white/5">
                <Tabs value={libraryTab} onValueChange={setLibraryTab} className="w-full">
-                  <TabsList className="grid w-full grid-cols-6 bg-zinc-950 p-1">
+                  <TabsList className="grid w-full grid-cols-7 bg-zinc-950 p-1">
                      <TabsTrigger value="karaoke" className="text-xs px-1 data-[state=active]:bg-blue-900/30" title="Karaoke">
                         <ListMusic className="w-5 h-5 text-blue-400" />
                      </TabsTrigger>
