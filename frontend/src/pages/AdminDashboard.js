@@ -2026,24 +2026,23 @@ export default function AdminDashboard() {
 
               {/* LIVELLO 2 — CATEGORIA MUSICALE (solo se non Personalizzate) */}
               {moduleTypeFilter !== 'personalizzate' && quizModules.length > 0 && (() => {
-                  // Filtra prima per tipologia, poi estrae categorie uniche
                   const filtered = moduleTypeFilter === 'Tutti' ? quizModules
                       : quizModules.filter(m => {
-                          if (moduleTypeFilter === 'audio') return m.questions?.some(q => q.media_type === 'audio');
-                          if (moduleTypeFilter === 'video') return m.questions?.some(q => q.media_type === 'video');
-                          if (moduleTypeFilter === 'text') return !m.questions?.some(q => q.media_type === 'audio' || q.media_type === 'video');
+                          if (moduleTypeFilter === 'audio') return m.media_type === 'audio';
+                          if (moduleTypeFilter === 'video') return m.media_type === 'video';
+                          if (moduleTypeFilter === 'text') return m.media_type === 'text' || !m.media_type;
                           return true;
                       });
-                  const cats = ['Tutti', ...Array.from(new Set(filtered.map(m => m.category).filter(Boolean)))];
-                  if (cats.length <= 2) return null; // non mostrare se c'è solo una categoria
+                  const genres = ['Tutti', ...Array.from(new Set(filtered.map(m => m.genre).filter(Boolean)))];
+                  if (genres.length <= 2) return null;
                   return (
                       <div className="py-2 border-b border-zinc-700/50">
-                          <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2 font-bold">Categoria</p>
+                          <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2 font-bold">Categoria Musicale</p>
                           <div className="flex flex-wrap gap-1.5">
-                              {cats.map(cat => (
-                                  <button key={cat} onClick={() => setModuleFilter(cat)}
-                                      className={`text-xs px-3 py-1 rounded-full font-bold transition-all ${moduleFilter === cat ? 'bg-purple-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700'}`}>
-                                      {cat}
+                              {genres.map(g => (
+                                  <button key={g} onClick={() => setModuleFilter(g)}
+                                      className={`text-xs px-3 py-1 rounded-full font-bold transition-all ${moduleFilter === g ? 'bg-purple-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700'}`}>
+                                      {g}
                                   </button>
                               ))}
                           </div>
@@ -2086,12 +2085,12 @@ export default function AdminDashboard() {
                           (() => {
                               const visible = quizModules.filter(m => {
                                   const typeOk = moduleTypeFilter === 'Tutti' ? true
-                                      : moduleTypeFilter === 'audio' ? m.questions?.some(q => q.media_type === 'audio')
-                                      : moduleTypeFilter === 'video' ? m.questions?.some(q => q.media_type === 'video')
-                                      : moduleTypeFilter === 'text' ? !m.questions?.some(q => q.media_type === 'audio' || q.media_type === 'video')
+                                      : moduleTypeFilter === 'audio' ? m.media_type === 'audio'
+                                      : moduleTypeFilter === 'video' ? m.media_type === 'video'
+                                      : moduleTypeFilter === 'text' ? (m.media_type === 'text' || !m.media_type)
                                       : true;
-                                  const catOk = moduleFilter === 'Tutti' || m.category === moduleFilter;
-                                  return typeOk && catOk;
+                                  const genreOk = moduleFilter === 'Tutti' || m.genre === moduleFilter;
+                                  return typeOk && genreOk;
                               });
                               return visible.length === 0 ? (
                                   <div className="text-center py-10 text-zinc-500 italic text-sm">Nessun modulo per questa selezione</div>
@@ -2103,6 +2102,9 @@ export default function AdminDashboard() {
                                           <div className="font-bold text-white text-sm mb-1">{module.name}</div>
                                           <div className="flex gap-2 flex-wrap">
                                               <span className="text-[10px] px-2 py-0.5 bg-purple-900/50 text-purple-300 rounded font-bold">{module.category}</span>
+                                              {module.genre && <span className="text-[10px] px-2 py-0.5 bg-zinc-700 text-zinc-300 rounded">{module.genre}</span>}
+                                              {module.media_type === 'audio' && <span className="text-[10px] px-2 py-0.5 bg-yellow-900/50 text-yellow-400 rounded">🔊 Audio</span>}
+                                              {module.media_type === 'video' && <span className="text-[10px] px-2 py-0.5 bg-blue-900/50 text-blue-400 rounded">🎬 Video</span>}
                                               <span className="text-[10px] text-zinc-500">{module.questions?.length || 0} domande</span>
                                           </div>
                                           {module.description && <p className="text-xs text-zinc-400 mt-1.5">{module.description}</p>}

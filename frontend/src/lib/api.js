@@ -413,7 +413,8 @@ export const getQuizModules = async () => {
     const { data, error } = await supabase
         .from('quiz_library')
         .select('*')
-        .order('category', { ascending: true });
+        .order('category', { ascending: true })
+        .order('genre', { ascending: true });
     
     if (error) throw error;
     return { data: data || [] };
