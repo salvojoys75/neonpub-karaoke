@@ -104,6 +104,7 @@ export default function AdminDashboard() {
   const [showModulesModal, setShowModulesModal] = useState(false);
   const [quizModules, setQuizModules] = useState([]);
   const [moduleFilter, setModuleFilter] = useState('Tutti');
+  const [moduleTypeFilter, setModuleTypeFilter] = useState('Tutti');
 
   // --- YOUTUBE VARS ---
   const [youtubeUrl, setYoutubeUrl] = useState("");
@@ -2000,66 +2001,121 @@ export default function AdminDashboard() {
           </DialogContent>
       </Dialog>
 
-      <Dialog open={showModulesModal} onOpenChange={(open) => { setShowModulesModal(open); if (!open) setModuleFilter('Tutti'); }}>
-          <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl max-h-[85vh] flex flex-col">
-              <DialogHeader><DialogTitle className="flex items-center gap-2"><Dices className="w-5 h-5 text-purple-400"/> Carica Moduli Quiz</DialogTitle></DialogHeader>
+      <Dialog open={showModulesModal} onOpenChange={(open) => { setShowModulesModal(open); if (!open) { setModuleFilter('Tutti'); setModuleTypeFilter('Tutti'); } }}>
+          <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl max-h-[85vh] flex flex-col gap-0">
+              <DialogHeader className="pb-3"><DialogTitle className="flex items-center gap-2"><Dices className="w-5 h-5 text-purple-400"/> Carica Moduli Quiz</DialogTitle></DialogHeader>
 
-              {/* FILTRI CATEGORIA */}
-              {quizModules.length > 0 && (() => {
-                  const cats = ['Tutti', ...Array.from(new Set(quizModules.map(m => m.category).filter(Boolean)))];
+              {/* LIVELLO 1 — TIPOLOGIA */}
+              <div className="pb-2 border-b border-zinc-700/50">
+                  <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2 font-bold">Tipologia</p>
+                  <div className="flex flex-wrap gap-1.5">
+                      {[
+                          { key: 'Tutti', label: '🎵 Tutti' },
+                          { key: 'text', label: '✏️ Testuali' },
+                          { key: 'audio', label: '🔊 Audio' },
+                          { key: 'video', label: '🎬 Video' },
+                          { key: 'personalizzate', label: '🎂 Personalizzate' },
+                      ].map(t => (
+                          <button key={t.key} onClick={() => { setModuleTypeFilter(t.key); setModuleFilter('Tutti'); }}
+                              className={`text-xs px-3 py-1.5 rounded-full font-bold transition-all ${moduleTypeFilter === t.key ? 'bg-fuchsia-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700'}`}>
+                              {t.label}
+                          </button>
+                      ))}
+                  </div>
+              </div>
+
+              {/* LIVELLO 2 — CATEGORIA MUSICALE (solo se non Personalizzate) */}
+              {moduleTypeFilter !== 'personalizzate' && quizModules.length > 0 && (() => {
+                  // Filtra prima per tipologia, poi estrae categorie uniche
+                  const filtered = moduleTypeFilter === 'Tutti' ? quizModules
+                      : quizModules.filter(m => {
+                          if (moduleTypeFilter === 'audio') return m.questions?.some(q => q.media_type === 'audio');
+                          if (moduleTypeFilter === 'video') return m.questions?.some(q => q.media_type === 'video');
+                          if (moduleTypeFilter === 'text') return !m.questions?.some(q => q.media_type === 'audio' || q.media_type === 'video');
+                          return true;
+                      });
+                  const cats = ['Tutti', ...Array.from(new Set(filtered.map(m => m.category).filter(Boolean)))];
+                  if (cats.length <= 2) return null; // non mostrare se c'è solo una categoria
                   return (
-                      <div className="flex flex-wrap gap-1.5 pt-1 pb-2 border-b border-zinc-700">
-                          {cats.map(cat => (
-                              <button
-                                  key={cat}
-                                  onClick={() => setModuleFilter(cat)}
-                                  className={`text-xs px-3 py-1 rounded-full font-bold transition-all ${moduleFilter === cat ? 'bg-purple-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700'}`}
-                              >
-                                  {cat}
-                              </button>
-                          ))}
+                      <div className="py-2 border-b border-zinc-700/50">
+                          <p className="text-[10px] text-zinc-500 uppercase tracking-widest mb-2 font-bold">Categoria</p>
+                          <div className="flex flex-wrap gap-1.5">
+                              {cats.map(cat => (
+                                  <button key={cat} onClick={() => setModuleFilter(cat)}
+                                      className={`text-xs px-3 py-1 rounded-full font-bold transition-all ${moduleFilter === cat ? 'bg-purple-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700'}`}>
+                                      {cat}
+                                  </button>
+                              ))}
+                          </div>
                       </div>
                   );
               })()}
 
-              <ScrollArea className="flex-1 pr-4">
-                  <div className="space-y-3 pt-3">
-                      {quizModules.length === 0 ? (
-                          <div className="text-center py-8 text-zinc-500">
-                              <p>Nessun modulo disponibile</p>
-                              <p className="text-xs mt-2">Aggiungi moduli nella tabella quiz_library</p>
-                          </div>
-                      ) : (
-                          quizModules
-                              .filter(m => moduleFilter === 'Tutti' || m.category === moduleFilter)
-                              .map(module => (
-                              <Card
-                                  key={module.id}
-                                  className="bg-zinc-800 border-zinc-700 hover:border-purple-500 cursor-pointer transition"
-                                  onClick={() => handleLoadModule(module.id, module.name)}
-                              >
-                                  <CardHeader className="py-3">
-                                      <div className="flex justify-between items-start">
-                                          <div className="flex-1">
-                                              <CardTitle className="text-base text-white">{module.name}</CardTitle>
-                                              <div className="flex gap-2 mt-1 flex-wrap">
-                                                  <span className="text-xs px-2 py-0.5 bg-purple-900/50 text-purple-300 rounded">{module.category}</span>
-                                                  <span className="text-xs text-zinc-500">{module.questions?.length || 0} domande</span>
+              <ScrollArea className="flex-1 pr-2 mt-3">
+                  <div className="space-y-2">
+
+                      {/* SEZIONE PERSONALIZZATE */}
+                      {moduleTypeFilter === 'personalizzate' ? (
+                          (() => {
+                              const custom = quizCatalog.filter(q => q.category === 'Personalizzata');
+                              return custom.length === 0 ? (
+                                  <div className="text-center py-10 text-zinc-500">
+                                      <p className="text-2xl mb-2">🎂</p>
+                                      <p className="font-bold text-zinc-400">Nessuna domanda personalizzata</p>
+                                      <p className="text-xs mt-2 text-zinc-600">Usa "+ Crea Quiz" → tab "Personalizzate" per caricare un JSON</p>
+                                  </div>
+                              ) : (
+                                  <>
+                                      <p className="text-xs text-zinc-500 mb-2">{custom.length} domande personalizzate caricate per questo evento</p>
+                                      {custom.map(q => (
+                                          <div key={q.id} className="bg-zinc-800 rounded-xl p-3 border border-purple-500/20">
+                                              <div className="text-xs text-purple-400 font-bold mb-1">🎂 Personalizzata</div>
+                                              <div className="text-sm text-white font-medium">{q.question}</div>
+                                              <div className="flex gap-1 mt-2 flex-wrap">
+                                                  {q.options?.map((opt, i) => (
+                                                      <span key={i} className={`text-[10px] px-2 py-0.5 rounded ${i === q.correct_index ? 'bg-green-600/30 text-green-400 font-bold' : 'bg-zinc-700 text-zinc-400'}`}>{opt}</span>
+                                                  ))}
                                               </div>
-                                              {module.description && <p className="text-xs text-zinc-400 mt-2">{module.description}</p>}
                                           </div>
-                                          <div className="text-[10px] text-zinc-600 ml-2 self-center">▶ Carica</div>
+                                      ))}
+                                  </>
+                              );
+                          })()
+                      ) : (
+                          /* MODULI NORMALI */
+                          (() => {
+                              const visible = quizModules.filter(m => {
+                                  const typeOk = moduleTypeFilter === 'Tutti' ? true
+                                      : moduleTypeFilter === 'audio' ? m.questions?.some(q => q.media_type === 'audio')
+                                      : moduleTypeFilter === 'video' ? m.questions?.some(q => q.media_type === 'video')
+                                      : moduleTypeFilter === 'text' ? !m.questions?.some(q => q.media_type === 'audio' || q.media_type === 'video')
+                                      : true;
+                                  const catOk = moduleFilter === 'Tutti' || m.category === moduleFilter;
+                                  return typeOk && catOk;
+                              });
+                              return visible.length === 0 ? (
+                                  <div className="text-center py-10 text-zinc-500 italic text-sm">Nessun modulo per questa selezione</div>
+                              ) : visible.map(module => (
+                                  <div key={module.id}
+                                      className="bg-zinc-800 border border-zinc-700 hover:border-purple-500 rounded-xl p-4 cursor-pointer transition-all hover:bg-zinc-750 flex items-start justify-between gap-3"
+                                      onClick={() => handleLoadModule(module.id, module.name)}>
+                                      <div className="flex-1 min-w-0">
+                                          <div className="font-bold text-white text-sm mb-1">{module.name}</div>
+                                          <div className="flex gap-2 flex-wrap">
+                                              <span className="text-[10px] px-2 py-0.5 bg-purple-900/50 text-purple-300 rounded font-bold">{module.category}</span>
+                                              <span className="text-[10px] text-zinc-500">{module.questions?.length || 0} domande</span>
+                                          </div>
+                                          {module.description && <p className="text-xs text-zinc-400 mt-1.5">{module.description}</p>}
                                       </div>
-                                  </CardHeader>
-                              </Card>
-                          ))
-                      )}
-                      {quizModules.length > 0 && quizModules.filter(m => moduleFilter === 'Tutti' || m.category === moduleFilter).length === 0 && (
-                          <div className="text-center py-8 text-zinc-500 text-sm italic">Nessun modulo per questa categoria</div>
+                                      <div className="text-[10px] text-zinc-600 shrink-0 pt-1">▶ Carica</div>
+                                  </div>
+                              ));
+                          })()
                       )}
                   </div>
               </ScrollArea>
-              <div className="pt-3 border-t border-zinc-700 text-xs text-zinc-500">
+
+              <div className="pt-3 border-t border-zinc-700 text-xs text-zinc-500 mt-2">
                   💡 Click su un modulo per caricarlo nel catalogo. Le domande duplicate vengono saltate automaticamente.
               </div>
           </DialogContent>
