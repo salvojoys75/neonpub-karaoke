@@ -7,12 +7,13 @@ import { Music, Mic2, Star, Trophy, Users, MessageSquare, Disc, Zap, Megaphone }
 
 import ArcadeMode from '@/components/ArcadeMode';
 import KaraokePlayer from '@/components/KaraokePlayer';
+import QuizMediaFixed from '@/components/QuizMediaFixed';
 import FloatingReactions from '@/components/FloatingReactions';
 import ExtractionMode from '@/components/ExtractionMode';
 
 const STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800;900&family=JetBrains+Mono:wght@500&display=swap');
-  
+
   :root {
     --glass-bg: rgba(15, 15, 20, 0.7);
     --glass-border: rgba(255, 255, 255, 0.1);
@@ -21,13 +22,13 @@ const STYLES = `
     --karaoke-bar-h: 10vh;
   }
 
-  body { 
-    background: #000; 
-    overflow: hidden; 
-    font-family: 'Montserrat', sans-serif; 
-    color: white; 
+  body {
+    background: #000;
+    overflow: hidden;
+    font-family: 'Montserrat', sans-serif;
+    color: white;
   }
-  
+
   .glass-panel {
     background: var(--glass-bg);
     backdrop-filter: blur(20px);
@@ -36,9 +37,9 @@ const STYLES = `
     box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
   }
 
-  @keyframes ticker { 
-    0% { transform: translateX(100%); } 
-    100% { transform: translateX(-100%); } 
+  @keyframes ticker {
+    0% { transform: translateX(100%); }
+    100% { transform: translateX(-100%); }
   }
   .ticker-wrap { width: 100%; overflow: hidden; }
   .ticker-content { display: inline-block; white-space: nowrap; animation: ticker 25s linear infinite; }
@@ -53,7 +54,7 @@ const STYLES = `
     background-size: 400% 400%;
     animation: gradient-move 20s ease infinite;
   }
-  
+
   .text-glow { text-shadow: 0 0 30px rgba(217,70,239, 0.6); }
 
   .dj-topbar     { height: var(--topbar-h); }
@@ -65,7 +66,7 @@ const STYLES = `
 
 const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => {
   const messagesString = messages && messages.length > 0 ? messages.map(m => `${m.nickname}: ${m.text}`).join('   •   ') : '';
-  
+
   return (
   <div className="dj-topbar absolute top-0 left-0 right-0 z-[100] flex items-center justify-between px-8 bg-gradient-to-b from-black/90 via-black/60 to-transparent">
       <div className="flex items-center gap-5">
@@ -82,7 +83,7 @@ const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => {
               </div>
           </div>
       </div>
-      
+
       <div className="flex-1 mx-8 h-[4.5vh] glass-panel rounded-full flex items-center px-4 overflow-hidden relative">
           {messagesString ? (
              <div className="ticker-wrap">
@@ -110,12 +111,12 @@ const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => {
 
       <div className="flex flex-col items-end">
           <div className="glass-panel px-4 py-2 rounded-xl flex items-center gap-3">
-              <Users className="w-[2vh] h-[2vh] text-fuchsia-400"/> 
+              <Users className="w-[2vh] h-[2vh] text-fuchsia-400"/>
               <span className="text-[2.5vh] font-mono font-bold">{onlineCount}</span>
           </div>
       </div>
   </div>
-);};
+);}
 
 const AdminMessageOverlay = ({ message }) => {
     if (!message) return null;
@@ -144,7 +145,7 @@ const Sidebar = ({ pubCode, queue, leaderboard }) => (
               <div className="text-[0.8vw] text-white/50 uppercase font-bold tracking-[0.15em]">Scansiona per entrare</div>
           </div>
       </div>
-      
+
       <div className="glass-panel rounded-3xl flex flex-col overflow-hidden relative shrink-0">
           <div className="bg-gradient-to-r from-fuchsia-600 to-purple-600 px-4 py-3 flex items-center justify-between border-b border-white/10">
               <div className="flex items-center gap-2">
@@ -203,9 +204,9 @@ const Sidebar = ({ pubCode, queue, leaderboard }) => (
                               {i+1}
                           </div>
                           {player.avatar_url ? (
-                              <img 
-                                  src={player.avatar_url} 
-                                  alt={player.nickname} 
+                              <img
+                                  src={player.avatar_url}
+                                  alt={player.nickname}
                                   className="w-10 h-10 rounded-full border-2 border-yellow-500/50 object-cover shrink-0 shadow-md"
                               />
                           ) : (
@@ -231,8 +232,8 @@ const KaraokeMode = ({ perf, isMuted }) => {
     return (
         <div className="w-full h-full relative">
             <div className="absolute inset-0 dj-karaoke-player bg-black">
-                <KaraokePlayer 
-                    key={perf.id} 
+                <KaraokePlayer
+                    key={perf.id}
                     url={perf.youtube_url}
                     status={perf.status}
                     volume={100}
@@ -241,7 +242,6 @@ const KaraokeMode = ({ perf, isMuted }) => {
                 />
             </div>
             <div className="dj-karaoke-bar absolute bottom-0 left-0 right-0 bg-black z-[70] flex items-center px-[2vw] gap-[1.5vw] border-t border-white/5">
-                
                 <div className="relative shrink-0">
                     {perf.user_avatar ? (
                         <img src={perf.user_avatar} className="w-[7vh] h-[7vh] rounded-full border-2 border-fuchsia-500/80 object-cover bg-zinc-900 shadow-lg" alt="Singer" />
@@ -252,7 +252,6 @@ const KaraokeMode = ({ perf, isMuted }) => {
                     )}
                     <div className="absolute -bottom-1 -right-1 bg-red-600 text-white text-[1vh] font-bold px-1.5 py-0.5 rounded-full border border-white/20">LIVE</div>
                 </div>
-
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                         <Mic2 className="w-[1.8vh] h-[1.8vh] text-fuchsia-400 shrink-0" />
@@ -261,7 +260,6 @@ const KaraokeMode = ({ perf, isMuted }) => {
                     <h1 className="text-[2.8vh] font-black text-white leading-none truncate text-glow">{perf.song_title}</h1>
                     <p className="text-[1.4vh] text-white/50 uppercase tracking-wide mt-1 truncate">{perf.song_artist}</p>
                 </div>
-
                 <div className="shrink-0 text-right border-l border-white/10 pl-[1.5vw]">
                     <div className="text-[1.2vh] text-white/30 uppercase tracking-widest mb-1">In onda</div>
                     <div className="text-fuchsia-400 text-[1.4vh] font-bold">🎤 Karaoke Live</div>
@@ -295,8 +293,8 @@ const ScoreMode = ({ perf }) => (
                 <div className="text-7xl font-black text-white mb-10">{perf.user_nickname}</div>
                 <div className="flex justify-center gap-6 mb-10">
                     {[1,2,3,4,5].map(star => (
-                        <Star 
-                            key={star} 
+                        <Star
+                            key={star}
                             className={`w-24 h-24 ${star <= Math.round(perf.average_score || 0) ? 'text-yellow-400 fill-yellow-400 drop-shadow-[0_0_30px_rgba(250,204,21,0.8)]' : 'text-white/20'}`}
                         />
                     ))}
@@ -335,7 +333,6 @@ const QuizMode = ({ quiz, result }) => {
 
     const isVideoQuiz = quiz.media_type === 'video' && quiz.media_url && !result;
     const isAudioQuiz = quiz.media_type === 'audio' && quiz.media_url && !result;
-    
     const getSpotifyEmbed = (url) => {
         if (!url) return null;
         const m = url.match(/(?:track\/)([a-zA-Z0-9]+)/);
@@ -363,14 +360,12 @@ const QuizMode = ({ quiz, result }) => {
                     />
                 </div>
             </div>
-
             <div className="flex flex-col items-center justify-center px-8 py-4 shrink-0">
                 <div className="bg-fuchsia-600 text-white px-6 py-2 rounded-full font-black text-lg uppercase tracking-[0.3em] mb-4 shadow-[0_0_20px_rgba(217,70,239,0.5)] border border-white/20">
                     {quiz.category || "QUIZ TIME"}
                 </div>
                 <h1 style={{fontSize: 'clamp(1.2rem, 3vw, 3rem)', lineHeight: 1.2}} className="font-black text-white text-center drop-shadow-2xl">{quiz.question}</h1>
             </div>
-
             <div className="flex-1 px-8 pb-8 flex items-center">
                 {quiz.status === 'closed' ? (
                     <div className="w-full flex justify-center">
@@ -411,7 +406,6 @@ const QuizMode = ({ quiz, result }) => {
                 </div>
                 <h1 style={{fontSize: 'clamp(1rem, 2.5vw, 2.2rem)', lineHeight: 1.2}} className="font-black text-white text-center drop-shadow-2xl line-clamp-2">{quiz.question}</h1>
             </div>
-
             <div style={{height: '55%'}} className="shrink-0 px-8">
                 <div className="w-full h-full rounded-2xl overflow-hidden border border-white/10 shadow-2xl relative bg-black">
                     {ytId && (
@@ -429,7 +423,6 @@ const QuizMode = ({ quiz, result }) => {
                     }} />
                 </div>
             </div>
-
             <div style={{height: '33%'}} className="shrink-0 px-8 py-2 flex items-center">
                 {quiz.status === 'closed' ? (
                     <div className="w-full flex justify-center">
@@ -457,20 +450,16 @@ const QuizMode = ({ quiz, result }) => {
     return (
     <div className="w-full h-full flex flex-col bg-[#080808] relative p-12 overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-b from-zinc-900 to-black z-0"></div>
-
         <div className="relative z-20 flex-1 flex flex-col items-center justify-center">
             <div className="bg-fuchsia-600 text-white px-10 py-4 rounded-full font-black text-xl uppercase tracking-[0.3em] mb-12 shadow-[0_0_40px_rgba(217,70,239,0.6)] transform -rotate-2 border-2 border-white/20">
                 {quiz.category || "QUIZ TIME"}
             </div>
-
             {result ? (
                 <div className="w-full max-w-6xl animate-in zoom-in duration-500 flex flex-col items-center">
-                    
                     <div className="bg-green-600/90 backdrop-blur-xl p-10 rounded-[3rem] mb-12 shadow-[0_0_100px_rgba(22,163,74,0.5)] border-4 border-green-400 text-center w-full">
                         <div className="text-white/70 uppercase font-bold tracking-widest text-sm mb-2">Risposta Corretta</div>
                         <span className="text-7xl font-black text-white leading-tight">{result.correct_option}</span>
                     </div>
-
                     <div className="w-full">
                         <div className="glass-panel p-8 rounded-3xl">
                             <h3 className="text-fuchsia-400 font-bold uppercase tracking-widest mb-6 flex items-center gap-2 text-xl">
@@ -497,7 +486,6 @@ const QuizMode = ({ quiz, result }) => {
             ) : (
                 <div className="w-full h-full flex flex-col justify-center gap-4 px-4 overflow-hidden">
                     <h1 style={{fontSize: 'clamp(1.5rem, 4vw, 4rem)', lineHeight: 1.2}} className="font-black text-white drop-shadow-2xl text-center">{quiz.question}</h1>
-                    
                     {quiz.status === 'closed' ? (
                          <div className="bg-red-600 rounded-[2rem] animate-pulse shadow-[0_0_80px_rgba(220,38,38,0.8)] border-4 border-red-400 mx-auto px-10 py-6">
                              <h2 style={{fontSize: 'clamp(2rem, 4vw, 4rem)'}} className="font-black text-white uppercase italic">TEMPO SCADUTO!</h2>
@@ -523,7 +511,6 @@ const QuizMode = ({ quiz, result }) => {
 const IdleMode = ({ pub }) => (
     <div className="w-full h-full flex flex-col items-center justify-center animated-bg relative overflow-hidden">
         <div className="w-[1000px] h-[1000px] bg-fuchsia-600/10 rounded-full blur-[150px] absolute z-0 animate-pulse"></div>
-        
         <div className="relative z-10 text-center">
             {pub.logo_url ? (
                  <img src={pub.logo_url} className="w-80 h-80 rounded-[3rem] mb-12 mx-auto shadow-[0_0_80px_rgba(0,0,0,0.8)] border-4 border-white/10 object-contain bg-black p-8" alt="logo" />
@@ -573,40 +560,42 @@ export default function PubDisplay() {
 
                 // ── ARCADE: carica dati arcade ──
                 const arcade = finalData.active_arcade;
-                
-                // Vincitore se terminato di recente (MODIFICA: 60 secondi invece di 15 per sicurezza)
+
+                // ✅ FIX: Vincitore se terminato di recente (entro 30 secondi)
                 if (arcade && arcade.status === 'ended' && arcade.winner_id) {
                     const endedAt = new Date(arcade.ended_at);
                     const secondsAgo = (Date.now() - endedAt.getTime()) / 1000;
-                    
-                    if (secondsAgo < 60) {
+
+                    if (secondsAgo < 30) {
                         const { data: winner } = await supabase
                             .from('participants')
                             .select('id, nickname, avatar_url')
                             .eq('id', arcade.winner_id)
                             .single();
-                        
-                        finalData = {
-                            ...finalData,
-                            arcade_result: { winner }
-                        };
+
+                        if (winner) {
+                            finalData = {
+                                ...finalData,
+                                arcade_result: { winner }
+                            };
+                        }
                     }
                 }
 
                 // Coda prenotazioni e ultimo errore se attivo
                 if (arcade && arcade.status === 'active') {
                     const { data: allBookings } = await api.getArcadeBookings(arcade.id);
-                    
+
                     const pendingQueue = allBookings
                         ?.filter(b => b.status === 'pending')
                         .sort((a, b) => a.booking_order - b.booking_order) || [];
-                    
+
                     const recentErrors = allBookings
                         ?.filter(b => b.status === 'wrong')
                         .sort((a, b) => new Date(b.validated_at) - new Date(a.validated_at));
-                    
+
                     const lastError = recentErrors && recentErrors.length > 0 ? recentErrors[0] : null;
-                    
+
                     finalData = {
                         ...finalData,
                         active_arcade: {
@@ -616,7 +605,7 @@ export default function PubDisplay() {
                         }
                     };
                 }
-                
+
                 setData(finalData);
             }
         } catch(e) { console.error(e); }
@@ -624,17 +613,18 @@ export default function PubDisplay() {
 
     useEffect(() => {
         load();
-        const int = setInterval(load, 1000); 
-        
+        const int = setInterval(load, 1000);
+
         const ch = supabase.channel('tv_ctrl')
             .on('broadcast', {event: 'control'}, p => { if(p.payload.command === 'mute') setIsMuted(p.payload.value); })
             .on('postgres_changes', {event: 'INSERT', schema: 'public', table: 'reactions'}, p => {
                 const reaction = p.new;
+                // ✅ FIX: Passa sempre nickname e usa _t per forzare re-render
                 setNewReaction({
                     emoji: reaction.emoji,
                     nickname: reaction.nickname || '',
                     id: reaction.id,
-                    _t: Date.now() 
+                    _t: Date.now()
                 });
             })
             .on('postgres_changes', {event: '*', schema: 'public', table: 'performances'}, load)
@@ -643,7 +633,7 @@ export default function PubDisplay() {
             .on('postgres_changes', {event: '*', schema: 'public', table: 'arcade_games'}, load)
             .on('postgres_changes', {event: '*', schema: 'public', table: 'arcade_bookings'}, load)
             .subscribe();
-            
+
         return () => { clearInterval(int); supabase.removeChannel(ch); };
     }, [pubCode, load]);
 
@@ -659,27 +649,27 @@ export default function PubDisplay() {
     const recentMessages = approved_messages ? approved_messages.slice(0, 10) : [];
 
     const isQuiz = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
-    
-    // Controllo stato Arcade per visualizzazione (esteso a 60s per il vincitore)
-    const arcadeEndedAt = data.active_arcade?.ended_at;
-    const arcadeWinner = data.active_arcade?.winner_id;
-    const arcadeEndedRecently = arcadeEndedAt && arcadeWinner && 
-        (Date.now() - new Date(arcadeEndedAt).getTime()) < 60000; // 60 sec
-    
+
+    // ✅ FIX: Arcade è attivo se:
+    // - status è 'active' o 'paused', OPPURE
+    // - status è 'ended' E c'è arcade_result con winner (mostra vincitore)
+    const hasArcadeWinner = data.arcade_result && data.arcade_result.winner;
+    const arcadeEndedRecently = data.active_arcade?.status === 'ended' && hasArcadeWinner;
+
     const isArcade = data.active_arcade && (
       ['active', 'paused'].includes(data.active_arcade.status) ||
       arcadeEndedRecently
     );
-    
+
     const isKaraoke = !isQuiz && !isArcade && perf && ['live', 'paused'].includes(perf.status);
     const isVoting = !isQuiz && !isArcade && perf && perf.status === 'voting';
     const isScore = !isQuiz && !isArcade && perf && perf.status === 'ended';
-    
+
     let Content = null;
     if (isQuiz) Content = <QuizMode quiz={quiz} result={quizResult} />;
-    else if (isArcade) Content = <ArcadeMode 
-      arcade={data.active_arcade} 
-      result={data.arcade_result} 
+    else if (isArcade) Content = <ArcadeMode
+      arcade={data.active_arcade}
+      result={data.arcade_result}
       bookingQueue={data.active_arcade?.booking_queue || []}
       lastError={data.active_arcade?.last_error}
     />;
@@ -691,7 +681,7 @@ export default function PubDisplay() {
     return (
         <div className="w-screen h-screen relative bg-black overflow-hidden">
             <style>{STYLES}</style>
-            
+
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10 pointer-events-none z-0"></div>
 
             <TopBar pubName={pub.name} logoUrl={pub.logo_url} onlineCount={leaderboard?.length || 0} messages={recentMessages} isMuted={isMuted} />
@@ -708,11 +698,11 @@ export default function PubDisplay() {
                     />
                 </div>
             )}
-            
+
             <div className="dj-content absolute z-10">
                 {Content}
             </div>
-            
+
             <Sidebar pubCode={pubCode} queue={queue} leaderboard={leaderboard} />
         </div>
     );

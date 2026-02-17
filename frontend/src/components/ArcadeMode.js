@@ -1,20 +1,16 @@
 // ============================================================
-// 🎮 ARCADE MODE - Display Pubblico FLUIDO E PROFESSIONALE
-// Sistema a coda con 5 prenotazioni, domanda/risposte sempre visibili
+// 🎮 ARCADE MODE - Display Pubblico
 // ============================================================
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Trophy, Users, XCircle } from 'lucide-react';
 
-// 🔊 Suono di prenotazione (beep forte)
 const BOOKING_SOUND = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjWL0fPTgjMGHm7A7+OZUQ8Q');
 BOOKING_SOUND.volume = 1.0;
 
-// 🔊 Suono di errore (buzz)
 const ERROR_SOUND = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAAD/////zJmZmZmZmWZmZmZmZmYzMzMzMzMzAAAAAAAAAP////+ZmZmZmZmZZmZmZmZmZjMzMzMzMzMAAAAAAAAAzMzMzMzMzJmZmZmZmZlmZmZmZmZmMzMzMzMzMwAAAAAAAAD/////zMzMzMzMzJmZmZmZmZlmZmZmZmZmMzMzMzMzMw==');
 ERROR_SOUND.volume = 0.8;
 
-// Animazione onde musicali CSS
 const WAVE_STYLES = `
   @keyframes wave1 { 0%,100%{height:20px} 50%{height:60px} }
   @keyframes wave2 { 0%,100%{height:40px} 50%{height:90px} }
@@ -74,18 +70,12 @@ const MusicWaves = ({ paused = false, size = 'large' }) => {
   );
 };
 
-// 🎵 SPOTIFY PLAYER NASCOSTO
 const HiddenSpotifyPlayer = ({ trackUrl, isPlaying }) => {
-  const iframeRef = useRef(null);
-
   const getSpotifyEmbedUrl = (url) => {
     if (!url) return null;
     if (url.includes('embed.spotify.com')) return url;
-
     const match = url.match(/track\/([a-zA-Z0-9]+)/);
-    if (match) {
-      return `https://open.spotify.com/embed/track/${match[1]}?utm_source=generator`;
-    }
+    if (match) return `https://open.spotify.com/embed/track/${match[1]}?utm_source=generator`;
     return null;
   };
 
@@ -94,7 +84,6 @@ const HiddenSpotifyPlayer = ({ trackUrl, isPlaying }) => {
 
   return (
     <iframe
-      ref={iframeRef}
       src={embedUrl}
       width="0"
       height="0"
@@ -109,35 +98,28 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
   const prevBookingCountRef = useRef(0);
   const [showError, setShowError] = useState(false);
 
-  // 🔊 Suona beep quando arriva nuova prenotazione
   useEffect(() => {
     if (bookingQueue.length > prevBookingCountRef.current) {
       prevBookingCountRef.current = bookingQueue.length;
-
       BOOKING_SOUND.currentTime = 0;
       BOOKING_SOUND.play().catch(e => console.log('Audio beep failed:', e));
     }
-
     if (bookingQueue.length === 0) {
       prevBookingCountRef.current = 0;
     }
   }, [bookingQueue]);
 
-  // 🔊 Mostra feedback errore
   useEffect(() => {
     if (lastError) {
       setShowError(true);
       ERROR_SOUND.currentTime = 0;
       ERROR_SOUND.play().catch(e => console.log('Error sound failed:', e));
-
       const timer = setTimeout(() => setShowError(false), 3000);
       return () => clearTimeout(timer);
     }
   }, [lastError]);
 
-  // ══════════════════════════════════════════════════════════
-  // FRAME 1: VINCITORE (gioco ended con winner)
-  // ══════════════════════════════════════════════════════════
+  // ✅ FIX: VINCITORE - Controlla result.winner
   if (result && result.winner) {
     return (
       <div className="w-full h-full flex flex-col bg-gradient-to-br from-green-900 via-black to-black relative overflow-hidden">
@@ -154,7 +136,7 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
             <div className="text-6xl font-black text-white text-center leading-tight">{arcade?.correct_answer || ''}</div>
           </div>
 
-          <div className="glass-panel p-10 rounded-[3rem] max-w-4xl w-full border-4 border-yellow-500/50" style={{background: 'rgba(15, 15, 20, 0.7)', backdropFilter: 'blur(20px)'}}>
+          <div className="p-10 rounded-[3rem] max-w-4xl w-full border-4 border-yellow-500/50" style={{background: 'rgba(15, 15, 20, 0.7)', backdropFilter: 'blur(20px)'}}>
             <div className="flex items-center justify-center gap-8 mb-8">
               <Trophy className="w-24 h-24 text-yellow-400 animate-bounce" />
               <div className="text-center">
@@ -177,10 +159,7 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
     );
   }
 
-  // ══════════════════════════════════════════════════════════
-  // FRAME 2: GIOCO ATTIVO CON DOMANDA E RISPOSTE
-  // ══════════════════════════════════════════════════════════
-
+  // GIOCO ATTIVO
   const hasBookings = bookingQueue && bookingQueue.length > 0;
   const isPlaying = !hasBookings;
 
@@ -202,7 +181,7 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
               <XCircle className="w-24 h-24 text-white pulse-red-animation" />
               <div>
                 <div className="text-4xl font-black text-white mb-2">❌ SBAGLIATO!</div>
-                <div className="text-2xl text-red-100">{lastError.participant?.nickname}</div>
+                <div className="text-2xl text-red-100">{lastError.participants?.nickname}</div>
               </div>
             </div>
           </div>
@@ -224,7 +203,7 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
             {arcade.options.map((option, index) => (
               <div
                 key={index}
-                className="px-8 py-6 rounded-2xl border-2 border-white/20 hover:border-fuchsia-500/50 transition-all"
+                className="px-8 py-6 rounded-2xl border-2 border-white/20"
                 style={{background: 'rgba(15, 15, 20, 0.7)', backdropFilter: 'blur(20px)'}}
               >
                 <div className="flex items-center gap-4">
