@@ -696,6 +696,13 @@ export default function PubDisplay() {
         return () => { clearInterval(int); supabase.removeChannel(ch); };
     }, [pubCode, load]);
 
+    // ✅ Hook PRIMA di qualsiasi return condizionale (regola React)
+    const dismissArcadeWinner = useCallback(() => {
+        if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
+        setArcadeWinner(null);
+        lastArcadeGameId.current = null;
+    }, []);
+
     if (!data) return (
         <div className="w-screen h-screen bg-black flex flex-col items-center justify-center">
              <div className="w-20 h-20 border-8 border-fuchsia-600 border-t-transparent rounded-full animate-spin mb-6"></div>
@@ -719,13 +726,6 @@ export default function PubDisplay() {
     const isKaraoke = !isQuiz && !isArcade && perf && ['live', 'paused'].includes(perf.status);
     const isVoting = !isQuiz && !isArcade && perf && perf.status === 'voting';
     const isScore = !isQuiz && !isArcade && perf && perf.status === 'ended';
-    
-    // Callback per chiudere manualmente il vincitore arcade
-    const dismissArcadeWinner = useCallback(() => {
-        if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
-        setArcadeWinner(null);
-        lastArcadeGameId.current = null;
-    }, []);
 
     let Content = null;
     if (isQuiz) Content = <QuizMode quiz={quiz} result={quizResult} />;
