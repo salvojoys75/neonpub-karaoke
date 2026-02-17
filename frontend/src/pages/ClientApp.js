@@ -89,6 +89,7 @@ export default function ClientApp() {
       } else {
         setActiveArcade(null);
       }
+      // ✅ FIX: Non caricare mai extraction_data nel telefono - è solo per il display TV
     } catch (error) { console.error("Errore caricamento:", error); }
   }, [activeQuiz, showQuizModal, user, hasVoted, quizAnswer, quizResult, activeArcade]);
 
@@ -159,7 +160,7 @@ export default function ClientApp() {
             ) : (<div className="glass rounded-2xl p-8 text-center border-dashed border-2 border-zinc-800"><Music className="w-12 h-12 mx-auto text-zinc-600 mb-2" /><p className="text-zinc-500">Il palco è vuoto</p></div>)}
             <Button onClick={() => setShowMessageModal(true)} variant="outline" className="w-full border-zinc-700 hover:bg-zinc-800"><MessageSquare className="w-4 h-4 mr-2" /> Invia Messaggio</Button>
             <Button onClick={() => setShowRequestModal(true)} className="w-full rounded-full bg-gradient-to-r from-fuchsia-600 to-purple-600 py-6 text-lg shadow-lg font-bold"><Music className="w-5 h-5 mr-2" /> Richiedi Canzone</Button>
-            <div className="space-y-3"><h3 className="font-bold text-lg flex items-center gap-2"><Music className="w-5 h-5 text-fuchsia-400" /> Prossimi</h3>{queue.filter(s => s.status === "queued").slice(0, 5).map((song, index) => (<div key={song.id} className="glass rounded-xl p-4 flex items-center gap-4"><span className="mono text-2xl text-fuchsia-400 font-bold w-8">{index + 1}</span><div className="flex-1 min-w-0"><p className="font-medium truncate">{song.title}</p><p className="text-sm text-zinc-500 truncate">{song.artist}</p></div><span className="text-xs text-cyan-400">{song.user_nickname}</span></div>))}</div>
+            <div className="space-y-3"><h3 className="font-bold text-lg flex items-center gap-2"><Music className="w-5 h-5 text-fuchsia-400" /> Prossimi</h3>{queue.filter(s => s.status === "queued").sort((a, b) => (a.position || 0) - (b.position || 0)).slice(0, 5).map((song, index) => (<div key={song.id} className="glass rounded-xl p-4 flex items-center gap-4"><span className="mono text-2xl text-fuchsia-400 font-bold w-8">{index + 1}</span><div className="flex-1 min-w-0"><p className="font-medium truncate">{song.title}</p><p className="text-sm text-zinc-500 truncate">{song.artist}</p></div><span className="text-xs text-cyan-400">{song.user_nickname}</span></div>))}</div>
           </div>
         )}
         {activeTab === "songs" && (<div className="space-y-4"><h2 className="text-xl font-bold">Le Mie Richieste</h2>{myRequests.map(song => (<div key={song.id} className="glass rounded-xl p-4"><p className="font-medium">{song.title}</p><div className="flex justify-between mt-1"><p className="text-sm text-zinc-500">{song.artist}</p><span className={`text-xs uppercase px-2 py-1 rounded ${song.status==='queued' ? 'bg-green-500/20 text-green-400' : 'bg-zinc-800 text-zinc-500'}`}>{song.status}</span></div></div>))}</div>)}
