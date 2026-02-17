@@ -529,33 +529,37 @@ export default function PubDisplay() {
                 const arcade = finalData.active_arcade;
                 if (arcade && arcade.status === 'ended' && arcade.winner_id) {
                     if (lastArcadeGameId.current !== arcade.id) {
-                        lastArcadeGameId.current = arcade.id;
+                        // Setta DOPO il fetch (non prima), così se fallisce si riprova
                         try {
-                            const { data: winnerData, error: winnerError } = await supabase
+                            const { data: winnerData, error: winErr } = await supabase
                                 .from('participants')
                                 .select('id, nickname, avatar_url')
                                 .eq('id', arcade.winner_id)
                                 .maybeSingle();
-                            if (winnerError) {
-                                console.error('❌ Errore fetch vincitore arcade:', winnerError.message, winnerError.details);
-                            }
+                            if (winErr) console.error('❌ Fetch vincitore arcade:', winErr.message);
+                            // Setta id solo dopo fetch riuscito per non bloccare i retry
+                            lastArcadeGameId.current = arcade.id;
                             if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
-                            // Mostra la schermata anche se winnerData è null (usa fallback dal gioco)
                             setArcadeWinner({
                                 game_id: arcade.id,
-                                winner: winnerData || { id: arcade.winner_id, nickname: arcade.winner_nickname || 'Vincitore!', avatar_url: null }
+                                winner: winnerData || {
+                                    id: arcade.winner_id,
+                                    nickname: arcade.winner_nickname || '🏆 Vincitore!',
+                                    avatar_url: null
+                                }
                             });
                             arcadeWinnerTimer.current = setTimeout(() => {
                                 setArcadeWinner(null);
                                 lastArcadeGameId.current = null;
                             }, 30000);
-                        } catch (fetchErr) {
+                        } catch(fetchErr) {
                             console.error('❌ Eccezione fetch vincitore:', fetchErr);
-                            // Mostra comunque la schermata con dati fallback
+                            // Mostra comunque la schermata con fallback
+                            lastArcadeGameId.current = arcade.id;
                             if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
                             setArcadeWinner({
                                 game_id: arcade.id,
-                                winner: { id: arcade.winner_id, nickname: 'Vincitore!', avatar_url: null }
+                                winner: { id: arcade.winner_id, nickname: '🏆 Vincitore!', avatar_url: null }
                             });
                             arcadeWinnerTimer.current = setTimeout(() => {
                                 setArcadeWinner(null);
@@ -577,31 +581,59 @@ export default function PubDisplay() {
 
     useEffect(() => {
         load();
-        const int = setInterval(load, 1000);
-        
-        const ch = supabase.channel('tv_ctrl')
-            .on('broadcast', {event: 'control'}, p => { if(p.payload.command === 'mute') setIsMuted(p.payload.value); })
-            .on('postgres_changes', {event: 'INSERT', schema: 'public', table: 'reactions'}, p => setNewReaction(p.new))
-            .on('postgres_changes', {event: '*', schema: 'public', table: 'performances'}, load)
-            .on('postgres_changes', {event: '*', schema: 'public', table: 'quizzes'}, load)
-            .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'events'}, load)
-            .on('postgres_changes', {event: '*', schema: 'public', table: 'arcade_games'}, async (payload) => {
-                // Se un gioco termina, forza subito il reset del lastArcadeGameId
-                // così il prossimo load() trigghera il fetch vincitore
-                if (payload.new && payload.new.status === 'ended' && payload.new.winner_id) {
-                    if (lastArcadeGameId.current === payload.new.id) {
-                        // Già processato, non fare nulla
-                    } else {
-                        lastArcadeGameId.current = null; // Forza re-fetch vincitore
-                    }
-                }
-                load();
+        const int = setInterval(load, 3000); // 3s polling - il realtime fa il lavoro vero
+
+        // Aspetta che data sia pronto per avere l'event_id
+        // Canale broadcast (mute) usa nome fisso, postgres_changes filtra per event_id
+        const ch = supabase.channel(`tv_display_${pubCode}`)
+            .on('broadcast', {event: 'control'}, p => {
+                if(p.payload.command === 'mute') setIsMuted(p.payload.value);
             })
-            .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'participants'}, load)
             .subscribe();
-            
+
         return () => { clearInterval(int); supabase.removeChannel(ch); };
     }, [pubCode, load]);
+
+    // Canale separato per reazioni e DB changes - si attiva quando abbiamo l'event_id
+    useEffect(() => {
+        if (!data?.pub?.id) return; // aspetta che data sia caricato
+        const eventId = data.pub.id;
+
+        const dbCh = supabase.channel(`tv_db_${pubCode}`)
+            // REAZIONI: filtrate per event_id - fix emoji non arrivano
+            .on('postgres_changes', {
+                event: 'INSERT', schema: 'public', table: 'reactions',
+                filter: `event_id=eq.${eventId}`
+            }, p => {
+                if (p.new?.emoji) {
+                    setNewReaction({ ...p.new, id: Date.now() });
+                }
+            })
+            .on('postgres_changes', {event: '*', schema: 'public', table: 'performances',
+                filter: `event_id=eq.${eventId}`}, load)
+            .on('postgres_changes', {event: '*', schema: 'public', table: 'quizzes',
+                filter: `event_id=eq.${eventId}`}, load)
+            .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'events',
+                filter: `id=eq.${eventId}`}, load)
+            .on('postgres_changes', {event: '*', schema: 'public', table: 'arcade_games',
+                filter: `event_id=eq.${eventId}`}, (payload) => {
+                    // Se il gioco passa a 'ended', resetta il lastArcadeGameId
+                    // per permettere al prossimo load() di fetchare il vincitore
+                    if (payload.new?.status === 'ended' && payload.new?.winner_id) {
+                        if (lastArcadeGameId.current === payload.new.id) {
+                            // Già processato, skip
+                        } else {
+                            lastArcadeGameId.current = null; // forza re-fetch vincitore
+                        }
+                    }
+                    load();
+                })
+            .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'participants',
+                filter: `event_id=eq.${eventId}`}, load)
+            .subscribe();
+
+        return () => { supabase.removeChannel(dbCh); };
+    }, [data?.pub?.id, pubCode, load]);
 
     if (!data) return (
         <div className="w-screen h-screen bg-black flex flex-col items-center justify-center">
@@ -615,7 +647,7 @@ export default function PubDisplay() {
     const recentMessages = approved_messages ? approved_messages.slice(0, 10) : [];
 
     const isQuiz = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
-    // Mostra modalità arcade se: gioco attivo/in pausa, gioco appena terminato (ended), o schermata vincitore attiva
+    // Mostra arcade se: gioco attivo/pausa, OPPURE gioco appena ended (schermata vincitore), OPPURE arcadeWinner in state
     const isArcade = !isQuiz && (
         (data.active_arcade && ['active', 'paused', 'ended'].includes(data.active_arcade.status)) ||
         arcadeWinner !== null

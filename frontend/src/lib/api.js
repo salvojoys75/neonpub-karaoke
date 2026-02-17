@@ -341,29 +341,22 @@ export const validateArcadeAnswer = async (bookingId, isCorrect, givenAnswer = n
     
     // Se è corretta, aggiorna il gioco
     if (isCorrect) {
-      // Incrementa i punti del partecipante
-      const { error: pointsError } = await supabase
-        .from('participants')
-        .update({
-          score: supabase.rpc('increment_score', { 
-            row_id: booking.participant_id, 
-            increment_value: pointsAwarded 
-          })
-        })
-        .eq('id', booking.participant_id);
-      
-      if (pointsError) {
-        // Fallback se rpc non funziona
-        const { data: participant } = await supabase
+      // Incrementa i punti del partecipante (fetch + update manuale, evita il 400 di supabase.rpc dentro update)
+      try {
+        const { data: participant, error: fetchErr } = await supabase
           .from('participants')
           .select('score')
           .eq('id', booking.participant_id)
-          .single();
+          .maybeSingle();
         
-        await supabase
-          .from('participants')
-          .update({ score: (participant?.score || 0) + pointsAwarded })
-          .eq('id', booking.participant_id);
+        if (!fetchErr && participant !== null) {
+          await supabase
+            .from('participants')
+            .update({ score: (participant?.score || 0) + pointsAwarded })
+            .eq('id', booking.participant_id);
+        }
+      } catch(scoreErr) {
+        console.warn('⚠️ Impossibile aggiornare punteggio partecipante:', scoreErr);
       }
       
       // Imposta il vincitore e chiudi il gioco
