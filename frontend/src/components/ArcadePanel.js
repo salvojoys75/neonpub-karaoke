@@ -261,7 +261,7 @@ export default function ArcadePanel({
               ? <Volume2 className="w-3 h-3 text-green-400" /> 
               : <VolumeX className="w-3 h-3 text-red-400" />
             }
-            <span>{isPlayerVisible ? 'MUSICA IN RIPRODUZIONE' : newBookingAlert ? '⚡ PRENOTAZIONE ARRIVATA — MUSICA IN PAUSA' : 'MUSICA IN PAUSA'}</span>
+            <span>{isPlayerVisible ? 'MUSICA IN RIPRODUZIONE' : newBookingAlert ? '⚡ PRENOTAZIONE ARRIVATA — MUSICA FERMA' : 'MUSICA FERMA'}</span>
           </div>
           <button
             onClick={() => {
@@ -270,58 +270,50 @@ export default function ArcadePanel({
             }}
             className="text-zinc-500 hover:text-white transition text-[10px] underline"
           >
-            {isPlayerVisible ? 'nascondi' : 'rimostra'}
+            {isPlayerVisible ? 'ferma' : 'riavvia'}
           </button>
         </div>
 
-        {/* iframe — sempre montato, nascosto con opacity */}
-        <div style={{ 
-          opacity: isPlayerVisible ? 1 : 0, 
-          height: isPlayerVisible ? 'auto' : '0',
-          overflow: 'hidden',
-          transition: 'opacity 0.3s ease'
-        }}>
-          {spotifyUrl ? (
-            <iframe
-              key={game.id} // ✅ Key basata su game.id per non ricaricare se cambia solo visibility
-              src={spotifyUrl}
-              width="100%"
-              height="80"
-              frameBorder="0"
-              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-              className="block"
-            />
-          ) : youtubeUrl ? (
-            <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
+        {/* ✅ IFRAME - MONTATO SOLO SE isPlayerVisible = true */}
+        {/* Quando isPlayerVisible = false, l'iframe viene COMPLETAMENTE SMONTATO */}
+        {/* Spotify lo interpreta come "pagina chiusa" e ferma la musica */}
+        {isPlayerVisible && (
+          <div>
+            {spotifyUrl ? (
               <iframe
-                src={youtubeUrl}
-                className="absolute top-0 left-0 w-full h-full"
+                key={`${game.id}-${isPlayerVisible}`} // ✅ Key cambia quando visibility cambia
+                src={spotifyUrl}
+                width="100%"
+                height="80"
                 frameBorder="0"
-                allow="autoplay; encrypted-media"
-                allowFullScreen
+                allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                className="block"
               />
-            </div>
-          ) : (
-            <div className="text-xs text-zinc-500 text-center py-3">
-              URL non riconosciuto: {game.track_url}
-            </div>
-          )}
-        </div>
+            ) : youtubeUrl ? (
+              <div className="relative w-full" style={{ paddingTop: '30%' }}>
+                <iframe
+                  key={`${game.id}-${isPlayerVisible}`}
+                  src={youtubeUrl}
+                  className="absolute top-0 left-0 w-full h-full"
+                  frameBorder="0"
+                  allow="autoplay; encrypted-media"
+                  allowFullScreen
+                />
+              </div>
+            ) : (
+              <div className="text-xs text-zinc-500 text-center py-3">
+                URL non riconosciuto: {game.track_url}
+              </div>
+            )}
+          </div>
+        )}
 
-        {/* Placeholder quando nascosto */}
+        {/* ✅ Placeholder quando player è fermato */}
         {!isPlayerVisible && (
-          <div 
-            className={`py-3 text-center text-sm font-bold cursor-pointer transition-all ${
-              newBookingAlert 
-                ? 'bg-red-900/20 text-red-400 animate-pulse' 
-                : 'bg-zinc-900 text-zinc-500'
-            }`}
-            onClick={() => { setIsPlayerVisible(true); setNewBookingAlert(false); }}
-          >
-            {newBookingAlert 
-              ? '⚡ Clicca per riavviare la musica dopo la risposta' 
-              : '▶️ Clicca per riavviare la musica'
-            }
+          <div className="bg-zinc-950 p-6 text-center border-t border-zinc-800">
+            <VolumeX className="w-10 h-10 mx-auto text-zinc-700 mb-2" />
+            <p className="text-zinc-600 text-sm font-bold mb-1">🎵 Player Fermato</p>
+            <p className="text-zinc-700 text-xs">Click "riavvia" o "RIPRENDI MUSICA" per ripartire</p>
           </div>
         )}
       </div>
