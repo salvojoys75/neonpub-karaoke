@@ -624,6 +624,20 @@ export default function PubDisplay() {
                     }
                 }
 
+                // ── AUTO-DISMISS vincitore arcade se si attiva un'altra modalità principale ──
+                // Se c'è un vincitore arcade in attesa ma ora è attivo quiz / karaoke / voting / score
+                // la schermata vincitore va rimossa subito, senza aspettare il timer da 15s
+                const hasOtherActiveMode =
+                    (finalData.active_quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(finalData.active_quiz?.status)) ||
+                    (finalData.current_performance && ['live', 'paused', 'voting', 'ended'].includes(finalData.current_performance?.status));
+
+                if (hasOtherActiveMode) {
+                    // C'è qualcosa di attivo oltre all'arcade: forza chiusura vincitore
+                    if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
+                    setArcadeWinner(null);
+                    lastArcadeGameId.current = null;
+                }
+
                 // Coda prenotazioni e ultimo errore se attivo
                 if (arcade && arcade.status === 'active') {
                     const { data: allBookings } = await api.getArcadeBookings(arcade.id);
@@ -706,14 +720,34 @@ export default function PubDisplay() {
     const isVoting = !isQuiz && !isArcade && perf && perf.status === 'voting';
     const isScore = !isQuiz && !isArcade && perf && perf.status === 'ended';
     
+    // Callback per chiudere manualmente il vincitore arcade
+    const dismissArcadeWinner = useCallback(() => {
+        if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
+        setArcadeWinner(null);
+        lastArcadeGameId.current = null;
+    }, []);
+
     let Content = null;
     if (isQuiz) Content = <QuizMode quiz={quiz} result={quizResult} />;
-    else if (isArcade) Content = <ArcadeMode
-      arcade={data.active_arcade || {}}
-      result={arcadeWinner ? { winner: arcadeWinner.winner } : null}
-      bookingQueue={data.active_arcade?.booking_queue || []}
-      lastError={data.active_arcade?.last_error}
-    />;
+    else if (isArcade) Content = (
+        <div className="relative w-full h-full">
+            <ArcadeMode
+                arcade={data.active_arcade || {}}
+                result={arcadeWinner ? { winner: arcadeWinner.winner } : null}
+                bookingQueue={data.active_arcade?.booking_queue || []}
+                lastError={data.active_arcade?.last_error}
+            />
+            {/* Pulsante "Termina" visibile solo sulla schermata del vincitore, fallback manuale */}
+            {arcadeWinner && (
+                <button
+                    onClick={dismissArcadeWinner}
+                    className="absolute bottom-6 right-6 z-[150] bg-black/70 hover:bg-red-700 border border-white/20 hover:border-red-400 text-white font-bold text-lg px-8 py-3 rounded-2xl backdrop-blur-md transition-all duration-200 shadow-xl"
+                >
+                    ✕ Termina schermata vincitore
+                </button>
+            )}
+        </div>
+    );
     else if (isVoting) Content = <VotingMode perf={perf} />;
     else if (isScore) Content = <ScoreMode perf={perf} />;
     else if (isKaraoke) Content = <KaraokeMode perf={perf} isMuted={isMuted} />;
@@ -726,7 +760,10 @@ export default function PubDisplay() {
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10 pointer-events-none z-0"></div>
 
             <TopBar pubName={pub.name} logoUrl={pub.logo_url} onlineCount={leaderboard?.length || 0} messages={recentMessages} isMuted={isMuted} />
-            <FloatingReactions newReaction={newReaction} />
+            {/* z-[500] assicura che le emoji volino sopra tutto, pointer-events-none evita blocchi click */}
+            <div className="absolute inset-0 z-[500] pointer-events-none">
+                <FloatingReactions newReaction={newReaction} />
+            </div>
             <AdminMessageOverlay message={admin_message} />
 
             {extraction_data && (
