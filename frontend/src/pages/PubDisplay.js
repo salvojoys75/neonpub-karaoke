@@ -607,6 +607,7 @@ export default function PubDisplay() {
         const ch = supabase.channel('tv_ctrl')
             .on('broadcast', {event: 'control'}, p => { if(p.payload.command === 'mute') setIsMuted(p.payload.value); })
             .on('postgres_changes', {event: 'INSERT', schema: 'public', table: 'reactions'}, p => {
+                console.log("REACTION RECEIVED:", p.new); // DEBUG
                 const reaction = p.new;
                 setNewReaction({
                     emoji: reaction.emoji,
@@ -625,7 +626,12 @@ export default function PubDisplay() {
         return () => { clearInterval(int); supabase.removeChannel(ch); };
     }, [pubCode, load]);
 
-    if (!data) return <div className="bg-black w-screen h-screen"></div>;
+    if (!data) return (
+        <div className="w-screen h-screen bg-black flex flex-col items-center justify-center">
+             <div className="w-20 h-20 border-8 border-fuchsia-600 border-t-transparent rounded-full animate-spin mb-6"></div>
+             <div className="text-white text-3xl font-black font-mono tracking-[0.5em] animate-pulse">CARICAMENTO...</div>
+        </div>
+    );
 
     const { pub, current_performance: perf, queue, active_quiz: quiz, admin_message, leaderboard, approved_messages, extraction_data } = data;
     const recentMessages = approved_messages ? approved_messages.slice(0, 10) : [];
