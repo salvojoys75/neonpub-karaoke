@@ -111,8 +111,8 @@ export default function ArcadePanel({
     if (!selectedTrack) { toast.error('Seleziona una traccia!'); return; }
     setLoading(true);
     
-    // ✅ MANTIENI PLAYER VISIBILE prima di tutto
-    setIsPlayerVisible(true);
+    // ✅ NON toccare isPlayerVisible - lascialo com'è
+    // Se il DJ ha già fatto play, il player resta visibile e musica continua
     
     try {
       const correctAnswer = selectedTrack.options[selectedTrack.correct_index];
@@ -133,13 +133,12 @@ export default function ArcadePanel({
         options: selectedTrack.options || []
       });
       
-      // ✅ NON cambiare isPlayerVisible, resta true
       setActiveGame(data);
       setShowSetup(false);
       setSelectedTrack(null);
       setSearchQuery('');
       
-      // Avvia il gioco - player già visibile, musica continua
+      // Avvia il gioco - player non viene toccato
       await handleStartGame(data.id);
       toast.success('🎮 Gioco avviato! La musica continua.');
     } catch (error) {
@@ -281,7 +280,7 @@ export default function ArcadePanel({
           <div>
             {spotifyUrl ? (
               <iframe
-                key={`${game.id}-${isPlayerVisible}`} // ✅ Key cambia quando visibility cambia
+                key={spotifyUrl} // ✅ Key basata su URL, non su game.id
                 src={spotifyUrl}
                 width="100%"
                 height="80"
@@ -292,7 +291,7 @@ export default function ArcadePanel({
             ) : youtubeUrl ? (
               <div className="relative w-full" style={{ paddingTop: '30%' }}>
                 <iframe
-                  key={`${game.id}-${isPlayerVisible}`}
+                  key={youtubeUrl} // ✅ Key basata su URL
                   src={youtubeUrl}
                   className="absolute top-0 left-0 w-full h-full"
                   frameBorder="0"
