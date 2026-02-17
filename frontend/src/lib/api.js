@@ -1062,7 +1062,17 @@ export const getAdminQueue = async () => {
 }
 
 export const approveRequest = async (requestId) => {
-  const { data, error } = await supabase.from('song_requests').update({ status: 'queued' }).eq('id', requestId).select()
+  const event = await getAdminEvent()
+  const { data: existing } = await supabase
+    .from("song_requests")
+    .select("position")
+    .eq("event_id", event.id)
+    .eq("status", "queued")
+    .order("position", { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const nextPosition = (existing?.position != null) ? existing.position + 1 : 1
+  const { data, error } = await supabase.from("song_requests").update({ status: "queued", position: nextPosition }).eq("id", requestId).select()
   if (error) throw error; return { data }
 }
 

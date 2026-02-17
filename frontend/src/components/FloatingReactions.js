@@ -6,10 +6,12 @@ const FloatingReactions = ({ newReaction }) => {
   useEffect(() => {
     if (newReaction) {
       const id = Date.now();
+      // Posizione casuale orizzontale
       const left = Math.floor(Math.random() * 80) + 10; 
       
       setReactions(prev => [...prev, { ...newReaction, id, left }]);
 
+      // Rimuovi dopo animazione
       setTimeout(() => {
         setReactions(prev => prev.filter(r => r.id !== id));
       }, 4000);
@@ -24,18 +26,12 @@ const FloatingReactions = ({ newReaction }) => {
           className="absolute bottom-0 flex flex-col items-center animate-float-up"
           style={{ left: `${r.left}%` }}
         >
-          {/* ✅ Fix emoji telefono: usa span con font-family che supporta emoji Unicode */}
-          <span 
-            className="drop-shadow-lg"
-            style={{ 
-              fontSize: '4rem', 
+          <span style={{ 
+              fontSize: "4rem", 
               lineHeight: 1,
-              fontFamily: '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Android Emoji", sans-serif',
+              fontFamily: '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif',
               display: 'inline-block'
-            }}
-          >
-            {r.emoji}
-          </span>
+            }} className="drop-shadow-lg">{r.emoji}</span>
           {r.nickname && (
             <span className="bg-black/50 text-white text-xs px-2 py-1 rounded-full mt-1 backdrop-blur-sm border border-white/20">
               {r.nickname}

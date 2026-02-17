@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '@/lib/supabase';
@@ -564,6 +564,8 @@ export default function PubDisplay() {
     const [isMuted, setIsMuted] = useState(false);
     const [quizResult, setQuizResult] = useState(null);
     const [newReaction, setNewReaction] = useState(null);
+    const [arcadeWinnerData, setArcadeWinnerData] = useState(null); // stato locale vincitore arcade
+    const arcadeWinnerTimerRef = useRef(null); // timer per pulire vincitore
 
     const load = useCallback(async () => {
         try {
@@ -592,23 +594,29 @@ export default function PubDisplay() {
                 // ── ARCADE: carica dati arcade ──
                 const arcade = finalData.active_arcade;
                 
-                // Vincitore se terminato di recente (entro 30 secondi)
+                // Vincitore: usa stato locale (arcadeWinnerData) che persiste fino al prossimo gioco
                 if (arcade && arcade.status === 'ended' && arcade.winner_id) {
-                    const endedAt = new Date(arcade.ended_at);
-                    const secondsAgo = (Date.now() - endedAt.getTime()) / 1000;
-                    
-                    if (secondsAgo < 30) {
-                        const { data: winner } = await supabase
-                            .from('participants')
-                            .select('id, nickname, avatar_url')
-                            .eq('id', arcade.winner_id)
-                            .single();
-                        
-                        finalData = {
-                            ...finalData,
-                            arcade_result: { winner }
-                        };
-                    }
+                    // Carica il vincitore e salvalo nello stato locale (non temporaneo)
+                    const { data: winner } = await supabase
+                        .from('participants')
+                        .select('id, nickname, avatar_url')
+                        .eq('id', arcade.winner_id)
+                        .single();
+                    // Setta stato locale solo se non già presente per questo gioco
+                    setArcadeWinnerData(prev => {
+                        if (!prev || prev.game_id !== arcade.id) {
+                            // Cancella timer precedente
+                            if (arcadeWinnerTimerRef.current) clearTimeout(arcadeWinnerTimerRef.current);
+                            // Pulisce dopo 15 secondi
+                            arcadeWinnerTimerRef.current = setTimeout(() => setArcadeWinnerData(null), 15000);
+                            return { game_id: arcade.id, winner };
+                        }
+                        return prev;
+                    });
+                } else if (!arcade || arcade.status === 'active') {
+                    // Nuovo gioco iniziato: pulisci vincitore precedente
+                    if (arcadeWinnerTimerRef.current) clearTimeout(arcadeWinnerTimerRef.current);
+                    setArcadeWinnerData(null);
                 }
 
                 // Coda prenotazioni e ultimo errore se attivo
@@ -644,14 +652,20 @@ export default function PubDisplay() {
         load();
         const int = setInterval(load, 1000); // ✅ Ridotto a 1 secondo per reattività immediata
         
-        const ch = supabase.channel('tv_ctrl')
+        // Recupera event_id dal dato già caricato (pub.id)
+        const eventIdForFilter = data?.pub?.id;
+        
+        const ch = supabase.channel(`tv_ctrl_${pubCode}`)
             .on('broadcast', {event: 'control'}, p => { if(p.payload.command === 'mute') setIsMuted(p.payload.value); })
-            .on('postgres_changes', {event: 'INSERT', schema: 'public', table: 'reactions'}, p => {
+            .on('postgres_changes', {
+                event: 'INSERT', schema: 'public', table: 'reactions',
+                filter: eventIdForFilter ? `event_id=eq.${eventIdForFilter}` : undefined
+            }, p => {
                 const reaction = p.new;
-                // ✅ Fix emoji da telefono iOS/Android: forza rendering corretto
-                const emoji = reaction.emoji || '';
+                // Verifica che sia del nostro evento
+                if (eventIdForFilter && reaction.event_id !== eventIdForFilter) return;
                 setNewReaction({
-                    emoji: emoji,
+                    emoji: reaction.emoji || '',
                     nickname: reaction.nickname || '',
                     id: reaction.id,
                     _t: Date.now()
@@ -681,17 +695,10 @@ export default function PubDisplay() {
     // ⚠️ PRIORITÀ MODULI: Quiz > Arcade (solo se realmente attivo) > Karaoke/Voting/Score
     const isQuiz = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
     
-    // Arcade è attivo SOLO se:
-    // - status è 'active' o 'paused', OPPURE
-    // - status è 'ended' E c'è un winner_id (mostra vincitore per 8 secondi poi scompare)
-    const arcadeEndedAt = data.active_arcade?.ended_at;
-    const arcadeWinner = data.active_arcade?.winner_id;
-    const arcadeEndedRecently = arcadeEndedAt && arcadeWinner && 
-        (Date.now() - new Date(arcadeEndedAt).getTime()) < 30000; // 30 sec allineato con load()
-    
-    const isArcade = data.active_arcade && (
-      ['active', 'paused'].includes(data.active_arcade.status) ||
-      arcadeEndedRecently
+    // Arcade attivo se: gioco in corso OPPURE stato locale vincitore presente
+    const isArcade = !isQuiz && (
+      (data.active_arcade && ['active', 'paused'].includes(data.active_arcade.status)) ||
+      arcadeWinnerData !== null
     );
     
     const isKaraoke = !isQuiz && !isArcade && perf && ['live', 'paused'].includes(perf.status);
@@ -701,8 +708,8 @@ export default function PubDisplay() {
     let Content = null;
     if (isQuiz) Content = <QuizMode quiz={quiz} result={quizResult} />;
     else if (isArcade) Content = <ArcadeMode 
-      arcade={data.active_arcade} 
-      result={data.arcade_result} 
+      arcade={data.active_arcade || {}} 
+      result={arcadeWinnerData ? { winner: arcadeWinnerData.winner } : null} 
       bookingQueue={data.active_arcade?.booking_queue || []}
       lastError={data.active_arcade?.last_error}
     />;
