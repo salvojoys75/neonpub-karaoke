@@ -564,8 +564,11 @@ export default function PubDisplay() {
     const [isMuted, setIsMuted] = useState(false);
     const [quizResult, setQuizResult] = useState(null);
     const [newReaction, setNewReaction] = useState(null);
-    const [arcadeWinnerData, setArcadeWinnerData] = useState(null);
-    const arcadeWinnerTimerRef = useRef(null);
+    // Vincitore arcade: stato separato con timer, non dipende dal polling
+    const [arcadeWinner, setArcadeWinner] = useState(null); // { game_id, winner }
+    const arcadeWinnerTimer = useRef(null);
+    const lastArcadeGameId = useRef(null);
+    const eventIdRef = useRef(null); // aggiornato ad ogni load() per il filtro emoji
 
     const load = useCallback(async () => {
         try {
@@ -593,33 +596,32 @@ export default function PubDisplay() {
 
                 // ── ARCADE: carica dati arcade ──
                 const arcade = finalData.active_arcade;
-                
+
                 if (arcade && arcade.status === 'ended' && arcade.winner_id) {
-                    // Gioco terminato con vincitore: salva nello stato locale una sola volta
-                    const { data: winner } = await supabase
-                        .from('participants')
-                        .select('id, nickname, avatar_url')
-                        .eq('id', arcade.winner_id)
-                        .single();
-                    setArcadeWinnerData(prev => {
-                        if (!prev || prev.game_id !== arcade.id) {
-                            if (arcadeWinnerTimerRef.current) clearTimeout(arcadeWinnerTimerRef.current);
-                            // Scompare dopo 15s O quando si cambia scena
-                            arcadeWinnerTimerRef.current = setTimeout(() => setArcadeWinnerData(null), 15000);
-                            return { game_id: arcade.id, winner };
-                        }
-                        return prev;
-                    });
-                } else {
-                    // Qualsiasi altra situazione (nuovo gioco, quiz, karaoke, null): pulisci vincitore
-                    setArcadeWinnerData(prev => {
-                        if (prev) {
-                            if (arcadeWinnerTimerRef.current) clearTimeout(arcadeWinnerTimerRef.current);
-                            // Se c'è un nuovo gioco active o arcade è null → pulisci subito
-                            if (!arcade || arcade.status === 'active') return null;
-                        }
-                        return prev;
-                    });
+                    // Nuovo gioco terminato: mostra vincitore per 15s poi pulisci
+                    if (lastArcadeGameId.current !== arcade.id) {
+                        lastArcadeGameId.current = arcade.id;
+                        const { data: winnerData } = await supabase
+                            .from('participants')
+                            .select('id, nickname, avatar_url')
+                            .eq('id', arcade.winner_id)
+                            .single();
+                        // Cancella timer precedente se esiste
+                        if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
+                        setArcadeWinner({ game_id: arcade.id, winner: winnerData });
+                        // Dopo 15s pulisci automaticamente
+                        arcadeWinnerTimer.current = setTimeout(() => {
+                            setArcadeWinner(null);
+                            lastArcadeGameId.current = null;
+                        }, 15000);
+                    }
+                } else if (!arcade || arcade.status === 'active' || arcade.status === 'setup') {
+                    // Nessun gioco, o nuovo gioco partito: pulisci subito vincitore precedente
+                    if (lastArcadeGameId.current !== null && (!arcade || arcade.id !== lastArcadeGameId.current)) {
+                        if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
+                        setArcadeWinner(null);
+                        lastArcadeGameId.current = null;
+                    }
                 }
 
                 // Coda prenotazioni e ultimo errore se attivo
@@ -647,6 +649,8 @@ export default function PubDisplay() {
                 }
                 
                 setData(finalData);
+                // Aggiorna ref con l'event_id per il filtro emoji nel channel
+                if (finalData.pub?.id) eventIdRef.current = finalData.pub.id;
             }
         } catch(e) { console.error(e); }
     }, [pubCode]);
@@ -655,20 +659,12 @@ export default function PubDisplay() {
         load();
         const int = setInterval(load, 1000); // ✅ Ridotto a 1 secondo per reattività immediata
         
-        // event_id per filtrare reazioni solo del nostro pub
-        const myEventId = data?.pub?.id;
-        
-        const ch = supabase.channel(`tv_${pubCode}`)
+        const ch = supabase.channel(`display-${pubCode}`)
             .on('broadcast', {event: 'control'}, p => { if(p.payload.command === 'mute') setIsMuted(p.payload.value); })
-            .on('postgres_changes', {
-                event: 'INSERT',
-                schema: 'public',
-                table: 'reactions',
-                filter: myEventId ? `event_id=eq.${myEventId}` : undefined
-            }, p => {
+            .on('postgres_changes', {event: 'INSERT', schema: 'public', table: 'reactions'}, p => {
                 const reaction = p.new;
-                // Doppia verifica: scarta reazioni di altri eventi
-                if (myEventId && reaction.event_id !== myEventId) return;
+                // eventIdRef.current viene aggiornato ad ogni load() - scarta reazioni di altri eventi
+                if (eventIdRef.current && reaction.event_id !== eventIdRef.current) return;
                 setNewReaction({
                     emoji: reaction.emoji || '',
                     nickname: reaction.nickname || '',
@@ -700,10 +696,10 @@ export default function PubDisplay() {
     // ⚠️ PRIORITÀ MODULI: Quiz > Arcade (solo se realmente attivo) > Karaoke/Voting/Score
     const isQuiz = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
     
-    // Arcade attivo se: gioco in corso OPPURE stato locale vincitore presente
+    // Arcade attivo: gioco in corso OPPURE vincitore da mostrare (gestito con timer)
     const isArcade = !isQuiz && (
       (data.active_arcade && ['active', 'paused'].includes(data.active_arcade.status)) ||
-      arcadeWinnerData !== null
+      arcadeWinner !== null
     );
     
     const isKaraoke = !isQuiz && !isArcade && perf && ['live', 'paused'].includes(perf.status);
@@ -712,9 +708,9 @@ export default function PubDisplay() {
     
     let Content = null;
     if (isQuiz) Content = <QuizMode quiz={quiz} result={quizResult} />;
-    else if (isArcade) Content = <ArcadeMode 
-      arcade={data.active_arcade || {}} 
-      result={arcadeWinnerData ? { winner: arcadeWinnerData.winner } : null} 
+    else if (isArcade) Content = <ArcadeMode
+      arcade={data.active_arcade || {}}
+      result={arcadeWinner ? { winner: arcadeWinner.winner } : null}
       bookingQueue={data.active_arcade?.booking_queue || []}
       lastError={data.active_arcade?.last_error}
     />;

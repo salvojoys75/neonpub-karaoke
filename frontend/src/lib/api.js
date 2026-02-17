@@ -187,33 +187,22 @@ export const endArcadeGame = async (gameId) => {
  */
 export const getActiveArcadeGame = async () => {
   try {
-    // Funziona sia per admin (usa pub_code) che per partecipante (usa token)
+    // Funziona sia per partecipante (token JWT) che per admin (pub_code)
     let eventId = null;
-    
-    // Prova prima come partecipante (token)
+
     const token = localStorage.getItem('discojoys_token');
     if (token) {
-      try {
-        const p = JSON.parse(atob(token));
-        eventId = p.event_id;
-      } catch(e) {}
+      try { eventId = JSON.parse(atob(token)).event_id; } catch(e) {}
     }
-    
-    // Se non trovato, prova come admin (pub_code)
     if (!eventId) {
       const pubCode = localStorage.getItem('discojoys_pub_code');
       if (pubCode) {
-        const { data: ev } = await supabase
-          .from('events')
-          .select('id')
-          .eq('code', pubCode.toUpperCase())
-          .single();
+        const { data: ev } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
         eventId = ev?.id;
       }
     }
-    
     if (!eventId) return { data: null };
-    
+
     const { data, error } = await supabase
       .from('arcade_games')
       .select('*')
@@ -221,7 +210,7 @@ export const getActiveArcadeGame = async () => {
       .in('status', ['setup', 'waiting', 'active', 'paused'])
       .order('created_at', { ascending: false })
       .limit(1);
-    
+
     if (error) throw error;
     return { data: data?.[0] || null };
   } catch (error) {
@@ -624,12 +613,16 @@ export const getActiveEventsForUser = async () => {
 }
 
 const closeExpiredEvents = async (ownerId) => {
-    const now = new Date().toISOString();
-    await supabase.from('events')
-        .update({ status: 'ended' })
-        .eq('owner_id', ownerId)
-        .eq('status', 'active')
-        .lte('expires_at', now);
+    try {
+        const now = new Date().toISOString();
+        await supabase.from('events')
+            .update({ status: 'ended' })
+            .eq('owner_id', ownerId)
+            .eq('status', 'active')
+            .lte('expires_at', now);
+    } catch(e) {
+        // RLS potrebbe bloccare questo update - ignora silenziosamente
+    }
 }
 
 export const uploadLogo = async (file) => {
@@ -1086,15 +1079,14 @@ export const getAdminQueue = async () => {
 }
 
 export const approveRequest = async (requestId) => {
-  // Calcola la prossima position disponibile in coda
   const event = await getAdminEvent()
-  const { data: queued } = await supabase
+  // Conta quante sono già in coda per assegnare la position successiva
+  const { count } = await supabase
     .from('song_requests')
-    .select('id')
+    .select('id', { count: 'exact', head: true })
     .eq('event_id', event.id)
     .eq('status', 'queued')
-  // La position è il numero di canzoni già in coda + 1
-  const nextPosition = (queued?.length || 0) + 1
+  const nextPosition = (count || 0) + 1
   const { data, error } = await supabase
     .from('song_requests')
     .update({ status: 'queued', position: nextPosition })
