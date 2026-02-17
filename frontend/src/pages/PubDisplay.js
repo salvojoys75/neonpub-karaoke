@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '@/lib/supabase';
@@ -223,11 +223,6 @@ const Sidebar = ({ pubCode, queue, leaderboard }) => (
   </div>
 );
 
-// ... Componenti Mode (KaraokeMode, etc.) rimangono uguali ...
-// Per brevità non li ripeto tutti qui, ma assicurati che siano presenti nel file finale.
-// Inserisci qui: KaraokeMode, VotingMode, ScoreMode, QuizMode, IdleMode come nel tuo file originale.
-// Ricopia i componenti: KaraokeMode, VotingMode, ScoreMode, QuizMode, IdleMode dal file originale.
-
 const KaraokeMode = ({ perf, isMuted }) => {
     return (
         <div className="w-full h-full relative">
@@ -311,7 +306,21 @@ const ScoreMode = ({ perf }) => (
 );
 
 const QuizMode = ({ quiz, result }) => {
-    // ... Implementazione QuizMode (copiare dal file originale) ...
+    // Helper function moved here to be used in renders
+    const getYtId = (url) => {
+        if (!url) return null;
+        // Regex robusta per supportare tutti i formati YouTube (shorts, share, embed, watch)
+        const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+        const match = url.match(regExp);
+        return (match && match[2].length === 11) ? match[2] : null;
+    };
+
+    const getSpotifyEmbed = (url) => {
+        if (!url) return null;
+        const m = url.match(/(?:track\/)([a-zA-Z0-9]+)/);
+        return m ? `https://open.spotify.com/embed/track/${m[1]}?utm_source=generator&theme=0` : null;
+    };
+
     if (quiz.status === 'leaderboard' && quiz.leaderboard) {
         return (
              <div className="w-full h-full flex flex-col bg-[#080808] relative p-12 overflow-hidden items-center justify-center">
@@ -331,9 +340,116 @@ const QuizMode = ({ quiz, result }) => {
              </div>
         );
     }
+
+    const isVideoQuiz = quiz.media_type === 'video' && quiz.media_url && !result;
+    const isAudioQuiz = quiz.media_type === 'audio' && quiz.media_url && !result;
     
-    // Per brevità: assicurati che il resto del componente QuizMode sia presente qui come nel file originale
-    // ...
+    const spotifyEmbedUrl = isAudioQuiz ? getSpotifyEmbed(quiz.media_url) : null;
+    const ytId = isVideoQuiz ? getYtId(quiz.media_url) : null;
+
+    if (isAudioQuiz && spotifyEmbedUrl) {
+        return (
+        <div className="w-full h-full flex flex-col bg-[#080808] overflow-hidden">
+            <div className="shrink-0 px-8 pt-6 pb-2">
+                <div className="rounded-xl overflow-hidden border border-zinc-700 shadow-lg">
+                    <div className="bg-zinc-900 px-3 py-1 text-xs text-zinc-500 font-bold uppercase tracking-widest flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+                        ASCOLTA LA CANZONE
+                    </div>
+                    <iframe
+                        key={quiz.id}
+                        src={spotifyEmbedUrl}
+                        width="100%"
+                        height="80"
+                        frameBorder="0"
+                        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                        className="block"
+                    />
+                </div>
+            </div>
+            <div className="flex flex-col items-center justify-center px-8 py-4 shrink-0">
+                <div className="bg-fuchsia-600 text-white px-6 py-2 rounded-full font-black text-lg uppercase tracking-[0.3em] mb-4 shadow-[0_0_20px_rgba(217,70,239,0.5)] border border-white/20">
+                    {quiz.category || "QUIZ TIME"}
+                </div>
+                <h1 style={{fontSize: 'clamp(1.2rem, 3vw, 3rem)', lineHeight: 1.2}} className="font-black text-white text-center drop-shadow-2xl">{quiz.question}</h1>
+            </div>
+            <div className="flex-1 px-8 pb-8 flex items-center">
+                {quiz.status === 'closed' ? (
+                    <div className="w-full flex justify-center">
+                        <div className="bg-red-600 px-10 py-5 rounded-[2rem] animate-pulse shadow-[0_0_60px_rgba(220,38,38,0.8)] border-4 border-red-400">
+                            <h2 className="text-5xl font-black text-white uppercase italic">TEMPO SCADUTO!</h2>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-2 gap-3 w-full h-full">
+                        {quiz.options.map((opt, i) => (
+                            <div key={i} className="glass-panel border-l-[8px] border-fuchsia-600 px-4 rounded-r-2xl flex items-center gap-4 text-left overflow-hidden">
+                                <div style={{fontSize: 'clamp(1.2rem, 2.5vw, 2.5rem)', minWidth: '2.5em', minHeight: '2.5em'}} className="bg-black/40 rounded-xl flex items-center justify-center font-black text-white shrink-0 font-mono border border-white/10 aspect-square">
+                                    {String.fromCharCode(65+i)}
+                                </div>
+                                <div style={{fontSize: 'clamp(1rem, 2vw, 2rem)'}} className="font-bold text-white leading-tight line-clamp-3">{opt}</div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+        );
+    }
+
+    if (isVideoQuiz && ytId) {
+        return (
+        <div className="w-full h-full flex flex-col bg-[#080808] overflow-hidden" style={{height: '100%'}}>
+            <div style={{height: '12%'}} className="flex flex-col items-center justify-center px-8 gap-1 shrink-0 overflow-hidden">
+                <div style={{fontSize: 'clamp(0.6rem, 1vw, 0.9rem)'}} className="bg-fuchsia-600 text-white px-4 py-1 rounded-full font-black uppercase tracking-[0.3em] shadow-[0_0_20px_rgba(217,70,239,0.5)] border border-white/20 shrink-0">
+                    {quiz.category || "QUIZ TIME"}
+                </div>
+                <h1 style={{fontSize: 'clamp(1rem, 2.5vw, 2.2rem)', lineHeight: 1.2}} className="font-black text-white text-center drop-shadow-2xl line-clamp-2">{quiz.question}</h1>
+            </div>
+
+            <div style={{height: '55%'}} className="shrink-0 px-8">
+                <div className="w-full h-full rounded-2xl overflow-hidden border border-white/10 shadow-2xl relative bg-black">
+                    {ytId && (
+                        <iframe
+                            src={`https://www.youtube.com/embed/${ytId}?autoplay=1&controls=0&modestbranding=1&showinfo=0&rel=0&loop=1&playlist=${ytId}`}
+                            allow="autoplay; encrypted-media"
+                            allowFullScreen={false}
+                            style={{position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none'}}
+                        />
+                    )}
+                    {/* BANNER ANTI-SPOILER PER COPRIRE TITOLO YOUTUBE */}
+                    <div style={{
+                        position: 'absolute', top: 0, left: 0, right: 0, height: '80px',
+                        background: '#000000',
+                        zIndex: 50, pointerEvents: 'none'
+                    }} />
+                </div>
+            </div>
+
+            <div style={{height: '33%'}} className="shrink-0 px-8 py-2 flex items-center">
+                {quiz.status === 'closed' ? (
+                    <div className="w-full flex justify-center">
+                        <div className="bg-red-600 px-10 py-5 rounded-[2rem] animate-pulse shadow-[0_0_60px_rgba(220,38,38,0.8)] border-4 border-red-400">
+                            <h2 className="text-5xl font-black text-white uppercase italic">TEMPO SCADUTO!</h2>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-2 gap-2 w-full h-full">
+                        {quiz.options.map((opt, i) => (
+                            <div key={i} className="glass-panel border-l-[8px] border-fuchsia-600 px-3 rounded-r-2xl flex items-center gap-3 text-left overflow-hidden">
+                                <div style={{fontSize: 'clamp(0.9rem, 1.8vw, 1.8rem)', minWidth: '2em', minHeight: '2em'}} className="bg-black/40 rounded-lg flex items-center justify-center font-black text-white shrink-0 font-mono border border-white/10 aspect-square">
+                                    {String.fromCharCode(65+i)}
+                                </div>
+                                <div style={{fontSize: 'clamp(0.8rem, 1.5vw, 1.4rem)'}} className="font-bold text-white leading-tight line-clamp-2">{opt}</div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+        );
+    }
+
     return (
     <div className="w-full h-full flex flex-col bg-[#080808] relative p-12 overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-b from-zinc-900 to-black z-0"></div>
@@ -432,7 +548,6 @@ export default function PubDisplay() {
             .on('postgres_changes', 
                 { event: 'INSERT', schema: 'public', table: 'reactions' }, 
                 (payload) => {
-                    console.log("REACTION RECEIVED:", payload);
                     const reaction = payload.new;
                     setNewReaction({
                         emoji: reaction.emoji,
@@ -447,7 +562,7 @@ export default function PubDisplay() {
         return () => {
             supabase.removeChannel(reactionChannel);
         };
-    }, []); // Empty dependency array ensures this runs ONCE and stays connected
+    }, []);
 
     const load = useCallback(async () => {
         try {
@@ -473,7 +588,6 @@ export default function PubDisplay() {
                     };
                 }
 
-                // ARCADE FIX: Logica per mostrare vincitore anche se ended
                 const arcade = finalData.active_arcade;
                 if (arcade && arcade.status === 'ended' && arcade.winner_id) {
                      const endedAt = new Date(arcade.ended_at);
@@ -514,7 +628,6 @@ export default function PubDisplay() {
         load();
         const int = setInterval(load, 1000); 
         
-        // Control channel for Mute/Unmute
         const ctrlChannel = supabase.channel('tv_ctrl')
             .on('broadcast', {event: 'control'}, p => { if(p.payload.command === 'mute') setIsMuted(p.payload.value); })
             .subscribe();
@@ -532,10 +645,7 @@ export default function PubDisplay() {
     const { pub, current_performance: perf, queue, active_quiz: quiz, admin_message, leaderboard, approved_messages, extraction_data } = data;
     const recentMessages = approved_messages ? approved_messages.slice(0, 10) : [];
     const isQuiz = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
-    
-    // ARCADE VISIBILITY logic
     const isArcade = (data.active_arcade && ['active', 'paused'].includes(data.active_arcade.status)) || !!data.arcade_result;
-    
     const isKaraoke = !isQuiz && !isArcade && perf && ['live', 'paused'].includes(perf.status);
     const isVoting = !isQuiz && !isArcade && perf && perf.status === 'voting';
     const isScore = !isQuiz && !isArcade && perf && perf.status === 'ended';
@@ -553,7 +663,7 @@ export default function PubDisplay() {
             <style>{STYLES}</style>
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10 pointer-events-none z-0"></div>
             
-            {/* FIX EMOTICON: Renderizzato qui, sempre attivo */}
+            {/* FIX EMOTICON */}
             <div className="absolute inset-0 z-[9999] pointer-events-none">
                 <FloatingReactions newReaction={newReaction} />
             </div>
