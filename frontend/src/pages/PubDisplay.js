@@ -624,15 +624,11 @@ export default function PubDisplay() {
                     }
                 }
 
-                // ── AUTO-DISMISS vincitore arcade se si attiva un'altra modalità principale ──
-                // Se c'è un vincitore arcade in attesa ma ora è attivo quiz / karaoke / voting / score
-                // la schermata vincitore va rimossa subito, senza aspettare il timer da 15s
-                const hasOtherActiveMode =
+                // Se è attivo quiz o karaoke/voting/score → schermata vincitore sparisce subito
+                const hasOtherMode =
                     (finalData.active_quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(finalData.active_quiz?.status)) ||
                     (finalData.current_performance && ['live', 'paused', 'voting', 'ended'].includes(finalData.current_performance?.status));
-
-                if (hasOtherActiveMode) {
-                    // C'è qualcosa di attivo oltre all'arcade: forza chiusura vincitore
+                if (hasOtherMode) {
                     if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
                     setArcadeWinner(null);
                     lastArcadeGameId.current = null;
@@ -696,13 +692,6 @@ export default function PubDisplay() {
         return () => { clearInterval(int); supabase.removeChannel(ch); };
     }, [pubCode, load]);
 
-    // ✅ Hook PRIMA di qualsiasi return condizionale (regola React)
-    const dismissArcadeWinner = useCallback(() => {
-        if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
-        setArcadeWinner(null);
-        lastArcadeGameId.current = null;
-    }, []);
-
     if (!data) return (
         <div className="w-screen h-screen bg-black flex flex-col items-center justify-center">
              <div className="w-20 h-20 border-8 border-fuchsia-600 border-t-transparent rounded-full animate-spin mb-6"></div>
@@ -726,27 +715,30 @@ export default function PubDisplay() {
     const isKaraoke = !isQuiz && !isArcade && perf && ['live', 'paused'].includes(perf.status);
     const isVoting = !isQuiz && !isArcade && perf && perf.status === 'voting';
     const isScore = !isQuiz && !isArcade && perf && perf.status === 'ended';
-
+    
     let Content = null;
     if (isQuiz) Content = <QuizMode quiz={quiz} result={quizResult} />;
     else if (isArcade) Content = (
-        <div className="relative w-full h-full">
-            <ArcadeMode
-                arcade={data.active_arcade || {}}
-                result={arcadeWinner ? { winner: arcadeWinner.winner } : null}
-                bookingQueue={data.active_arcade?.booking_queue || []}
-                lastError={data.active_arcade?.last_error}
-            />
-            {/* Pulsante "Termina" visibile solo sulla schermata del vincitore, fallback manuale */}
-            {arcadeWinner && (
-                <button
-                    onClick={dismissArcadeWinner}
-                    className="absolute bottom-6 right-6 z-[150] bg-black/70 hover:bg-red-700 border border-white/20 hover:border-red-400 text-white font-bold text-lg px-8 py-3 rounded-2xl backdrop-blur-md transition-all duration-200 shadow-xl"
-                >
-                    ✕ Termina schermata vincitore
-                </button>
-            )}
-        </div>
+      <div className="relative w-full h-full">
+        <ArcadeMode
+          arcade={data.active_arcade || {}}
+          result={arcadeWinner ? { winner: arcadeWinner.winner } : null}
+          bookingQueue={data.active_arcade?.booking_queue || []}
+          lastError={data.active_arcade?.last_error}
+        />
+        {arcadeWinner && (
+          <button
+            onClick={() => {
+              if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
+              setArcadeWinner(null);
+              lastArcadeGameId.current = null;
+            }}
+            className="absolute bottom-6 right-6 z-[150] bg-black/70 hover:bg-red-700 border border-white/20 hover:border-red-400 text-white font-bold text-lg px-8 py-3 rounded-2xl backdrop-blur-md transition-all duration-200 shadow-xl"
+          >
+            ✕ Chiudi schermata vincitore
+          </button>
+        )}
+      </div>
     );
     else if (isVoting) Content = <VotingMode perf={perf} />;
     else if (isScore) Content = <ScoreMode perf={perf} />;
@@ -760,10 +752,7 @@ export default function PubDisplay() {
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10 pointer-events-none z-0"></div>
 
             <TopBar pubName={pub.name} logoUrl={pub.logo_url} onlineCount={leaderboard?.length || 0} messages={recentMessages} isMuted={isMuted} />
-            {/* z-[500] assicura che le emoji volino sopra tutto, pointer-events-none evita blocchi click */}
-            <div className="absolute inset-0 z-[500] pointer-events-none">
-                <FloatingReactions newReaction={newReaction} />
-            </div>
+            <FloatingReactions newReaction={newReaction} />
             <AdminMessageOverlay message={admin_message} />
 
             {extraction_data && (
