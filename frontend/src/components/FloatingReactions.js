@@ -4,38 +4,35 @@ const FloatingReactions = ({ newReaction }) => {
   const [reactions, setReactions] = useState([]);
 
   useEffect(() => {
-    if (newReaction && newReaction.emoji) {
-      // Usa _t o id dalla reaction originale per unicità
-      const uniqueId = newReaction._t || newReaction.id || Date.now();
-      const left = Math.floor(Math.random() * 80) + 10;
-
-      const reactionItem = {
-        emoji: newReaction.emoji,
-        nickname: newReaction.nickname || '',
-        id: uniqueId,
-        left
-      };
-
-      setReactions(prev => [...prev, reactionItem]);
+    if (newReaction) {
+      const id = Date.now() + Math.random(); // ID unico più robusto
+      // Posizione casuale orizzontale (margini 10% - 90%)
+      const left = Math.floor(Math.random() * 80) + 10; 
+      
+      setReactions(prev => [...prev, { ...newReaction, id, left }]);
 
       // Rimuovi dopo animazione
       setTimeout(() => {
-        setReactions(prev => prev.filter(r => r.id !== uniqueId));
+        setReactions(prev => prev.filter(r => r.id !== id));
       }, 4000);
     }
-  }, [newReaction?._t, newReaction?.id, newReaction?.emoji]);
+  }, [newReaction]);
 
   return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none z-[60]">
+    <div className="absolute inset-0 overflow-hidden pointer-events-none z-[200]">
       {reactions.map(r => (
         <div
           key={r.id}
-          className="absolute bottom-0 flex flex-col items-center animate-float-up"
+          // MODIFICA: bottom-20 invece di bottom-0 per non tagliare il nickname
+          className="absolute bottom-20 flex flex-col items-center animate-float-up"
           style={{ left: `${r.left}%` }}
         >
-          <span className="text-6xl drop-shadow-lg filter">{r.emoji}</span>
+          {/* Emoji grande */}
+          <span className="text-7xl drop-shadow-[0_5px_5px_rgba(0,0,0,0.5)] filter">{r.emoji}</span>
+          
+          {/* Nickname visibile con sfondo scuro */}
           {r.nickname && (
-            <span className="bg-black/50 text-white text-xs px-2 py-1 rounded-full mt-1 backdrop-blur-sm border border-white/20">
+            <span className="bg-black/70 text-white text-sm font-bold px-3 py-1 rounded-full mt-2 backdrop-blur-md border border-white/20 shadow-lg whitespace-nowrap">
               {r.nickname}
             </span>
           )}
@@ -43,10 +40,10 @@ const FloatingReactions = ({ newReaction }) => {
       ))}
       <style>{`
         @keyframes float-up {
-          0% { transform: translateY(100%) scale(0.5); opacity: 0; }
-          10% { opacity: 1; transform: translateY(0) scale(1.2); }
+          0% { transform: translateY(0) scale(0.5); opacity: 0; }
+          10% { opacity: 1; transform: translateY(-20px) scale(1.2); }
           90% { opacity: 1; }
-          100% { transform: translateY(-80vh) scale(1); opacity: 0; }
+          100% { transform: translateY(-80vh) scale(1.5); opacity: 0; }
         }
         .animate-float-up {
           animation: float-up 4s ease-out forwards;
