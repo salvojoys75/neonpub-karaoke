@@ -1,5 +1,5 @@
 // ============================================================
-// 🎮 ARCADE PANEL - Sezione Arcade per AdminDashboard
+// ARCADE PANEL - Sezione Arcade per AdminDashboard
 // ============================================================
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -54,15 +54,15 @@ export default function ArcadePanel({
 
         const { data: current } = await api.getCurrentBooking(game.id);
 
-        // ── Nuova prenotazione arrivata? FERMA LA MUSICA ──
+        // Nuova prenotazione arrivata? FERMA LA MUSICA
         if (current && current.id !== prevBookingIdRef.current) {
           prevBookingIdRef.current = current.id;
           setIsPlayerVisible(false);
           setNewBookingAlert(true);
-          toast.info(`🎤 ${current.participants?.nickname} si è prenotato!`);
+          toast.info(`${current.participants?.nickname} si è prenotato!`);
         }
 
-        // ── Nessuna prenotazione → Lascia player com'è (DJ lo gestisce manualmente) ──
+        // Nessuna prenotazione
         if (!current && prevBookingIdRef.current !== null) {
           prevBookingIdRef.current = null;
           setNewBookingAlert(false);
@@ -135,7 +135,7 @@ export default function ArcadePanel({
       setSearchQuery('');
 
       await handleStartGame(data.id);
-      toast.success('🎮 Gioco avviato!');
+      toast.success('Gioco avviato!');
     } catch (error) {
       toast.error('Errore: ' + error.message);
     } finally {
@@ -150,7 +150,7 @@ export default function ArcadePanel({
   const handleStartGame = async (gameId) => {
     try {
       await api.startArcadeGame(gameId || activeGame.id);
-      toast.success('🎮 Gioco avviato!');
+      toast.success('Gioco avviato!');
       loadArcadeData();
     } catch (error) { toast.error('Errore: ' + error.message); }
   };
@@ -159,7 +159,7 @@ export default function ArcadePanel({
     try {
       await api.pauseArcadeGame(activeGame.id);
       setIsPlayerVisible(false);
-      toast.info('⏸️ Gioco in pausa');
+      toast.info('Gioco in pausa');
       loadArcadeData();
     } catch (error) { toast.error('Errore: ' + error.message); }
   };
@@ -169,7 +169,7 @@ export default function ArcadePanel({
       await api.resumeArcadeGame(activeGame.id);
       setIsPlayerVisible(true);
       setNewBookingAlert(false);
-      toast.success('▶️ Gioco ripreso!');
+      toast.success('Gioco ripreso!');
       loadArcadeData();
     } catch (error) { toast.error('Errore: ' + error.message); }
   };
@@ -178,7 +178,7 @@ export default function ArcadePanel({
     if (!confirm('Terminare il gioco?')) return;
     try {
       await api.endArcadeGame(activeGame.id);
-      toast.info('🛑 Gioco terminato');
+      toast.info('Gioco terminato');
       setActiveGame(null);
       setBookings([]);
       setCurrentBooking(null);
@@ -198,13 +198,12 @@ export default function ArcadePanel({
       await api.validateArcadeAnswer(currentBooking.id, isCorrect, null);
 
       if (isCorrect) {
-        toast.success(`🎉 ${currentBooking.participants?.nickname} ha vinto!`);
+        toast.success(`${currentBooking.participants?.nickname} ha vinto!`);
         setIsPlayerVisible(false);
         setNewBookingAlert(false);
-        // ✅ FIX: NON resettare activeGame qui - lascia che il display mostri il vincitore
-        // Il gioco verrà resettato dopo 30 secondi automaticamente
+        // NON resettare activeGame qui - lascia che il display mostri il vincitore
       } else {
-        toast.error('❌ Risposta sbagliata');
+        toast.error('Risposta sbagliata');
         setNewBookingAlert(false);
         prevBookingIdRef.current = null;
       }
@@ -248,19 +247,19 @@ export default function ArcadePanel({
         <div className={`flex items-center justify-between px-3 py-2 text-xs font-bold uppercase tracking-widest ${
           newBookingAlert ? 'bg-red-900/40 text-red-400' : 'bg-zinc-900 text-zinc-400'
         }`}>
-          <div className="flex items-center gap-2">
+          <div className=\"flex items-center gap-2\">
             {isPlayerVisible
-              ? <Volume2 className="w-3 h-3 text-green-400" />
-              : <VolumeX className="w-3 h-3 text-red-400" />
+              ? <Volume2 className=\"w-3 h-3 text-green-400\" />
+              : <VolumeX className=\"w-3 h-3 text-red-400\" />
             }
-            <span>{isPlayerVisible ? 'MUSICA IN RIPRODUZIONE' : newBookingAlert ? '⚡ PRENOTAZIONE ARRIVATA — MUSICA FERMA' : 'MUSICA FERMA'}</span>
+            <span>{isPlayerVisible ? 'MUSICA IN RIPRODUZIONE' : newBookingAlert ? 'PRENOTAZIONE ARRIVATA — MUSICA FERMA' : 'MUSICA FERMA'}</span>
           </div>
           <button
             onClick={() => {
               setIsPlayerVisible(!isPlayerVisible);
               if (!isPlayerVisible) setNewBookingAlert(false);
             }}
-            className="text-zinc-500 hover:text-white transition text-[10px] underline"
+            className=\"text-zinc-500 hover:text-white transition text-[10px] underline\"
           >
             {isPlayerVisible ? 'ferma' : 'riavvia'}
           </button>
@@ -272,25 +271,27 @@ export default function ArcadePanel({
               <iframe
                 key={spotifyUrl}
                 src={spotifyUrl}
-                width="100%"
-                height="80"
-                frameBorder="0"
-                allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                className="block"
+                width=\"100%\"
+                height=\"80\"
+                frameBorder=\"0\"
+                allow=\"autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture\"
+                className=\"block\"
+                title=\"spotify-player\"
               />
             ) : youtubeUrl ? (
-              <div className="relative w-full" style={{ paddingTop: '30%' }}>
+              <div className=\"relative w-full\" style={{ paddingTop: '30%' }}>
                 <iframe
                   key={youtubeUrl}
                   src={youtubeUrl}
-                  className="absolute top-0 left-0 w-full h-full"
-                  frameBorder="0"
-                  allow="autoplay; encrypted-media"
+                  className=\"absolute top-0 left-0 w-full h-full\"
+                  frameBorder=\"0\"
+                  allow=\"autoplay; encrypted-media\"
                   allowFullScreen
+                  title=\"youtube-player\"
                 />
               </div>
             ) : (
-              <div className="text-xs text-zinc-500 text-center py-3">
+              <div className=\"text-xs text-zinc-500 text-center py-3\">
                 URL non riconosciuto: {game.track_url}
               </div>
             )}
@@ -298,10 +299,10 @@ export default function ArcadePanel({
         )}
 
         {!isPlayerVisible && (
-          <div className="bg-zinc-950 p-6 text-center border-t border-zinc-800">
-            <VolumeX className="w-10 h-10 mx-auto text-zinc-700 mb-2" />
-            <p className="text-zinc-600 text-sm font-bold mb-1">🎵 Player Fermato</p>
-            <p className="text-zinc-700 text-xs">Click "riavvia" o "RIPRENDI MUSICA" per ripartire</p>
+          <div className=\"bg-zinc-950 p-6 text-center border-t border-zinc-800\">
+            <VolumeX className=\"w-10 h-10 mx-auto text-zinc-700 mb-2\" />
+            <p className=\"text-zinc-600 text-sm font-bold mb-1\">Player Fermato</p>
+            <p className=\"text-zinc-700 text-xs\">Click \"riavvia\" o \"RIPRENDI MUSICA\" per ripartire</p>
           </div>
         )}
       </div>
@@ -320,18 +321,18 @@ export default function ArcadePanel({
     } : null;
 
     return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-zinc-400 uppercase flex items-center gap-2">
-            <Trophy className="w-4 h-4 text-yellow-500" />
+      <div className=\"space-y-4\">
+        <div className=\"flex items-center justify-between\">
+          <h3 className=\"text-sm font-bold text-zinc-400 uppercase flex items-center gap-2\">
+            <Trophy className=\"w-4 h-4 text-yellow-500\" />
             Arcade - Indovina la Canzone
           </h3>
           <Button
-            size="sm"
+            size=\"sm\"
             onClick={() => setShowSetup(!showSetup)}
-            className="bg-green-600 hover:bg-green-500 h-8"
+            className=\"bg-green-600 hover:bg-green-500 h-8\"
           >
-            <Play className="w-3 h-3 mr-1" />
+            <Play className=\"w-3 h-3 mr-1\" />
             Nuovo Gioco
           </Button>
         </div>
@@ -339,23 +340,23 @@ export default function ArcadePanel({
         {previewGame && renderPlayer(previewGame)}
 
         {showSetup ? (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-3">
+          <div className=\"bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-3\">
             <div>
-              <label className="text-xs text-zinc-500 mb-2 block">Cerca Traccia</label>
+              <label className=\"text-xs text-zinc-500 mb-2 block\">Cerca Traccia</label>
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Cerca per titolo o categoria..."
-                className="bg-zinc-950 border-zinc-700 text-sm"
+                placeholder=\"Cerca per titolo o categoria...\"
+                className=\"bg-zinc-950 border-zinc-700 text-sm\"
               />
             </div>
 
-            <ScrollArea className="h-64 border border-zinc-800 rounded">
-              <div className="space-y-1 p-2">
+            <ScrollArea className=\"h-64 border border-zinc-800 rounded\">
+              <div className=\"space-y-1 p-2\">
                 {filteredTracks.length === 0 ? (
-                  <div className="text-center py-8 text-zinc-600 text-sm">
+                  <div className=\"text-center py-8 text-zinc-600 text-sm\">
                     Nessuna traccia trovata.<br/>
-                    <span className="text-xs text-zinc-700">Assicurati che le domande abbiano media_type spotify o audio</span>
+                    <span className=\"text-xs text-zinc-700\">Assicurati che le domande abbiano media_type spotify o audio</span>
                   </div>
                 ) : (
                   filteredTracks.map((track) => (
@@ -368,11 +369,11 @@ export default function ArcadePanel({
                           : 'bg-zinc-800 hover:bg-zinc-700 border-2 border-transparent'
                       }`}
                     >
-                      <div className="font-bold text-white truncate">
+                      <div className=\"font-bold text-white truncate\">
                         {track.options[track.correct_index]}
                       </div>
-                      <div className="text-xs text-zinc-500">
-                        {track.category} • {track.points || 100} punti • {track.media_type}
+                      <div className=\"text-xs text-zinc-500\">
+                        {track.category} - {track.points || 100} punti - {track.media_type}
                       </div>
                     </button>
                   ))
@@ -381,42 +382,42 @@ export default function ArcadePanel({
             </ScrollArea>
 
             {selectedTrack && (
-              <div className="bg-fuchsia-900/20 border border-fuchsia-600 rounded-lg p-3">
-                <div className="text-xs text-fuchsia-400 uppercase tracking-wider mb-1">Traccia Selezionata:</div>
-                <div className="font-bold text-white text-sm">{selectedTrack.options[selectedTrack.correct_index]}</div>
-                <div className="text-xs text-zinc-500 mt-1">{selectedTrack.category} • {selectedTrack.points || 100} punti</div>
-                <div className="mt-2 pt-2 border-t border-fuchsia-800">
-                  <p className="text-xs text-fuchsia-300">
-                    💡 Fai PLAY sul player Spotify sopra prima di cliccare "Crea & Avvia"
+              <div className=\"bg-fuchsia-900/20 border border-fuchsia-600 rounded-lg p-3\">
+                <div className=\"text-xs text-fuchsia-400 uppercase tracking-wider mb-1\">Traccia Selezionata:</div>
+                <div className=\"font-bold text-white text-sm\">{selectedTrack.options[selectedTrack.correct_index]}</div>
+                <div className=\"text-xs text-zinc-500 mt-1\">{selectedTrack.category} - {selectedTrack.points || 100} punti</div>
+                <div className=\"mt-2 pt-2 border-t border-fuchsia-800\">
+                  <p className=\"text-xs text-fuchsia-300\">
+                    Fai PLAY sul player Spotify sopra prima di cliccare \"Crea & Avvia\"
                   </p>
                 </div>
               </div>
             )}
 
-            <div className="flex gap-2">
+            <div className=\"flex gap-2\">
               <Button
-                variant="ghost"
-                size="sm"
+                variant=\"ghost\"
+                size=\"sm\"
                 onClick={() => { setShowSetup(false); setSelectedTrack(null); }}
-                className="flex-1"
+                className=\"flex-1\"
               >
                 Annulla
               </Button>
               <Button
-                size="sm"
+                size=\"sm\"
                 onClick={handleCreateGame}
                 disabled={!selectedTrack || loading}
-                className="flex-1 bg-green-600 hover:bg-green-500"
+                className=\"flex-1 bg-green-600 hover:bg-green-500\"
               >
                 {loading ? 'Creazione...' : 'Crea & Avvia'}
               </Button>
             </div>
           </div>
         ) : (
-          <div className="text-center py-12 text-zinc-600">
-            <Trophy className="w-16 h-16 mx-auto mb-4 opacity-20" />
-            <p className="text-sm">Nessun gioco attivo</p>
-            <p className="text-xs text-zinc-700 mt-1">Clicca "Nuovo Gioco" per iniziare</p>
+          <div className=\"text-center py-12 text-zinc-600\">
+            <Trophy className=\"w-16 h-16 mx-auto mb-4 opacity-20\" />
+            <p className=\"text-sm\">Nessun gioco attivo</p>
+            <p className=\"text-xs text-zinc-700 mt-1\">Clicca \"Nuovo Gioco\" per iniziare</p>
           </div>
         )}
       </div>
@@ -431,31 +432,31 @@ export default function ArcadePanel({
   const completedBookings = bookings.filter(b => b.status !== 'pending');
 
   return (
-    <div className="space-y-3">
+    <div className=\"space-y-3\">
 
       {/* HEADER STATO */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
+      <div className=\"bg-zinc-900 border border-zinc-800 rounded-lg p-3\">
+        <div className=\"flex items-center justify-between mb-2\">
+          <div className=\"flex items-center gap-2\">
             <div className={`w-3 h-3 rounded-full animate-pulse ${
               activeGame.status === 'active' ? 'bg-green-500' :
               activeGame.status === 'paused' ? 'bg-yellow-500' :
               activeGame.status === 'ended' ? 'bg-blue-500' :
               'bg-zinc-600'
             }`} />
-            <span className="text-xs uppercase font-bold text-zinc-400">
-              {activeGame.status === 'active' ? '🔴 IN ONDA' :
-               activeGame.status === 'paused' ? '⏸️ IN PAUSA' :
-               activeGame.status === 'ended' ? '🏆 TERMINATO' : '⏳'}
+            <span className=\"text-xs uppercase font-bold text-zinc-400\">
+              {activeGame.status === 'active' ? 'IN ONDA' :
+               activeGame.status === 'paused' ? 'IN PAUSA' :
+               activeGame.status === 'ended' ? 'TERMINATO' : 'IN ATTESA'}
             </span>
           </div>
-          <div className="flex items-center gap-2 text-xs text-zinc-500">
-            <Users className="w-3 h-3" />
-            {bookings.length} tentativi • 🏆 {activeGame.points_reward}pt • 🎯 {activeGame.attempts_count || 0}/{activeGame.max_attempts}
+          <div className=\"flex items-center gap-2 text-xs text-zinc-500\">
+            <Users className=\"w-3 h-3\" />
+            {bookings.length} tentativi | {activeGame.points_reward}pt | {activeGame.attempts_count || 0}/{activeGame.max_attempts}
           </div>
         </div>
-        <div className="text-sm font-bold text-white truncate">{activeGame.track_title}</div>
-        <div className="text-xs text-green-400 mt-1 font-mono">
+        <div className=\"text-sm font-bold text-white truncate\">{activeGame.track_title}</div>
+        <div className=\"text-xs text-green-400 mt-1 font-mono\">
           Risposta: {activeGame.correct_answer}
         </div>
       </div>
@@ -463,12 +464,12 @@ export default function ArcadePanel({
       {/* PLAYER - Non mostrare se il gioco è terminato */}
       {activeGame.status !== 'ended' && renderPlayer(activeGame)}
 
-      {/* ✅ FIX: Mostra messaggio vincitore se il gioco è ended con winner_id */}
+      {/* Mostra messaggio vincitore se il gioco è ended con winner_id */}
       {activeGame.status === 'ended' && activeGame.winner_id && (
-        <div className="bg-green-900/30 border-2 border-green-500 rounded-lg p-4 text-center">
-          <Trophy className="w-12 h-12 text-yellow-400 mx-auto mb-2" />
-          <div className="text-2xl font-black text-white">🎉 VINCITORE!</div>
-          <div className="text-sm text-green-300 mt-2">Il display sta mostrando la schermata vincitore</div>
+        <div className=\"bg-green-900/30 border-2 border-green-500 rounded-lg p-4 text-center\">
+          <Trophy className=\"w-12 h-12 text-yellow-400 mx-auto mb-2\" />
+          <div className=\"text-2xl font-black text-white\">VINCITORE!</div>
+          <div className=\"text-sm text-green-300 mt-2\">Il display sta mostrando la schermata vincitore</div>
         </div>
       )}
 
@@ -477,51 +478,51 @@ export default function ArcadePanel({
         <div className={`border-2 rounded-lg p-3 transition-all ${
           newBookingAlert ? 'bg-red-900/20 border-red-500 animate-pulse' : 'bg-fuchsia-900/20 border-fuchsia-600'
         }`}>
-          <div className="text-xs uppercase font-bold text-fuchsia-400 mb-2 flex items-center gap-2">
-            <Zap className="w-4 h-4" />
+          <div className=\"text-xs uppercase font-bold text-fuchsia-400 mb-2 flex items-center gap-2\">
+            <Zap className=\"w-4 h-4\" />
             AL MICROFONO
           </div>
 
-          <div className="flex items-center gap-3 mb-3">
+          <div className=\"flex items-center gap-3 mb-3\">
             {currentBooking.participants?.avatar_url && (
               <img
                 src={currentBooking.participants.avatar_url}
-                alt="avatar"
-                className="w-12 h-12 rounded-full border-2 border-fuchsia-500"
+                alt=\"avatar\"
+                className=\"w-12 h-12 rounded-full border-2 border-fuchsia-500\"
               />
             )}
-            <div className="flex-1">
-              <div className="text-xl font-black text-white">
+            <div className=\"flex-1\">
+              <div className=\"text-xl font-black text-white\">
                 {currentBooking.participants?.nickname}
               </div>
-              <div className="text-xs text-zinc-400">
+              <div className=\"text-xs text-zinc-400\">
                 Prenotato {Math.floor((new Date() - new Date(currentBooking.booked_at)) / 1000)}s fa
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className=\"grid grid-cols-2 gap-2\">
             <Button
-              size="lg"
+              size=\"lg\"
               onClick={() => handleValidate(false)}
-              className="bg-red-600 hover:bg-red-500 h-12 text-base font-bold"
+              className=\"bg-red-600 hover:bg-red-500 h-12 text-base font-bold\"
             >
-              <X className="w-5 h-5 mr-1" /> SBAGLIATO
+              <X className=\"w-5 h-5 mr-1\" /> SBAGLIATO
             </Button>
             <Button
-              size="lg"
+              size=\"lg\"
               onClick={() => handleValidate(true)}
-              className="bg-green-600 hover:bg-green-500 h-12 text-base font-bold"
+              className=\"bg-green-600 hover:bg-green-500 h-12 text-base font-bold\"
             >
-              <Check className="w-5 h-5 mr-1" /> CORRETTO
+              <Check className=\"w-5 h-5 mr-1\" /> CORRETTO
             </Button>
           </div>
         </div>
       ) : activeGame.status === 'active' ? (
-        <div className="bg-yellow-900/20 border border-yellow-600 rounded-lg p-3 text-center">
-          <AlertCircle className="w-6 h-6 text-yellow-500 mx-auto mb-1" />
-          <div className="text-sm font-bold text-yellow-400">In attesa di prenotazioni...</div>
-          <div className="text-xs text-zinc-500 mt-1">
+        <div className=\"bg-yellow-900/20 border border-yellow-600 rounded-lg p-3 text-center\">
+          <AlertCircle className=\"w-6 h-6 text-yellow-500 mx-auto mb-1\" />
+          <div className=\"text-sm font-bold text-yellow-400\">In attesa di prenotazioni...</div>
+          <div className=\"text-xs text-zinc-500 mt-1\">
             La musica sta suonando — i partecipanti possono prenotarsi dall'app
           </div>
         </div>
@@ -529,10 +530,10 @@ export default function ArcadePanel({
 
       {/* CRONOLOGIA */}
       {completedBookings.length > 0 && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
-          <div className="text-xs uppercase font-bold text-zinc-500 mb-2">📜 Cronologia</div>
-          <ScrollArea className="h-28">
-            <div className="space-y-1">
+        <div className=\"bg-zinc-900 border border-zinc-800 rounded-lg p-3\">
+          <div className=\"text-xs uppercase font-bold text-zinc-500 mb-2\">Cronologia</div>
+          <ScrollArea className=\"h-28\">
+            <div className=\"space-y-1\">
               {completedBookings.map((booking) => (
                 <div
                   key={booking.id}
@@ -542,11 +543,11 @@ export default function ArcadePanel({
                       : 'bg-red-900/20 text-red-400'
                   }`}
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs">{booking.booking_order}.</span>
+                  <div className=\"flex items-center gap-2\">
+                    <span className=\"font-mono text-xs\">{booking.booking_order}.</span>
                     <span>{booking.participants?.nickname}</span>
                   </div>
-                  <span>{booking.status === 'correct' ? '✅' : '❌'}</span>
+                  <span>{booking.status === 'correct' ? 'OK' : 'NO'}</span>
                 </div>
               ))}
             </div>
@@ -555,33 +556,33 @@ export default function ArcadePanel({
       )}
 
       {/* CONTROLLI */}
-      <div className="flex gap-2">
+      <div className=\"flex gap-2\">
         {!isPlayerVisible && activeGame.status === 'active' && (
           <Button
-            size="sm"
+            size=\"sm\"
             onClick={() => {
               setIsPlayerVisible(true);
               setNewBookingAlert(false);
-              toast.success('▶️ Musica ripresa!');
+              toast.success('Musica ripresa!');
             }}
-            className="flex-1 bg-green-600 hover:bg-green-500 font-bold"
+            className=\"flex-1 bg-green-600 hover:bg-green-500 font-bold\"
           >
-            <Play className="w-3 h-3 mr-1" /> RIPRENDI MUSICA
+            <Play className=\"w-3 h-3 mr-1\" /> RIPRENDI MUSICA
           </Button>
         )}
 
         {activeGame.status === 'active' ? (
-          <Button size="sm" variant="outline" onClick={handlePauseGame} className="flex-1">
-            <Pause className="w-3 h-3 mr-1" /> Pausa
+          <Button size=\"sm\" variant=\"outline\" onClick={handlePauseGame} className=\"flex-1\">
+            <Pause className=\"w-3 h-3 mr-1\" /> Pausa
           </Button>
         ) : activeGame.status === 'paused' ? (
-          <Button size="sm" onClick={handleResumeGame} className="flex-1 bg-green-600">
-            <Play className="w-3 h-3 mr-1" /> Riprendi
+          <Button size=\"sm\" onClick={handleResumeGame} className=\"flex-1 bg-green-600\">
+            <Play className=\"w-3 h-3 mr-1\" /> Riprendi
           </Button>
         ) : null}
 
-        <Button size="sm" variant="destructive" onClick={handleEndGame} className="flex-1">
-          <Square className="w-3 h-3 mr-1" /> Termina
+        <Button size=\"sm\" variant=\"destructive\" onClick={handleEndGame} className=\"flex-1\">
+          <Square className=\"w-3 h-3 mr-1\" /> Termina
         </Button>
       </div>
     </div>
