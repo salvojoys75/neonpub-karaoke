@@ -543,7 +543,8 @@ export default function PubDisplay() {
                         }, 30000);
                     }
                 } else if (!arcade || arcade.status !== 'ended') {
-                    if (arcadeWinner !== null && (!arcade || arcade.id !== lastArcadeGameId.current)) {
+                    // Nuovo gioco attivo o nessun gioco: pulisci vincitore precedente
+                    if (lastArcadeGameId.current !== null) {
                         if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
                         setArcadeWinner(null);
                         lastArcadeGameId.current = null;
