@@ -530,17 +530,38 @@ export default function PubDisplay() {
                 if (arcade && arcade.status === 'ended' && arcade.winner_id) {
                     if (lastArcadeGameId.current !== arcade.id) {
                         lastArcadeGameId.current = arcade.id;
-                        const { data: winnerData } = await supabase
-                            .from('participants')
-                            .select('id, nickname, avatar_url')
-                            .eq('id', arcade.winner_id)
-                            .single();
-                        if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
-                        setArcadeWinner({ game_id: arcade.id, winner: winnerData });
-                        arcadeWinnerTimer.current = setTimeout(() => {
-                            setArcadeWinner(null);
-                            lastArcadeGameId.current = null;
-                        }, 30000);
+                        try {
+                            const { data: winnerData, error: winnerError } = await supabase
+                                .from('participants')
+                                .select('id, nickname, avatar_url')
+                                .eq('id', arcade.winner_id)
+                                .maybeSingle();
+                            if (winnerError) {
+                                console.error('❌ Errore fetch vincitore arcade:', winnerError.message, winnerError.details);
+                            }
+                            if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
+                            // Mostra la schermata anche se winnerData è null (usa fallback dal gioco)
+                            setArcadeWinner({
+                                game_id: arcade.id,
+                                winner: winnerData || { id: arcade.winner_id, nickname: arcade.winner_nickname || 'Vincitore!', avatar_url: null }
+                            });
+                            arcadeWinnerTimer.current = setTimeout(() => {
+                                setArcadeWinner(null);
+                                lastArcadeGameId.current = null;
+                            }, 30000);
+                        } catch (fetchErr) {
+                            console.error('❌ Eccezione fetch vincitore:', fetchErr);
+                            // Mostra comunque la schermata con dati fallback
+                            if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
+                            setArcadeWinner({
+                                game_id: arcade.id,
+                                winner: { id: arcade.winner_id, nickname: 'Vincitore!', avatar_url: null }
+                            });
+                            arcadeWinnerTimer.current = setTimeout(() => {
+                                setArcadeWinner(null);
+                                lastArcadeGameId.current = null;
+                            }, 30000);
+                        }
                     }
                 } else if (!arcade || arcade.status !== 'ended') {
                     // Nuovo gioco attivo o nessun gioco: pulisci vincitore precedente
@@ -564,7 +585,19 @@ export default function PubDisplay() {
             .on('postgres_changes', {event: '*', schema: 'public', table: 'performances'}, load)
             .on('postgres_changes', {event: '*', schema: 'public', table: 'quizzes'}, load)
             .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'events'}, load)
-            .on('postgres_changes', {event: '*', schema: 'public', table: 'arcade_games'}, load)
+            .on('postgres_changes', {event: '*', schema: 'public', table: 'arcade_games'}, async (payload) => {
+                // Se un gioco termina, forza subito il reset del lastArcadeGameId
+                // così il prossimo load() trigghera il fetch vincitore
+                if (payload.new && payload.new.status === 'ended' && payload.new.winner_id) {
+                    if (lastArcadeGameId.current === payload.new.id) {
+                        // Già processato, non fare nulla
+                    } else {
+                        lastArcadeGameId.current = null; // Forza re-fetch vincitore
+                    }
+                }
+                load();
+            })
+            .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'participants'}, load)
             .subscribe();
             
         return () => { clearInterval(int); supabase.removeChannel(ch); };
@@ -582,8 +615,9 @@ export default function PubDisplay() {
     const recentMessages = approved_messages ? approved_messages.slice(0, 10) : [];
 
     const isQuiz = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
+    // Mostra modalità arcade se: gioco attivo/in pausa, gioco appena terminato (ended), o schermata vincitore attiva
     const isArcade = !isQuiz && (
-        (data.active_arcade && ['active', 'paused'].includes(data.active_arcade.status)) ||
+        (data.active_arcade && ['active', 'paused', 'ended'].includes(data.active_arcade.status)) ||
         arcadeWinner !== null
     );
     const isKaraoke = !isQuiz && !isArcade && perf && ['live', 'paused'].includes(perf.status);
