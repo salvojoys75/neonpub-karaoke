@@ -436,10 +436,10 @@ const QuizMode = ({ quiz, result }) => {
                             style={{position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none'}}
                         />
                     )}
-                    {/* ✅ FIX: Blocca titolo YouTube in alto a sinistra */}
+                    {/* ✅ Blocca titolo YouTube: overlay nero opaco in alto */}
                     <div style={{
-                        position: 'absolute', top: 0, left: 0, right: 0, height: '80px',
-                        background: 'linear-gradient(to bottom, #000000 0%, transparent 100%)',
+                        position: 'absolute', top: 0, left: 0, right: 0, height: '72px',
+                        background: '#000000',
                         zIndex: 10, pointerEvents: 'none'
                     }} />
                 </div>
@@ -592,30 +592,33 @@ export default function PubDisplay() {
                 // ── ARCADE: carica dati arcade ──
                 const arcade = finalData.active_arcade;
                 
-                // Vincitore se terminato
+                // Vincitore se terminato di recente (entro 15 secondi)
                 if (arcade && arcade.status === 'ended' && arcade.winner_id) {
-                    const { data: winner } = await supabase
-                        .from('participants')
-                        .select('id, nickname, avatar_url')
-                        .eq('id', arcade.winner_id)
-                        .single();
+                    const endedAt = new Date(arcade.ended_at);
+                    const secondsAgo = (Date.now() - endedAt.getTime()) / 1000;
                     
-                    finalData = {
-                        ...finalData,
-                        arcade_result: { winner }
-                    };
+                    if (secondsAgo < 15) {
+                        const { data: winner } = await supabase
+                            .from('participants')
+                            .select('id, nickname, avatar_url')
+                            .eq('id', arcade.winner_id)
+                            .single();
+                        
+                        finalData = {
+                            ...finalData,
+                            arcade_result: { winner }
+                        };
+                    }
                 }
 
                 // Coda prenotazioni e ultimo errore se attivo
                 if (arcade && arcade.status === 'active') {
                     const { data: allBookings } = await api.getArcadeBookings(arcade.id);
                     
-                    // Filtra solo pending, ordinati per booking_order
                     const pendingQueue = allBookings
                         ?.filter(b => b.status === 'pending')
                         .sort((a, b) => a.booking_order - b.booking_order) || [];
                     
-                    // Trova ultimo errore (recente)
                     const recentErrors = allBookings
                         ?.filter(b => b.status === 'wrong')
                         .sort((a, b) => new Date(b.validated_at) - new Date(a.validated_at));
@@ -644,13 +647,12 @@ export default function PubDisplay() {
         const ch = supabase.channel('tv_ctrl')
             .on('broadcast', {event: 'control'}, p => { if(p.payload.command === 'mute') setIsMuted(p.payload.value); })
             .on('postgres_changes', {event: 'INSERT', schema: 'public', table: 'reactions'}, p => {
-                // ✅ FIX: Passa tutti i campi della reaction al FloatingReactions
                 const reaction = p.new;
-                console.log('🎯 Reaction ricevuta:', reaction);
                 setNewReaction({
                     emoji: reaction.emoji,
-                    nickname: reaction.nickname || reaction.user_nickname || reaction.participant_nickname || '',
-                    id: reaction.id
+                    nickname: reaction.nickname || '',
+                    id: reaction.id,
+                    _t: Date.now() // ✅ Forza re-render anche se emoji uguale
                 });
             })
             .on('postgres_changes', {event: '*', schema: 'public', table: 'performances'}, load)
@@ -683,7 +685,7 @@ export default function PubDisplay() {
     const arcadeEndedAt = data.active_arcade?.ended_at;
     const arcadeWinner = data.active_arcade?.winner_id;
     const arcadeEndedRecently = arcadeEndedAt && arcadeWinner && 
-        (Date.now() - new Date(arcadeEndedAt).getTime()) < 8000; // ✅ 8 secondi poi scompare
+        (Date.now() - new Date(arcadeEndedAt).getTime()) < 15000; // 15 sec, allineato con load()
     
     const isArcade = data.active_arcade && (
       ['active', 'paused'].includes(data.active_arcade.status) ||

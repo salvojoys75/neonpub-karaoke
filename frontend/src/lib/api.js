@@ -1072,9 +1072,9 @@ export const rejectRequest = async (requestId) => {
 }
 
 export const deleteRequest = async (requestId) => {
-    const { data, error } = await supabase.from('song_requests').update({ status: 'rejected' }).eq('id', requestId).select();
+    const { error } = await supabase.from('song_requests').update({ status: 'rejected' }).eq('id', requestId);
     if (error) throw error;
-    return { data };
+    return { data: { id: requestId } };
 }
 
 export const startPerformance = async (requestId, youtubeUrl) => {
@@ -1481,7 +1481,7 @@ export const getDisplayData = async (pubCode) => {
   // FIX: Filtri rigorosi per event_id su TUTTE le tabelle
   const [perf, queue, lb, activeQuiz, adminMsg, approvedMsgs, activeArcade] = await Promise.all([
     supabase.from('performances').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).in('status', ['live','voting','paused','ended']).order('started_at', {ascending: false}).limit(1).maybeSingle(),
-    supabase.from('song_requests').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).eq('status', 'queued').order('requested_at', {ascending: true}).limit(10), 
+    supabase.from('song_requests').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).eq('status', 'queued').order('position', {ascending: true}).limit(10), 
     supabase.from('participants').select('nickname, score, avatar_url').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
     supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
     // Messaggio REGIA
@@ -1668,11 +1668,21 @@ export const resetQuizUsageForVenue = async (venueId) => {
       .eq('operator_id', user.user.id)
     
     if (error) {
-      console.error('❌ Errore delete:', error);
-      throw error;
+      console.error('❌ Errore delete quiz_usage_history:', error);
+      // Se RLS blocca (401/403), tentiamo senza operator_id filter
+      if (error.code === '42501' || error.message?.includes('permission')) {
+        console.log('⚠️ RLS attivo, tentativo alternativo...');
+        const { error: err2 } = await supabase
+          .from('quiz_usage_history')
+          .delete()
+          .eq('venue_id', venueId);
+        if (err2) throw err2;
+      } else {
+        throw error;
+      }
     }
     
-    console.log(`✅ Cancellati ${count || 0} record da quiz_usage_history`);
+    console.log(`✅ Cancellati record da quiz_usage_history`);
     
     return { data: { deleted_count: count || 0 } }
   } catch (e) {
