@@ -568,6 +568,7 @@ export default function PubDisplay() {
     const [arcadeWinner, setArcadeWinner] = useState(null); // { game_id, winner }
     const arcadeWinnerTimer = useRef(null);
     const lastArcadeGameId = useRef(null);
+    const lastArcadeData = useRef(null); // conserva l'ultimo arcade per la schermata vincitore
     const eventIdRef = useRef(null); // aggiornato ad ogni load() per il filtro emoji
 
     const load = useCallback(async () => {
@@ -597,26 +598,49 @@ export default function PubDisplay() {
                 // ── ARCADE: carica dati arcade ──
                 const arcade = finalData.active_arcade;
 
+                // Aggiorna ref con i dati freschi ogni volta che arriva un arcade con contenuto
+                if (arcade && arcade.id) lastArcadeData.current = arcade;
+
                 if (arcade && arcade.status === 'ended' && arcade.winner_id) {
-                    // Nuovo gioco terminato: mostra vincitore per 15s poi pulisci
+                    // Gioco terminato con vincitore — mostra schermata per 15s
                     if (lastArcadeGameId.current !== arcade.id) {
                         lastArcadeGameId.current = arcade.id;
-                        const { data: winnerData } = await supabase
-                            .from('participants')
-                            .select('id, nickname, avatar_url')
-                            .eq('id', arcade.winner_id)
-                            .single();
-                        // Cancella timer precedente se esiste
+                        
+                        // Carica dati vincitore
+                        let winnerData = null;
+                        try {
+                            const { data: wd } = await supabase
+                                .from('participants')
+                                .select('id, nickname, avatar_url')
+                                .eq('id', arcade.winner_id)
+                                .single();
+                            winnerData = wd;
+                        } catch(e) {
+                            console.error('Errore caricamento vincitore:', e);
+                        }
+
+                        // Fallback: se la query fallisce, usa i dati già nel booking
+                        if (!winnerData) {
+                            winnerData = { id: arcade.winner_id, nickname: '🏆 Vincitore!', avatar_url: null };
+                        }
+
                         if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
                         setArcadeWinner({ game_id: arcade.id, winner: winnerData });
-                        // Dopo 15s pulisci automaticamente
+                        
                         arcadeWinnerTimer.current = setTimeout(() => {
                             setArcadeWinner(null);
                             lastArcadeGameId.current = null;
                         }, 15000);
                     }
-                } else if (!arcade || arcade.status === 'active' || arcade.status === 'setup') {
-                    // Nessun gioco, o nuovo gioco partito: pulisci subito vincitore precedente
+                } else if (arcade && arcade.status === 'ended' && !arcade.winner_id) {
+                    // Gioco terminato senza vincitore (max tentativi) — pulisci subito
+                    if (lastArcadeGameId.current && lastArcadeGameId.current !== arcade.id) {
+                        if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
+                        setArcadeWinner(null);
+                        lastArcadeGameId.current = null;
+                    }
+                } else if (!arcade || arcade.status === 'active' || arcade.status === 'setup' || arcade.status === 'waiting') {
+                    // Nuovo gioco partito o nessun gioco → pulisci vincitore precedente
                     if (lastArcadeGameId.current !== null && (!arcade || arcade.id !== lastArcadeGameId.current)) {
                         if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
                         setArcadeWinner(null);
@@ -659,19 +683,43 @@ export default function PubDisplay() {
         load();
         const int = setInterval(load, 1000); // ✅ Ridotto a 1 secondo per reattività immediata
         
+        // ── Ottieni event_id prima di aprire il channel, così il filtro è preciso ──
+        let eventId = eventIdRef.current;
+        if (!eventId) {
+            try {
+                const res = await api.getDisplayData(pubCode);
+                eventId = res.data?.pub?.id || null;
+                eventIdRef.current = eventId;
+            } catch(e) { /* continua senza filtro */ }
+        }
+
+        const reactionFilter = eventId
+            ? `event_id=eq.${eventId}`
+            : undefined;
+
         const ch = supabase.channel(`display-${pubCode}`)
             .on('broadcast', {event: 'control'}, p => { if(p.payload.command === 'mute') setIsMuted(p.payload.value); })
-            .on('postgres_changes', {event: 'INSERT', schema: 'public', table: 'reactions'}, p => {
-                const reaction = p.new;
-                // eventIdRef.current viene aggiornato ad ogni load() - scarta reazioni di altri eventi
-                if (eventIdRef.current && reaction.event_id !== eventIdRef.current) return;
-                setNewReaction({
-                    emoji: reaction.emoji || '',
-                    nickname: reaction.nickname || '',
-                    id: reaction.id,
-                    _t: Date.now()
-                });
-            })
+            .on('postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'reactions',
+                    ...(reactionFilter ? { filter: reactionFilter } : {})
+                },
+                p => {
+                    const reaction = p.new;
+                    // Doppio controllo: scarta reazioni di altri eventi
+                    if (eventIdRef.current && reaction.event_id !== eventIdRef.current) return;
+                    if (!reaction.emoji) return;
+                    setNewReaction({
+                        emoji: reaction.emoji,
+                        nickname: reaction.nickname || '',
+                        id: reaction.id,
+                        _t: Date.now()
+                    });
+                    // Reset a null dopo 100ms così il prossimo useEffect in FloatingReactions scatta sempre
+                    setTimeout(() => setNewReaction(null), 100);
+                })
             .on('postgres_changes', {event: '*', schema: 'public', table: 'performances'}, load)
             .on('postgres_changes', {event: '*', schema: 'public', table: 'quizzes'}, load)
             .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'events'}, load)
@@ -709,7 +757,7 @@ export default function PubDisplay() {
     let Content = null;
     if (isQuiz) Content = <QuizMode quiz={quiz} result={quizResult} />;
     else if (isArcade) Content = <ArcadeMode
-      arcade={data.active_arcade || {}}
+      arcade={data.active_arcade || lastArcadeData.current || {}}
       result={arcadeWinner ? { winner: arcadeWinner.winner } : null}
       bookingQueue={data.active_arcade?.booking_queue || []}
       lastError={data.active_arcade?.last_error}
