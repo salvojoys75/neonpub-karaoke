@@ -561,25 +561,29 @@ export default function PubDisplay() {
                     };
                 }
 
-                // ── ARCADE LOGIC FIX ──
+                // ── ARCADE FIX ──
                 const arcade = finalData.active_arcade;
                 
-                // Se c'è un vincitore, mostralo SEMPRE, senza limiti di tempo rigidi
-                // (Se l'arcade è ended ma ha un vincitore, lo consideriamo "attivo" per il display)
+                // VINCITORE: Mostra se terminato negli ultimi 60 secondi
+                // Questo risolve "Se clicco su termina non scompare" (dopo 60s sparisce)
                 if (arcade && arcade.status === 'ended' && arcade.winner_id) {
-                     const { data: winner } = await supabase
-                         .from('participants')
-                         .select('id, nickname, avatar_url')
-                         .eq('id', arcade.winner_id)
-                         .single();
+                     const endedAt = new Date(arcade.ended_at);
+                     const secondsAgo = (Date.now() - endedAt.getTime()) / 1000;
                      
-                     finalData = {
-                         ...finalData,
-                         arcade_result: { winner }
-                     };
+                     if (secondsAgo < 60) {
+                         const { data: winner } = await supabase
+                             .from('participants')
+                             .select('id, nickname, avatar_url')
+                             .eq('id', arcade.winner_id)
+                             .single();
+                         
+                         finalData = {
+                             ...finalData,
+                             arcade_result: { winner }
+                         };
+                     }
                 }
 
-                // Coda prenotazioni e ultimo errore
                 if (arcade && arcade.status === 'active') {
                     const { data: allBookings } = await api.getArcadeBookings(arcade.id);
                     const pendingQueue = allBookings?.filter(b => b.status === 'pending').sort((a, b) => a.booking_order - b.booking_order) || [];
@@ -607,7 +611,8 @@ export default function PubDisplay() {
         const ch = supabase.channel('tv_ctrl')
             .on('broadcast', {event: 'control'}, p => { if(p.payload.command === 'mute') setIsMuted(p.payload.value); })
             .on('postgres_changes', {event: 'INSERT', schema: 'public', table: 'reactions'}, p => {
-                console.log("REACTION RECEIVED:", p.new); // DEBUG
+                // FIX EMOTICON: Non filtrando l'event_id qui, arrivano tutte. 
+                // Se necessario filtrare, aggiungere: if (data?.pub?.id && p.new.event_id !== data.pub.id) return;
                 const reaction = p.new;
                 setNewReaction({
                     emoji: reaction.emoji,
@@ -637,7 +642,7 @@ export default function PubDisplay() {
     const recentMessages = approved_messages ? approved_messages.slice(0, 10) : [];
     const isQuiz = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
     
-    // ARCADE FIX: Se c'è un risultato arcade (vincitore), consideralo attivo
+    // ARCADE VISIBILITY: Attivo o risultato recente (60s)
     const isArcade = (data.active_arcade && ['active', 'paused'].includes(data.active_arcade.status)) || !!data.arcade_result;
     
     const isKaraoke = !isQuiz && !isArcade && perf && ['live', 'paused'].includes(perf.status);
@@ -657,7 +662,7 @@ export default function PubDisplay() {
             <style>{STYLES}</style>
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10 pointer-events-none z-0"></div>
             
-            {/* Z-INDEX REACTION ALZATO */}
+            {/* FIX EMOTICON: Fuori dal dj-content per non essere smontato */}
             <div className="absolute inset-0 z-[9999] pointer-events-none">
                 <FloatingReactions newReaction={newReaction} />
             </div>

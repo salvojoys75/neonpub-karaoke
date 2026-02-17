@@ -17,12 +17,12 @@ const FloatingReactions = ({ newReaction }) => {
   }, [newReaction]);
 
   return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none z-[9999]">
+    <div className="absolute inset-0 overflow-hidden pointer-events-none" style={{ zIndex: 9999 }}>
       {reactions.map(r => (
         <div
           key={r.id}
           className="absolute flex flex-col items-center animate-float-up pointer-events-none"
-          style={{ left: `${r.left}%`, bottom: '20%' }}
+          style={{ left: `${r.left}%`, bottom: '15%' }}
         >
           <span className="text-8xl drop-shadow-[0_5px_5px_rgba(0,0,0,0.8)] filter transition-transform">{r.emoji}</span>
           
