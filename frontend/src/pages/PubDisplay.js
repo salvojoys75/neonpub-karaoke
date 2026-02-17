@@ -591,8 +591,12 @@ export default function PubDisplay() {
                 const arcade = finalData.active_arcade;
                 if (arcade && arcade.status === 'ended' && arcade.winner_id) {
                      const endedAt = new Date(arcade.ended_at);
-                     const secondsAgo = (Date.now() - endedAt.getTime()) / 1000;
-                     if (secondsAgo < 60) {
+                     const now = new Date();
+                     // Calcolo differenza in secondi
+                     const secondsAgo = (now.getTime() - endedAt.getTime()) / 1000;
+
+                     // FIX VINCITORE: Aumentiamo timeout a 5 minuti (300s) e gestiamo clock skew
+                     if (secondsAgo < 300 && secondsAgo > -300) {
                          const { data: winner } = await supabase
                              .from('participants')
                              .select('id, nickname, avatar_url')
