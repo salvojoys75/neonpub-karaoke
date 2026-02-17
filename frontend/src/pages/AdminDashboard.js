@@ -168,9 +168,9 @@ export default function AdminDashboard() {
   const [onlineParticipants, setOnlineParticipants] = useState([]);
  
 
-  // --- QUIZ PREVIEW (Player Spotify prima del lancio) ---
+  // Preview domanda audio prima del lancio
   const [quizPreviewItem, setQuizPreviewItem] = useState(null);
-  const [quizPreviewLaunched, setQuizPreviewLaunched] = useState(false); // true dopo lancio, player rimane
+  const [quizPreviewLaunched, setQuizPreviewLaunched] = useState(false);
 
   const pollIntervalRef = useRef(null);
   const timerIntervalRef = useRef(null);
@@ -851,17 +851,18 @@ export default function AdminDashboard() {
   };
 
   const launchCatalogQuiz = (item) => {
-      // Se ha media Spotify: apri preview con player (senza smontare se già aperto)
       const isSpotify = item.media_url && (
           item.media_type === 'audio' || item.media_type === 'spotify' ||
-          item.media_url.match(/^[a-zA-Z0-9]{22}$/) || item.media_url.includes('spotify')
+          /^[a-zA-Z0-9]{22}$/.test(item.media_url) || item.media_url.includes('spotify')
       );
       if (isSpotify) {
-          setQuizPreviewItem(item);
-          setQuizPreviewLaunched(false);
+          // Apri preview con player - NON smontare se già aperto per stessa traccia
+          if (!quizPreviewItem || quizPreviewItem.id !== item.id) {
+              setQuizPreviewItem(item);
+              setQuizPreviewLaunched(false);
+          }
           return;
       }
-      // Testo o video: lancia direttamente
       doLaunchQuiz(item);
   };
 
@@ -877,15 +878,12 @@ export default function AdminDashboard() {
               media_type: item.media_type || 'text',
               quiz_catalog_id: item.id
           });
-          const venueToTrack = selectedVenueId || null;
-          await api.trackQuizUsage(item.id, venueToTrack);
-          // ✅ NON distrugge il preview - segna solo come lanciato
-          // Il player Spotify rimane in ascolto nell'operatore
+          await api.trackQuizUsage(item.id, selectedVenueId || null);
+          // ✅ Player rimane vivo: NON chiudere il pannello
           setQuizPreviewLaunched(true);
-          toast.success("🎮 Quiz Lanciato! La musica continua qui.");
+          toast.success("🎮 Quiz Lanciato! Musica ancora qui.");
           loadData();
       } catch (e) {
-          console.error('❌ Error launching quiz:', e);
           toast.error("Errore: " + e.message);
       }
   };
@@ -921,7 +919,14 @@ export default function AdminDashboard() {
           if(action==='close_vote') await api.closeQuizVoting(activeQuizId);
           if(action==='show_results') await api.showQuizResults(activeQuizId);
           if(action==='leaderboard') await api.showQuizLeaderboard(activeQuizId);
-          if(action==='end') { await api.endQuiz(activeQuizId); await api.setEventModule('karaoke'); toast.info("Tornati al Karaoke"); }
+          if(action==='end') {
+              await api.endQuiz(activeQuizId);
+              await api.setEventModule('karaoke');
+              // ✅ Stop audio: chiudi il pannello preview (smonta iframe Spotify)
+              setQuizPreviewItem(null);
+              setQuizPreviewLaunched(false);
+              toast.info("Tornati al Karaoke");
+          }
           loadData();
       } catch(e) { toast.error("Errore comando quiz"); }
   };
@@ -1586,6 +1591,8 @@ export default function AdminDashboard() {
                                                     toast.success("Domanda eliminata dal catalogo");
                                                     await api.endQuiz(activeQuizId);
                                                     await api.setEventModule('karaoke');
+                                                    setQuizPreviewItem(null);
+                                                    setQuizPreviewLaunched(false);
                                                     toast.info("Tornato al Karaoke");
                                                     loadData();
                                                 } catch(e) {
@@ -1602,68 +1609,56 @@ export default function AdminDashboard() {
                             </div>
                         )}
 
-                        {/* ── SPOTIFY PREVIEW PANEL ── */}
-                        {quizPreviewItem && (() => {
-                            const spotifyId = quizPreviewItem.media_url?.match(/(?:track\/)([a-zA-Z0-9]+)/)?.[1] || quizPreviewItem.media_url;
-                            return (
-                                <div className="mb-4 bg-zinc-900 border-2 border-green-500 rounded-xl p-4 space-y-3">
-                                    <div className="flex items-center justify-between">
-                                        <div className="text-xs font-bold text-green-400 uppercase tracking-widest flex items-center gap-2">
-                                            <Music2 className="w-4 h-4"/>
-                                            {quizPreviewLaunched ? '🔴 IN ONDA — Player attivo' : 'Ascolta — poi Lancia'}
-                                        </div>
-                                        <button
-                                            onClick={() => { setQuizPreviewItem(null); setQuizPreviewLaunched(false); }}
-                                            className="text-zinc-500 hover:text-white text-lg leading-none"
-                                        >✕</button>
-                                    </div>
-
-                                    {/* Player Spotify — NON viene mai distrutto finché il pannello è aperto */}
-                                    <iframe
-                                        key={spotifyId}
-                                        src={`https://open.spotify.com/embed/track/${spotifyId}?utm_source=generator&theme=0`}
-                                        width="100%"
-                                        height="80"
-                                        frameBorder="0"
-                                        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                                        className="rounded-lg"
-                                    />
-
-                                    {/* Domanda */}
-                                    <div className="text-sm font-bold text-white leading-tight">
-                                        {quizPreviewItem.question}
-                                    </div>
-
-                                    {/* Opzioni con risposta corretta evidenziata */}
-                                    <div className="grid grid-cols-2 gap-1">
-                                        {quizPreviewItem.options?.map((opt, i) => (
-                                            <div key={i} className={`text-xs px-2 py-1.5 rounded ${
-                                                i === quizPreviewItem.correct_index
-                                                    ? 'bg-green-900/40 text-green-400 border border-green-600 font-bold'
-                                                    : 'bg-zinc-800 text-zinc-400'
-                                            }`}>
-                                                <span className="font-bold mr-1">{String.fromCharCode(65+i)}.</span>{opt}
-                                            </div>
-                                        ))}
-                                    </div>
-
-                                    {/* Bottoni */}
-                                    {!quizPreviewLaunched ? (
-                                        <Button
-                                            size="sm"
-                                            className="w-full bg-fuchsia-600 hover:bg-fuchsia-500 font-bold"
-                                            onClick={() => doLaunchQuiz(quizPreviewItem)}
-                                        >
-                                            <Play className="w-3 h-3 mr-1"/> LANCIA IN DISPLAY
-                                        </Button>
-                                    ) : (
-                                        <div className="text-center text-xs text-green-400 font-bold py-1">
-                                            ✅ Lanciato! Il player rimane qui per l'operatore.
-                                        </div>
-                                    )}
+                        {/* ── PLAYER SPOTIFY PREVIEW ── */}
+                        {quizPreviewItem && (
+                            <div className="mb-4 bg-zinc-900 border-2 border-green-500 rounded-xl p-3 space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-green-400 flex items-center gap-1">
+                                        <Music2 className="w-3 h-3"/>
+                                        {quizPreviewLaunched ? '🔴 IN ONDA — audio attivo' : '▶ Ascolta poi lancia'}
+                                    </span>
+                                    <button
+                                        onClick={() => { setQuizPreviewItem(null); setQuizPreviewLaunched(false); }}
+                                        className="text-zinc-500 hover:text-white text-sm"
+                                    >✕</button>
                                 </div>
-                            );
-                        })()}
+                                {/* iframe NON viene mai rimontato finché il pannello è aperto */}
+                                <iframe
+                                    key={quizPreviewItem.id}
+                                    src={`https://open.spotify.com/embed/track/${
+                                        quizPreviewItem.media_url?.match(/(?:track\/)([a-zA-Z0-9]+)/)?.[1] ||
+                                        quizPreviewItem.media_url
+                                    }?utm_source=generator&theme=0`}
+                                    width="100%"
+                                    height="80"
+                                    frameBorder="0"
+                                    allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                                    className="rounded-lg"
+                                />
+                                <div className="text-xs font-bold text-white leading-tight">{quizPreviewItem.question}</div>
+                                <div className="grid grid-cols-2 gap-1">
+                                    {quizPreviewItem.options?.map((opt, i) => (
+                                        <div key={i} className={`text-[10px] px-2 py-1 rounded ${
+                                            i === quizPreviewItem.correct_index
+                                                ? 'bg-green-900/40 text-green-400 border border-green-700 font-bold'
+                                                : 'bg-zinc-800 text-zinc-400'
+                                        }`}>
+                                            <span className="font-bold mr-1">{String.fromCharCode(65+i)}.</span>{opt}
+                                        </div>
+                                    ))}
+                                </div>
+                                {!quizPreviewLaunched ? (
+                                    <Button size="sm" className="w-full bg-fuchsia-600 hover:bg-fuchsia-500 font-bold h-8"
+                                        onClick={() => doLaunchQuiz(quizPreviewItem)}>
+                                        <Play className="w-3 h-3 mr-1"/> LANCIA IN DISPLAY
+                                    </Button>
+                                ) : (
+                                    <div className="text-center text-xs text-green-400 font-medium py-0.5">
+                                        ✅ Lanciato — player attivo qui per te
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         <div className="flex flex-wrap gap-1 mb-2 bg-zinc-950 p-1 rounded">
                             {MUSIC_CATEGORIES.map(cat => (

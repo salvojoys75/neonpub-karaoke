@@ -564,8 +564,8 @@ export default function PubDisplay() {
     const [isMuted, setIsMuted] = useState(false);
     const [quizResult, setQuizResult] = useState(null);
     const [newReaction, setNewReaction] = useState(null);
-    const [arcadeWinnerData, setArcadeWinnerData] = useState(null); // stato locale vincitore arcade
-    const arcadeWinnerTimerRef = useRef(null); // timer per pulire vincitore
+    const [arcadeWinnerData, setArcadeWinnerData] = useState(null);
+    const arcadeWinnerTimerRef = useRef(null);
 
     const load = useCallback(async () => {
         try {
@@ -594,29 +594,32 @@ export default function PubDisplay() {
                 // ── ARCADE: carica dati arcade ──
                 const arcade = finalData.active_arcade;
                 
-                // Vincitore: usa stato locale (arcadeWinnerData) che persiste fino al prossimo gioco
                 if (arcade && arcade.status === 'ended' && arcade.winner_id) {
-                    // Carica il vincitore e salvalo nello stato locale (non temporaneo)
+                    // Gioco terminato con vincitore: salva nello stato locale una sola volta
                     const { data: winner } = await supabase
                         .from('participants')
                         .select('id, nickname, avatar_url')
                         .eq('id', arcade.winner_id)
                         .single();
-                    // Setta stato locale solo se non già presente per questo gioco
                     setArcadeWinnerData(prev => {
                         if (!prev || prev.game_id !== arcade.id) {
-                            // Cancella timer precedente
                             if (arcadeWinnerTimerRef.current) clearTimeout(arcadeWinnerTimerRef.current);
-                            // Pulisce dopo 15 secondi
+                            // Scompare dopo 15s O quando si cambia scena
                             arcadeWinnerTimerRef.current = setTimeout(() => setArcadeWinnerData(null), 15000);
                             return { game_id: arcade.id, winner };
                         }
                         return prev;
                     });
-                } else if (!arcade || arcade.status === 'active') {
-                    // Nuovo gioco iniziato: pulisci vincitore precedente
-                    if (arcadeWinnerTimerRef.current) clearTimeout(arcadeWinnerTimerRef.current);
-                    setArcadeWinnerData(null);
+                } else {
+                    // Qualsiasi altra situazione (nuovo gioco, quiz, karaoke, null): pulisci vincitore
+                    setArcadeWinnerData(prev => {
+                        if (prev) {
+                            if (arcadeWinnerTimerRef.current) clearTimeout(arcadeWinnerTimerRef.current);
+                            // Se c'è un nuovo gioco active o arcade è null → pulisci subito
+                            if (!arcade || arcade.status === 'active') return null;
+                        }
+                        return prev;
+                    });
                 }
 
                 // Coda prenotazioni e ultimo errore se attivo
@@ -652,18 +655,20 @@ export default function PubDisplay() {
         load();
         const int = setInterval(load, 1000); // ✅ Ridotto a 1 secondo per reattività immediata
         
-        // Recupera event_id dal dato già caricato (pub.id)
-        const eventIdForFilter = data?.pub?.id;
+        // event_id per filtrare reazioni solo del nostro pub
+        const myEventId = data?.pub?.id;
         
-        const ch = supabase.channel(`tv_ctrl_${pubCode}`)
+        const ch = supabase.channel(`tv_${pubCode}`)
             .on('broadcast', {event: 'control'}, p => { if(p.payload.command === 'mute') setIsMuted(p.payload.value); })
             .on('postgres_changes', {
-                event: 'INSERT', schema: 'public', table: 'reactions',
-                filter: eventIdForFilter ? `event_id=eq.${eventIdForFilter}` : undefined
+                event: 'INSERT',
+                schema: 'public',
+                table: 'reactions',
+                filter: myEventId ? `event_id=eq.${myEventId}` : undefined
             }, p => {
                 const reaction = p.new;
-                // Verifica che sia del nostro evento
-                if (eventIdForFilter && reaction.event_id !== eventIdForFilter) return;
+                // Doppia verifica: scarta reazioni di altri eventi
+                if (myEventId && reaction.event_id !== myEventId) return;
                 setNewReaction({
                     emoji: reaction.emoji || '',
                     nickname: reaction.nickname || '',

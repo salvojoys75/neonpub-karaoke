@@ -187,18 +187,42 @@ export const endArcadeGame = async (gameId) => {
  */
 export const getActiveArcadeGame = async () => {
   try {
-    const event = await getAdminEvent();
+    // Funziona sia per admin (usa pub_code) che per partecipante (usa token)
+    let eventId = null;
+    
+    // Prova prima come partecipante (token)
+    const token = localStorage.getItem('discojoys_token');
+    if (token) {
+      try {
+        const p = JSON.parse(atob(token));
+        eventId = p.event_id;
+      } catch(e) {}
+    }
+    
+    // Se non trovato, prova come admin (pub_code)
+    if (!eventId) {
+      const pubCode = localStorage.getItem('discojoys_pub_code');
+      if (pubCode) {
+        const { data: ev } = await supabase
+          .from('events')
+          .select('id')
+          .eq('code', pubCode.toUpperCase())
+          .single();
+        eventId = ev?.id;
+      }
+    }
+    
+    if (!eventId) return { data: null };
     
     const { data, error } = await supabase
       .from('arcade_games')
       .select('*')
-      .eq('event_id', event.id)
+      .eq('event_id', eventId)
       .in('status', ['setup', 'waiting', 'active', 'paused'])
       .order('created_at', { ascending: false })
       .limit(1);
     
     if (error) throw error;
-    
     return { data: data?.[0] || null };
   } catch (error) {
     console.error('❌ Errore caricamento gioco attivo:', error);
@@ -1062,17 +1086,20 @@ export const getAdminQueue = async () => {
 }
 
 export const approveRequest = async (requestId) => {
+  // Calcola la prossima position disponibile in coda
   const event = await getAdminEvent()
-  const { data: existing } = await supabase
-    .from("song_requests")
-    .select("position")
-    .eq("event_id", event.id)
-    .eq("status", "queued")
-    .order("position", { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  const nextPosition = (existing?.position != null) ? existing.position + 1 : 1
-  const { data, error } = await supabase.from("song_requests").update({ status: "queued", position: nextPosition }).eq("id", requestId).select()
+  const { data: queued } = await supabase
+    .from('song_requests')
+    .select('id')
+    .eq('event_id', event.id)
+    .eq('status', 'queued')
+  // La position è il numero di canzoni già in coda + 1
+  const nextPosition = (queued?.length || 0) + 1
+  const { data, error } = await supabase
+    .from('song_requests')
+    .update({ status: 'queued', position: nextPosition })
+    .eq('id', requestId)
+    .select()
   if (error) throw error; return { data }
 }
 
