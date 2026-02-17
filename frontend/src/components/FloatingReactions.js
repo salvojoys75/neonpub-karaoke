@@ -7,16 +7,9 @@ const FloatingReactions = ({ newReaction }) => {
     if (newReaction) {
       const id = Date.now();
       // Posizione casuale orizzontale
-      const left = Math.floor(Math.random() * 80) + 10;
-
-      // 🔧 FIX: supporta sia { emoji, nickname } che il payload Supabase Realtime
-      // Il payload Realtime ha: { emoji, nickname, participant_id, event_id, ... }
-      const emoji = newReaction.emoji || newReaction.new?.emoji;
-      const nickname = newReaction.nickname || newReaction.new?.nickname || null;
-
-      if (!emoji) return; // ignora payload malformati
-
-      setReactions(prev => [...prev, { emoji, nickname, id, left }]);
+      const left = Math.floor(Math.random() * 80) + 10; 
+      
+      setReactions(prev => [...prev, { ...newReaction, id, left }]);
 
       // Rimuovi dopo animazione
       setTimeout(() => {
@@ -33,12 +26,7 @@ const FloatingReactions = ({ newReaction }) => {
           className="absolute bottom-0 flex flex-col items-center animate-float-up"
           style={{ left: `${r.left}%` }}
         >
-          <span style={{ 
-              fontSize: "4rem", 
-              lineHeight: 1,
-              fontFamily: '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif',
-              display: 'inline-block'
-            }} className="drop-shadow-lg">{r.emoji}</span>
+          <span className="text-6xl drop-shadow-lg filter">{r.emoji}</span>
           {r.nickname && (
             <span className="bg-black/50 text-white text-xs px-2 py-1 rounded-full mt-1 backdrop-blur-sm border border-white/20">
               {r.nickname}
