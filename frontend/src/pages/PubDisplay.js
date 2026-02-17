@@ -592,12 +592,12 @@ export default function PubDisplay() {
                 // ── ARCADE: carica dati arcade ──
                 const arcade = finalData.active_arcade;
                 
-                // Vincitore se terminato di recente (entro 15 secondi)
+                // Vincitore se terminato di recente (entro 30 secondi)
                 if (arcade && arcade.status === 'ended' && arcade.winner_id) {
                     const endedAt = new Date(arcade.ended_at);
                     const secondsAgo = (Date.now() - endedAt.getTime()) / 1000;
                     
-                    if (secondsAgo < 15) {
+                    if (secondsAgo < 30) {
                         const { data: winner } = await supabase
                             .from('participants')
                             .select('id, nickname, avatar_url')
@@ -648,11 +648,13 @@ export default function PubDisplay() {
             .on('broadcast', {event: 'control'}, p => { if(p.payload.command === 'mute') setIsMuted(p.payload.value); })
             .on('postgres_changes', {event: 'INSERT', schema: 'public', table: 'reactions'}, p => {
                 const reaction = p.new;
+                // ✅ Fix emoji da telefono iOS/Android: forza rendering corretto
+                const emoji = reaction.emoji || '';
                 setNewReaction({
-                    emoji: reaction.emoji,
+                    emoji: emoji,
                     nickname: reaction.nickname || '',
                     id: reaction.id,
-                    _t: Date.now() // ✅ Forza re-render anche se emoji uguale
+                    _t: Date.now()
                 });
             })
             .on('postgres_changes', {event: '*', schema: 'public', table: 'performances'}, load)
@@ -685,7 +687,7 @@ export default function PubDisplay() {
     const arcadeEndedAt = data.active_arcade?.ended_at;
     const arcadeWinner = data.active_arcade?.winner_id;
     const arcadeEndedRecently = arcadeEndedAt && arcadeWinner && 
-        (Date.now() - new Date(arcadeEndedAt).getTime()) < 15000; // 15 sec, allineato con load()
+        (Date.now() - new Date(arcadeEndedAt).getTime()) < 30000; // 30 sec allineato con load()
     
     const isArcade = data.active_arcade && (
       ['active', 'paused'].includes(data.active_arcade.status) ||

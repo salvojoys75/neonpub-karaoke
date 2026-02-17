@@ -168,6 +168,9 @@ export default function AdminDashboard() {
   const [onlineParticipants, setOnlineParticipants] = useState([]);
  
 
+  // --- QUIZ PREVIEW (Player Spotify prima del lancio) ---
+  const [quizPreviewItem, setQuizPreviewItem] = useState(null); // domanda selezionata ma non ancora lanciata
+
   const pollIntervalRef = useRef(null);
   const timerIntervalRef = useRef(null);
 
@@ -847,37 +850,36 @@ export default function AdminDashboard() {
   };
 
   const launchCatalogQuiz = async (item) => {
-      if(window.confirm(`Lanciare: ${item.question}?`)) {
-          try {
-              // Lancia quiz con tutti i dati dal catalogo (incluso media_url!)
-              await api.startQuiz({
-                  category: item.category,
-                  question: item.question,
-                  options: item.options,
-                  correct_index: item.correct_index,
-                  points: item.points || 10,
-                  media_url: item.media_url || null,
-                  media_type: item.media_type || 'text',
-                  quiz_catalog_id: item.id
-              });
-              
-              // SEMPRE traccia l'uso, anche senza venue (usa null come venue_id)
-              const venueToTrack = selectedVenueId || null;
-              console.log('🔍 Tracking quiz usage:', { 
-                  questionId: item.id, 
-                  venueId: venueToTrack,
-                  hasVenue: !!selectedVenueId 
-              });
-              
-              const trackResult = await api.trackQuizUsage(item.id, venueToTrack);
-              console.log('✅ Track result:', trackResult);
-              
-              toast.success("Quiz Lanciato!");
-              loadData();
-          } catch (e) {
-              console.error('❌ Error launching quiz:', e);
-              toast.error("Errore: " + e.message);
-          }
+      // Se ha media audio (Spotify), mostra preview con player prima del lancio
+      if (item.media_url && (item.media_type === 'audio' || item.media_type === 'spotify' || 
+          item.media_url.match(/^[a-zA-Z0-9]{22}$/) || item.media_url.includes('spotify'))) {
+          setQuizPreviewItem(item);
+          return;
+      }
+      // Altrimenti lancia direttamente (domande testo o video)
+      await doLaunchQuiz(item);
+  };
+
+  const doLaunchQuiz = async (item) => {
+      try {
+          await api.startQuiz({
+              category: item.category,
+              question: item.question,
+              options: item.options,
+              correct_index: item.correct_index,
+              points: item.points || 10,
+              media_url: item.media_url || null,
+              media_type: item.media_type || 'text',
+              quiz_catalog_id: item.id
+          });
+          const venueToTrack = selectedVenueId || null;
+          await api.trackQuizUsage(item.id, venueToTrack);
+          setQuizPreviewItem(null);
+          toast.success("Quiz Lanciato!");
+          loadData();
+      } catch (e) {
+          console.error('❌ Error launching quiz:', e);
+          toast.error("Errore: " + e.message);
       }
   };
 
@@ -1593,6 +1595,55 @@ export default function AdminDashboard() {
                             </div>
                         )}
 
+                        {/* ── SPOTIFY PREVIEW PANEL ── */}
+                        {quizPreviewItem && (
+                            <div className="mb-4 bg-zinc-900 border-2 border-green-500 rounded-xl p-4 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <div className="text-xs font-bold text-green-400 uppercase tracking-widest flex items-center gap-2">
+                                        <Music2 className="w-4 h-4"/> Anteprima - Fai Play!
+                                    </div>
+                                    <button onClick={() => setQuizPreviewItem(null)} className="text-zinc-500 hover:text-white text-lg leading-none">✕</button>
+                                </div>
+
+                                {/* Player Spotify */}
+                                <iframe
+                                    src={`https://open.spotify.com/embed/track/${
+                                        quizPreviewItem.media_url.match(/(?:track\/)([a-zA-Z0-9]+)/)?.[1] || 
+                                        quizPreviewItem.media_url
+                                    }?utm_source=generator&theme=0`}
+                                    width="100%"
+                                    height="80"
+                                    frameBorder="0"
+                                    allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                                    className="rounded-lg"
+                                />
+
+                                {/* Domanda */}
+                                <div className="text-sm font-bold text-white">
+                                    {quizPreviewItem.question}
+                                </div>
+
+                                {/* Risposte */}
+                                <div className="grid grid-cols-2 gap-1">
+                                    {quizPreviewItem.options?.map((opt, i) => (
+                                        <div key={i} className={`text-xs px-2 py-1 rounded ${i === quizPreviewItem.correct_index ? 'bg-green-900/40 text-green-400 border border-green-600' : 'bg-zinc-800 text-zinc-400'}`}>
+                                            <span className="font-bold mr-1">{String.fromCharCode(65+i)}.</span>{opt}
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Bottoni */}
+                                <div className="flex gap-2">
+                                    <Button variant="ghost" size="sm" className="flex-1 text-xs" onClick={() => setQuizPreviewItem(null)}>
+                                        Annulla
+                                    </Button>
+                                    <Button size="sm" className="flex-1 bg-fuchsia-600 hover:bg-fuchsia-500 font-bold text-xs" onClick={() => doLaunchQuiz(quizPreviewItem)}>
+                                        <Play className="w-3 h-3 mr-1"/> LANCIA IN DISPLAY
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+
                         <div className="flex flex-wrap gap-1 mb-2 bg-zinc-950 p-1 rounded">
                             {MUSIC_CATEGORIES.map(cat => (
                                 <Button key={cat.id} size="sm" variant={quizCategoryFilter===cat.id?'secondary':'ghost'} className="text-[10px] h-6 px-2" onClick={()=>setQuizCategoryFilter(cat.id)}>{cat.label}</Button>
@@ -1898,40 +1949,6 @@ export default function AdminDashboard() {
                {eventState.active_module === 'quiz' && activeQuizData && (
                   <div className="w-full h-full px-4 overflow-y-auto">
                      <div className="bg-zinc-900/80 border border-white/10 p-4 rounded-2xl shadow-2xl max-w-full">
-                        {/* PLAYER SPOTIFY/YOUTUBE */}
-                        {activeQuizData.media_url && (
-                           <div className="mb-4 bg-zinc-950 border border-zinc-800 rounded-lg p-3 overflow-hidden">
-                              <div className="text-xs text-zinc-400 uppercase tracking-widest mb-2 flex items-center gap-2">
-                                 <Music2 className="w-3 h-3"/> Player - Clicca Play ▶️
-                              </div>
-                              {activeQuizData.media_url.includes('spotify') || /^[a-zA-Z0-9]{22}$/.test(activeQuizData.media_url) ? (
-                                 <div className="flex justify-center">
-                                    <iframe
-                                       src={`https://open.spotify.com/embed/track/${activeQuizData.media_url.match(/(?:track\/)([a-zA-Z0-9]+)/)?.[1] || activeQuizData.media_url}?utm_source=generator&theme=0`}
-                                       width="100%"
-                                       height="152"
-                                       frameBorder="0"
-                                       allowFullScreen=""
-                                       allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                                       className="rounded-lg"
-                                       style={{ maxWidth: '100%' }}
-                                    />
-                                 </div>
-                              ) : activeQuizData.media_url.includes('youtube') || activeQuizData.media_url.includes('youtu.be') ? (
-                                 <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
-                                    <iframe
-                                       src={`https://www.youtube.com/embed/${activeQuizData.media_url.match(/(?:youtu\.be\/|v\/|watch\?v=|&v=)([^#&?]{11})/)?.[1]}?controls=1&mute=1`}
-                                       className="absolute top-0 left-0 w-full h-full rounded-lg"
-                                       frameBorder="0"
-                                       allow="autoplay; encrypted-media"
-                                       allowFullScreen
-                                    />
-                                 </div>
-                              ) : (
-                                 <div className="text-xs text-zinc-500 text-center py-4">URL: {activeQuizData.media_url}</div>
-                              )}
-                           </div>
-                        )}
                         
                         {/* DOMANDA */}
                         <div className="text-center mb-4">
