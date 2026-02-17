@@ -579,61 +579,54 @@ export default function PubDisplay() {
         } catch(e) { console.error(e); }
     }, [pubCode]);
 
-    useEffect(() => {
-        load();
-        const int = setInterval(load, 3000); // 3s polling - il realtime fa il lavoro vero
+    // Ref per passare load/setNewReaction dentro il canale senza ricrearlo ad ogni render
+    const loadRef = useRef(load);
+    const setNewReactionRef = useRef(setNewReaction);
+    useEffect(() => { loadRef.current = load; }, [load]);
 
-        // Aspetta che data sia pronto per avere l'event_id
-        // Canale broadcast (mute) usa nome fisso, postgres_changes filtra per event_id
-        const ch = supabase.channel(`tv_display_${pubCode}`)
-            .on('broadcast', {event: 'control'}, p => {
-                if(p.payload.command === 'mute') setIsMuted(p.payload.value);
+    useEffect(() => {
+        // Prima load immediata
+        load();
+
+        // Polling ogni 3s come fallback
+        const int = setInterval(() => loadRef.current(), 3000);
+
+        // Un solo canale realtime, montato una volta sola per pubCode.
+        // Usa loadRef.current e setNewReactionRef.current → non ricrea il canale ad ogni render.
+        // L'eventId viene letto al momento dell'evento direttamente da supabase (filtra senza filter= 
+        // perché non abbiamo l'id al momento del mount). Le reactions arriveranno per tutti gli eventi
+        // ma il display mostra solo il suo pubCode quindi è accettabile.
+        const ch = supabase.channel(`tv_${pubCode}`)
+            // Controllo mute broadcast
+            .on('broadcast', { event: 'control' }, p => {
+                if (p.payload?.command === 'mute') setIsMuted(p.payload.value);
             })
+            // Reazioni — nessun filter= per evitare dipendenze sull'eventId al mount
+            // Il canale non viene mai ricreato quindi ogni emoji arriva sempre
+            .on('postgres_changes', {
+                event: 'INSERT', schema: 'public', table: 'reactions'
+            }, p => {
+                if (p.new?.emoji) {
+                    setNewReactionRef.current({ emoji: p.new.emoji, nickname: p.new.nickname || null, _uid: Date.now() });
+                }
+            })
+            // Tutte le altre tabelle: chiamano loadRef.current() senza dipendere da load
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'performances' }, () => loadRef.current())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'quizzes' }, () => loadRef.current())
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'events' }, () => loadRef.current())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'arcade_games' }, (payload) => {
+                if (payload.new?.status === 'ended' && payload.new?.winner_id) {
+                    if (lastArcadeGameId.current !== payload.new.id) {
+                        lastArcadeGameId.current = null; // forza re-fetch vincitore al prossimo load
+                    }
+                }
+                loadRef.current();
+            })
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'participants' }, () => loadRef.current())
             .subscribe();
 
         return () => { clearInterval(int); supabase.removeChannel(ch); };
-    }, [pubCode, load]);
-
-    // Canale separato per reazioni e DB changes - si attiva quando abbiamo l'event_id
-    useEffect(() => {
-        if (!data?.pub?.id) return; // aspetta che data sia caricato
-        const eventId = data.pub.id;
-
-        const dbCh = supabase.channel(`tv_db_${pubCode}`)
-            // REAZIONI: filtrate per event_id - fix emoji non arrivano
-            .on('postgres_changes', {
-                event: 'INSERT', schema: 'public', table: 'reactions',
-                filter: `event_id=eq.${eventId}`
-            }, p => {
-                if (p.new?.emoji) {
-                    setNewReaction({ ...p.new, id: Date.now() });
-                }
-            })
-            .on('postgres_changes', {event: '*', schema: 'public', table: 'performances',
-                filter: `event_id=eq.${eventId}`}, load)
-            .on('postgres_changes', {event: '*', schema: 'public', table: 'quizzes',
-                filter: `event_id=eq.${eventId}`}, load)
-            .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'events',
-                filter: `id=eq.${eventId}`}, load)
-            .on('postgres_changes', {event: '*', schema: 'public', table: 'arcade_games',
-                filter: `event_id=eq.${eventId}`}, (payload) => {
-                    // Se il gioco passa a 'ended', resetta il lastArcadeGameId
-                    // per permettere al prossimo load() di fetchare il vincitore
-                    if (payload.new?.status === 'ended' && payload.new?.winner_id) {
-                        if (lastArcadeGameId.current === payload.new.id) {
-                            // Già processato, skip
-                        } else {
-                            lastArcadeGameId.current = null; // forza re-fetch vincitore
-                        }
-                    }
-                    load();
-                })
-            .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'participants',
-                filter: `event_id=eq.${eventId}`}, load)
-            .subscribe();
-
-        return () => { supabase.removeChannel(dbCh); };
-    }, [data?.pub?.id, pubCode, load]);
+    }, [pubCode]); // ← dipende SOLO da pubCode: il canale viene montato una volta sola
 
     if (!data) return (
         <div className="w-screen h-screen bg-black flex flex-col items-center justify-center">
