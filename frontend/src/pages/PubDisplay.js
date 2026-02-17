@@ -341,70 +341,6 @@ const QuizMode = ({ quiz, result }) => {
 
     // Layout split per video: video sx, domanda dx
     const isVideoQuiz = quiz.media_type === 'video' && quiz.media_url && !result;
-    
-    // ✅ FIX: Player audio separato in alto a sinistra (come Arcade)
-    const isAudioQuiz = quiz.media_type === 'audio' && quiz.media_url && !result;
-    const getSpotifyEmbed = (url) => {
-        if (!url) return null;
-        const m = url.match(/(?:track\/)([a-zA-Z0-9]+)/);
-        return m ? `https://open.spotify.com/embed/track/${m[1]}?utm_source=generator&theme=0` : null;
-    };
-    const spotifyEmbedUrl = isAudioQuiz ? getSpotifyEmbed(quiz.media_url) : null;
-
-    if (isAudioQuiz && spotifyEmbedUrl) {
-        return (
-        <div className="w-full h-full flex flex-col bg-[#080808] overflow-hidden">
-            {/* PLAYER SPOTIFY — come nell'Arcade, compatto in alto */}
-            <div className="shrink-0 px-8 pt-6 pb-2">
-                <div className="rounded-xl overflow-hidden border border-zinc-700 shadow-lg">
-                    <div className="bg-zinc-900 px-3 py-1 text-xs text-zinc-500 font-bold uppercase tracking-widest flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
-                        ASCOLTA LA CANZONE
-                    </div>
-                    <iframe
-                        key={quiz.id}
-                        src={spotifyEmbedUrl}
-                        width="100%"
-                        height="80"
-                        frameBorder="0"
-                        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                        className="block"
-                    />
-                </div>
-            </div>
-
-            {/* DOMANDA */}
-            <div className="flex flex-col items-center justify-center px-8 py-4 shrink-0">
-                <div className="bg-fuchsia-600 text-white px-6 py-2 rounded-full font-black text-lg uppercase tracking-[0.3em] mb-4 shadow-[0_0_20px_rgba(217,70,239,0.5)] border border-white/20">
-                    {quiz.category || "QUIZ TIME"}
-                </div>
-                <h1 style={{fontSize: 'clamp(1.2rem, 3vw, 3rem)', lineHeight: 1.2}} className="font-black text-white text-center drop-shadow-2xl">{quiz.question}</h1>
-            </div>
-
-            {/* RISPOSTE */}
-            <div className="flex-1 px-8 pb-8 flex items-center">
-                {quiz.status === 'closed' ? (
-                    <div className="w-full flex justify-center">
-                        <div className="bg-red-600 px-10 py-5 rounded-[2rem] animate-pulse shadow-[0_0_60px_rgba(220,38,38,0.8)] border-4 border-red-400">
-                            <h2 className="text-5xl font-black text-white uppercase italic">TEMPO SCADUTO!</h2>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-2 gap-3 w-full h-full">
-                        {quiz.options.map((opt, i) => (
-                            <div key={i} className="glass-panel border-l-[8px] border-fuchsia-600 px-4 rounded-r-2xl flex items-center gap-4 text-left overflow-hidden">
-                                <div style={{fontSize: 'clamp(1.2rem, 2.5vw, 2.5rem)', minWidth: '2.5em', minHeight: '2.5em'}} className="bg-black/40 rounded-xl flex items-center justify-center font-black text-white shrink-0 font-mono border border-white/10 aspect-square">
-                                    {String.fromCharCode(65+i)}
-                                </div>
-                                <div style={{fontSize: 'clamp(1rem, 2vw, 2rem)'}} className="font-bold text-white leading-tight line-clamp-3">{opt}</div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </div>
-        </div>
-        );
-    }
 
     if (isVideoQuiz) {
         const getYtId = (url) => {
@@ -436,12 +372,6 @@ const QuizMode = ({ quiz, result }) => {
                             style={{position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none'}}
                         />
                     )}
-                    {/* ✅ Blocca titolo YouTube: overlay nero opaco in alto */}
-                    <div style={{
-                        position: 'absolute', top: 0, left: 0, right: 0, height: '72px',
-                        background: '#000000',
-                        zIndex: 10, pointerEvents: 'none'
-                    }} />
                 </div>
             </div>
 
@@ -473,8 +403,9 @@ const QuizMode = ({ quiz, result }) => {
 
     return (
     <div className="w-full h-full flex flex-col bg-[#080808] relative p-12 overflow-hidden">
-        {/* SFONDO NERO SEMPLICE - niente video/audio */}
-        <div className="absolute inset-0 bg-gradient-to-b from-zinc-900 to-black z-0"></div>
+        <QuizMediaFixed mediaUrl={quiz.media_url} mediaType={quiz.media_type} isResult={!!result} />
+        
+        <div className="absolute inset-0 bg-black/70 z-10 pointer-events-none"></div>
 
         <div className="relative z-20 flex-1 flex flex-col items-center justify-center">
             <div className="bg-fuchsia-600 text-white px-10 py-4 rounded-full font-black text-xl uppercase tracking-[0.3em] mb-12 shadow-[0_0_40px_rgba(217,70,239,0.6)] transform -rotate-2 border-2 border-white/20">
@@ -564,11 +495,9 @@ export default function PubDisplay() {
     const [isMuted, setIsMuted] = useState(false);
     const [quizResult, setQuizResult] = useState(null);
     const [newReaction, setNewReaction] = useState(null);
-    // Vincitore arcade: stato separato con timer, non dipende dal polling
-    const [arcadeWinner, setArcadeWinner] = useState(null); // { game_id, winner }
+    const [arcadeWinner, setArcadeWinner] = useState(null);
     const arcadeWinnerTimer = useRef(null);
     const lastArcadeGameId = useRef(null);
-    const eventIdRef = useRef(null); // aggiornato ad ogni load() per il filtro emoji
 
     const load = useCallback(async () => {
         try {
@@ -593,12 +522,12 @@ export default function PubDisplay() {
                         }
                     };
                 }
+                
+                setData(finalData);
 
-                // ── ARCADE: carica dati arcade ──
+                // ARCADE: vincitore
                 const arcade = finalData.active_arcade;
-
                 if (arcade && arcade.status === 'ended' && arcade.winner_id) {
-                    // Nuovo gioco terminato: mostra vincitore per 15s poi pulisci
                     if (lastArcadeGameId.current !== arcade.id) {
                         lastArcadeGameId.current = arcade.id;
                         const { data: winnerData } = await supabase
@@ -606,77 +535,35 @@ export default function PubDisplay() {
                             .select('id, nickname, avatar_url')
                             .eq('id', arcade.winner_id)
                             .single();
-                        // Cancella timer precedente se esiste
                         if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
                         setArcadeWinner({ game_id: arcade.id, winner: winnerData });
-                        // Dopo 15s pulisci automaticamente
                         arcadeWinnerTimer.current = setTimeout(() => {
                             setArcadeWinner(null);
                             lastArcadeGameId.current = null;
-                        }, 15000);
+                        }, 30000);
                     }
-                } else if (!arcade || arcade.status === 'active' || arcade.status === 'setup') {
-                    // Nessun gioco, o nuovo gioco partito: pulisci subito vincitore precedente
-                    if (lastArcadeGameId.current !== null && (!arcade || arcade.id !== lastArcadeGameId.current)) {
+                } else if (!arcade || arcade.status !== 'ended') {
+                    if (arcadeWinner !== null && (!arcade || arcade.id !== lastArcadeGameId.current)) {
                         if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
                         setArcadeWinner(null);
                         lastArcadeGameId.current = null;
                     }
                 }
-
-                // Se è attivo quiz o karaoke/voting/score → schermata vincitore sparisce subito
-                const hasOtherMode =
-                    (finalData.active_quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(finalData.active_quiz?.status)) ||
-                    (finalData.current_performance && ['live', 'paused', 'voting', 'ended'].includes(finalData.current_performance?.status));
-                if (hasOtherMode) {
-                    if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
-                    setArcadeWinner(null);
-                    lastArcadeGameId.current = null;
-                }
-
-                // Coda prenotazioni e ultimo errore se attivo
-                if (arcade && arcade.status === 'active') {
-                    const { data: allBookings } = await api.getArcadeBookings(arcade.id);
-                    
-                    const pendingQueue = allBookings
-                        ?.filter(b => b.status === 'pending')
-                        .sort((a, b) => a.booking_order - b.booking_order) || [];
-                    
-                    const recentErrors = allBookings
-                        ?.filter(b => b.status === 'wrong')
-                        .sort((a, b) => new Date(b.validated_at) - new Date(a.validated_at));
-                    
-                    const lastError = recentErrors && recentErrors.length > 0 ? recentErrors[0] : null;
-                    
-                    finalData = {
-                        ...finalData,
-                        active_arcade: {
-                            ...arcade,
-                            booking_queue: pendingQueue,
-                            last_error: lastError
-                        }
-                    };
-                }
-                
-                setData(finalData);
-                // Aggiorna ref con l'event_id per il filtro emoji nel channel
-                if (finalData.pub?.id) eventIdRef.current = finalData.pub.id;
             }
         } catch(e) { console.error(e); }
     }, [pubCode]);
 
     useEffect(() => {
         load();
-        const int = setInterval(load, 1000); // ✅ Ridotto a 1 secondo per reattività immediata
+        const int = setInterval(load, 3000);
         
-        const ch = supabase.channel(`display-${pubCode}`)
+        const ch = supabase.channel('tv_ctrl')
             .on('broadcast', {event: 'control'}, p => { if(p.payload.command === 'mute') setIsMuted(p.payload.value); })
             .on('postgres_changes', {event: 'INSERT', schema: 'public', table: 'reactions'}, p => setNewReaction(p.new))
             .on('postgres_changes', {event: '*', schema: 'public', table: 'performances'}, load)
             .on('postgres_changes', {event: '*', schema: 'public', table: 'quizzes'}, load)
             .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'events'}, load)
             .on('postgres_changes', {event: '*', schema: 'public', table: 'arcade_games'}, load)
-            .on('postgres_changes', {event: '*', schema: 'public', table: 'arcade_bookings'}, load)
             .subscribe();
             
         return () => { clearInterval(int); supabase.removeChannel(ch); };
@@ -693,15 +580,11 @@ export default function PubDisplay() {
 
     const recentMessages = approved_messages ? approved_messages.slice(0, 10) : [];
 
-    // ⚠️ PRIORITÀ MODULI: Quiz > Arcade (solo se realmente attivo) > Karaoke/Voting/Score
     const isQuiz = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
-    
-    // Arcade attivo: gioco in corso OPPURE vincitore da mostrare (gestito con timer)
     const isArcade = !isQuiz && (
-      (data.active_arcade && ['active', 'paused'].includes(data.active_arcade.status)) ||
-      arcadeWinner !== null
+        (data.active_arcade && ['active', 'paused'].includes(data.active_arcade.status)) ||
+        arcadeWinner !== null
     );
-    
     const isKaraoke = !isQuiz && !isArcade && perf && ['live', 'paused'].includes(perf.status);
     const isVoting = !isQuiz && !isArcade && perf && perf.status === 'voting';
     const isScore = !isQuiz && !isArcade && perf && perf.status === 'ended';
@@ -709,26 +592,26 @@ export default function PubDisplay() {
     let Content = null;
     if (isQuiz) Content = <QuizMode quiz={quiz} result={quizResult} />;
     else if (isArcade) Content = (
-      <div className="relative w-full h-full">
-        <ArcadeMode
-          arcade={data.active_arcade || {}}
-          result={arcadeWinner ? { winner: arcadeWinner.winner } : null}
-          bookingQueue={data.active_arcade?.booking_queue || []}
-          lastError={data.active_arcade?.last_error}
-        />
-        {arcadeWinner && (
-          <button
-            onClick={() => {
-              if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
-              setArcadeWinner(null);
-              lastArcadeGameId.current = null;
-            }}
-            className="absolute bottom-6 right-6 z-[150] bg-black/70 hover:bg-red-700 border border-white/20 hover:border-red-400 text-white font-bold text-lg px-8 py-3 rounded-2xl backdrop-blur-md transition-all duration-200 shadow-xl"
-          >
-            ✕ Chiudi schermata vincitore
-          </button>
-        )}
-      </div>
+        <div className="relative w-full h-full">
+            <ArcadeMode
+                arcade={data.active_arcade || {}}
+                result={arcadeWinner ? { winner: arcadeWinner.winner } : null}
+                bookingQueue={data.active_arcade?.booking_queue || []}
+                lastError={data.active_arcade?.last_error}
+            />
+            {arcadeWinner && (
+                <button
+                    onClick={() => {
+                        if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
+                        setArcadeWinner(null);
+                        lastArcadeGameId.current = null;
+                    }}
+                    className="absolute bottom-6 right-6 z-[150] bg-black/70 hover:bg-red-700 border border-white/20 hover:border-red-400 text-white font-bold text-lg px-8 py-3 rounded-2xl backdrop-blur-md transition-all duration-200 shadow-xl"
+                >
+                    ✕ Chiudi schermata vincitore
+                </button>
+            )}
+        </div>
     );
     else if (isVoting) Content = <VotingMode perf={perf} />;
     else if (isScore) Content = <ScoreMode perf={perf} />;
