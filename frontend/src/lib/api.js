@@ -1232,6 +1232,36 @@ export const sendReaction = async (data) => {
   return { data: reaction }
 }
 
+
+/**
+ * Sottoscrizione Realtime alle reazioni — usata dal Display TV
+ * Ritorna la funzione unsubscribe da chiamare nel cleanup.
+ *
+ * Esempio di utilizzo nel Display:
+ *   useEffect(() => {
+ *     const unsub = api.subscribeToReactions(eventId, (reaction) => {
+ *       setNewReaction(reaction); // { emoji, nickname }
+ *     });
+ *     return () => unsub();
+ *   }, [eventId]);
+ */
+export const subscribeToReactions = (eventId, onReaction) => {
+  const channel = supabase
+    .channel(`reactions:${eventId}`)
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'reactions', filter: `event_id=eq.${eventId}` },
+      (payload) => {
+        // payload.new contiene: { emoji, nickname, participant_id, event_id, ... }
+        if (payload?.new?.emoji) {
+          onReaction({ emoji: payload.new.emoji, nickname: payload.new.nickname || null });
+        }
+      }
+    )
+    .subscribe();
+  return () => supabase.removeChannel(channel);
+};
+
 export const sendMessage = async (data) => {
   // PRIORITÀ 1: Controlla se è un UTENTE (ha discojoys_token)
   // Questo controlla prima se c'è un token utente valido
@@ -1518,6 +1548,7 @@ export const getDisplayData = async (pubCode) => {
     // Messaggi UTENTI
     supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).not('participant_id', 'is', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(10),
 // 🎮 ARCADE GAME ATTIVO
+// Per gli "ended": includi solo se terminati da meno di 30 secondi (schermata vincitore temporanea)
 supabase.from('arcade_games').select('*').eq('event_id', event.id).in('status', ['setup', 'waiting', 'active', 'paused', 'ended']).order('created_at', {ascending: false}).limit(1).maybeSingle()
   ])
 
@@ -1536,6 +1567,15 @@ supabase.from('arcade_games').select('*').eq('event_id', event.id).in('status', 
     .filter(q => !liveRequestId || q.id !== liveRequestId)
     .map(q => ({...q, user_nickname: q.participants?.nickname, user_avatar: q.participants?.avatar_url}));
 
+  // 🎮 FIX: schermata vincitore sparisce dopo 30s, e subito se è partito karaoke/quiz
+  let arcadeForDisplay = activeArcade.data;
+  if (arcadeForDisplay && arcadeForDisplay.status === 'ended' && arcadeForDisplay.ended_at) {
+    const secondsSinceEnd = (new Date() - new Date(arcadeForDisplay.ended_at)) / 1000;
+    if (secondsSinceEnd > 30) {
+      arcadeForDisplay = null;
+    }
+  }
+
   return {
     data: {
       pub: event,
@@ -1546,7 +1586,7 @@ supabase.from('arcade_games').select('*').eq('event_id', event.id).in('status', 
       admin_message: adminMsg.data,
       extraction_data: event.extraction_data,
       // 🎮 ARCADE
-      active_arcade: activeArcade.data,
+      active_arcade: arcadeForDisplay,
       // FILTRO: solo messaggi UTENTI (con participants.nickname)
       approved_messages: approvedMsgs.data?.filter(m => m.participants?.nickname).map(m => ({text: m.text, nickname: m.participants?.nickname})) || []
     }

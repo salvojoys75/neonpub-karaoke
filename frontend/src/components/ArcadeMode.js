@@ -107,7 +107,7 @@ const HiddenSpotifyPlayer = ({ trackUrl, isPlaying }) => {
   );
 };
 
-const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => {
+const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null, activeModule = 'arcade' }) => {
   const prevBookingCountRef = useRef(0);
   const [showError, setShowError] = useState(false);
 
@@ -141,8 +141,9 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
 
   // ══════════════════════════════════════════════════════════
   // FRAME 1: VINCITORE (gioco ended con winner)
+  // Sparisce immediatamente se il modulo attivo non è più arcade
   // ══════════════════════════════════════════════════════════
-  if (result && result.winner) {
+  if (result && result.winner && activeModule === 'arcade') {
     return (
       <div className="w-full h-full flex flex-col bg-gradient-to-br from-green-900 via-black to-black relative overflow-hidden">
         <style>{WAVE_STYLES}</style>

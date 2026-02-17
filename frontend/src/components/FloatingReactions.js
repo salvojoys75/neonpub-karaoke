@@ -7,9 +7,16 @@ const FloatingReactions = ({ newReaction }) => {
     if (newReaction) {
       const id = Date.now();
       // Posizione casuale orizzontale
-      const left = Math.floor(Math.random() * 80) + 10; 
-      
-      setReactions(prev => [...prev, { ...newReaction, id, left }]);
+      const left = Math.floor(Math.random() * 80) + 10;
+
+      // 🔧 FIX: supporta sia { emoji, nickname } che il payload Supabase Realtime
+      // Il payload Realtime ha: { emoji, nickname, participant_id, event_id, ... }
+      const emoji = newReaction.emoji || newReaction.new?.emoji;
+      const nickname = newReaction.nickname || newReaction.new?.nickname || null;
+
+      if (!emoji) return; // ignora payload malformati
+
+      setReactions(prev => [...prev, { emoji, nickname, id, left }]);
 
       // Rimuovi dopo animazione
       setTimeout(() => {
