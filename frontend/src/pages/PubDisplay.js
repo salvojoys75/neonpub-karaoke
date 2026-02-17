@@ -536,7 +536,7 @@ export default function PubDisplay() {
                             .eq('id', arcade.winner_id)
                             .single();
                         if (arcadeWinnerTimer.current) clearTimeout(arcadeWinnerTimer.current);
-                        console.log('🏆 ARCADE WINNER SET:', winnerData); setArcadeWinner({ game_id: arcade.id, winner: winnerData });
+                        setArcadeWinner({ game_id: arcade.id, winner: winnerData });
                         arcadeWinnerTimer.current = setTimeout(() => {
                             setArcadeWinner(null);
                             lastArcadeGameId.current = null;
@@ -556,11 +556,11 @@ export default function PubDisplay() {
 
     useEffect(() => {
         load();
-        const int = setInterval(load, 3000);
+        const int = setInterval(load, 1000);
         
         const ch = supabase.channel('tv_ctrl')
             .on('broadcast', {event: 'control'}, p => { if(p.payload.command === 'mute') setIsMuted(p.payload.value); })
-            .on('postgres_changes', {event: 'INSERT', schema: 'public', table: 'reactions'}, p => { console.log('🎭 REACTION RICEVUTA:', p.new); setNewReaction(p.new); })
+            .on('postgres_changes', {event: 'INSERT', schema: 'public', table: 'reactions'}, p => setNewReaction(p.new))
             .on('postgres_changes', {event: '*', schema: 'public', table: 'performances'}, load)
             .on('postgres_changes', {event: '*', schema: 'public', table: 'quizzes'}, load)
             .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'events'}, load)
