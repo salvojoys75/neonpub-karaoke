@@ -261,45 +261,31 @@ const ArcadeSection = ({ participant }) => {
   // ============================================================
 
   return (
-    <div className="p-6 space-y-6 animate-in fade-in duration-500">
+    <div className="h-full flex flex-col animate-in fade-in duration-500">
       
-      {/* Header */}
-      <div className="text-center">
-        <div className="w-20 h-20 rounded-full bg-fuchsia-600 flex items-center justify-center mx-auto mb-4">
-          <Music className="w-10 h-10 text-white animate-pulse" />
-        </div>
-        <h2 className="text-3xl font-black text-white mb-2">
-          Indovina la Canzone
-        </h2>
-        <p className="text-fuchsia-300 text-lg">
-          🎵 Ascolta e prenota!
-        </p>
-      </div>
-
-      {/* 🎵 DOMANDA */}
+      {/* 🎵 DOMANDA - Compatta in alto */}
       {activeGame.question && (
-        <div className="bg-fuchsia-900/30 border-2 border-fuchsia-500 rounded-2xl p-6">
-          <div className="text-sm text-fuchsia-300 uppercase tracking-widest mb-2">Domanda:</div>
-          <div className="text-2xl font-black text-white">
+        <div className="bg-fuchsia-900/30 border-2 border-fuchsia-500 rounded-xl p-4 mb-4">
+          <div className="text-xs text-fuchsia-300 uppercase tracking-widest mb-1">Domanda:</div>
+          <div className="text-lg font-black text-white leading-tight">
             {activeGame.question}
           </div>
         </div>
       )}
 
-      {/* 📝 OPZIONI DI RISPOSTA */}
+      {/* 📝 OPZIONI DI RISPOSTA - Compatte */}
       {activeGame.options && activeGame.options.length > 0 && (
-        <div className="space-y-3">
-          <div className="text-xs text-zinc-500 uppercase tracking-widest">Opzioni:</div>
+        <div className="grid grid-cols-2 gap-2 mb-4">
           {activeGame.options.map((option, index) => (
             <div
               key={index}
-              className="glass-panel px-4 py-3 rounded-xl border border-white/20 hover:border-fuchsia-500/50 transition-all"
+              className="glass-panel px-3 py-2 rounded-lg border border-white/20"
             >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-fuchsia-600 flex items-center justify-center text-sm font-black text-white shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-full bg-fuchsia-600 flex items-center justify-center text-xs font-black text-white shrink-0">
                   {String.fromCharCode(65 + index)}
                 </div>
-                <div className="text-base font-bold text-white">
+                <div className="text-sm font-bold text-white truncate">
                   {option}
                 </div>
               </div>
@@ -308,76 +294,61 @@ const ArcadeSection = ({ participant }) => {
         </div>
       )}
 
-      {/* Info gioco */}
-      <div className="glass-panel p-6 rounded-2xl border-2 border-yellow-500/30">
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <span className="text-zinc-400">Punti:</span>
-            <span className="text-3xl font-bold text-yellow-400 flex items-center gap-2">
-              <Trophy className="w-6 h-6" />
-              {activeGame.points_reward}
-            </span>
+      {/* 🎮 BOTTONE PRENOTA - GRANDE E IN ALTO */}
+      <Button
+        onClick={handleBook}
+        disabled={loading}
+        className="w-full h-20 text-2xl font-black rounded-xl bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 shadow-[0_0_40px_rgba(234,179,8,0.4)] border-4 border-yellow-400/50 animate-pulse mb-4"
+      >
+        {loading ? (
+          <>
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mr-2"></div>
+            Prenotazione...
+          </>
+        ) : (
+          <>
+            <Zap className="w-8 h-8 mr-2" />
+            PRENOTA!
+          </>
+        )}
+      </Button>
+
+      {/* Info gioco - Compatte */}
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="glass-panel p-3 rounded-xl border border-yellow-500/30 text-center">
+          <div className="text-xs text-zinc-400 mb-1">Punti</div>
+          <div className="text-2xl font-bold text-yellow-400 flex items-center justify-center gap-1">
+            <Trophy className="w-5 h-5" />
+            {activeGame.points_reward}
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-zinc-400">Tentativi:</span>
-            <span className="text-xl font-bold text-white">
-              {activeGame.attempts_count || 0} / {activeGame.max_attempts}
-            </span>
+        </div>
+        <div className="glass-panel p-3 rounded-xl border border-white/20 text-center">
+          <div className="text-xs text-zinc-400 mb-1">Tentativi</div>
+          <div className="text-xl font-bold text-white">
+            {activeGame.attempts_count || 0} / {activeGame.max_attempts}
           </div>
         </div>
       </div>
 
       {/* Indicatore audio */}
-      <div className="bg-fuchsia-900/20 border-2 border-fuchsia-500/30 rounded-xl p-4">
-        <div className="flex items-center gap-3 justify-center">
-          <Music className="w-6 h-6 text-fuchsia-400 animate-pulse" />
-          <p className="text-fuchsia-200 text-center text-sm font-medium">
-            🔊 Ascolta la musica dalle casse del locale
+      <div className="bg-fuchsia-900/20 border border-fuchsia-500/30 rounded-lg p-3 mb-3">
+        <div className="flex items-center gap-2 justify-center">
+          <Music className="w-5 h-5 text-fuchsia-400 animate-pulse" />
+          <p className="text-fuchsia-200 text-xs font-medium">
+            Ascolta dalle casse del locale
           </p>
         </div>
       </div>
 
-      {/* Bottone PRENOTA */}
-      <Button
-        onClick={handleBook}
-        disabled={loading}
-        className="w-full h-24 text-3xl font-black rounded-2xl bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 shadow-[0_0_60px_rgba(234,179,8,0.4)] border-4 border-yellow-400/50 animate-pulse"
-      >
-        {loading ? (
-          <>
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mr-3"></div>
-            Prenotazione...
-          </>
-        ) : (
-          <>
-            <Zap className="w-10 h-10 mr-3" />
-            PRENOTA RISPOSTA
-          </>
-        )}
-      </Button>
-
-      {/* Info aggiuntive */}
-      <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 space-y-2">
-        <p className="text-zinc-300 text-center text-sm font-medium">
+      {/* Info aggiuntive - Compatte */}
+      <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-3 text-center flex-shrink-0">
+        <p className="text-zinc-300 text-xs font-medium mb-1">
           ⚡ Primi 5 che prenotano vanno in coda!
         </p>
-        <p className="text-zinc-500 text-center text-xs">
-          Se sbagli, aspetterai {activeGame.penalty_seconds} secondi prima di riprovare
+        <p className="text-zinc-500 text-[10px]">
+          Se sbagli → penalità {activeGame.penalty_seconds}s
         </p>
       </div>
-
-      {/* Progress bar visivo */}
-      <div className="relative h-2 bg-zinc-800 rounded-full overflow-hidden">
-        <div 
-          className="absolute inset-y-0 left-0 bg-gradient-to-r from-yellow-600 to-orange-600 transition-all duration-500"
-          style={{ 
-            width: `${((activeGame.attempts_count || 0) / activeGame.max_attempts) * 100}%`
-          }}
-        ></div>
-      </div>
-      <p className="text-center text-xs text-zinc-600">
-        Tentativi utilizzati
-      </p>
     </div>
   );
 };

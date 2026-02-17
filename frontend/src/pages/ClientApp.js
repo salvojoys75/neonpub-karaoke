@@ -22,6 +22,7 @@ export default function ClientApp() {
   const [currentPerformance, setCurrentPerformance] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
   const [activeQuiz, setActiveQuiz] = useState(null);
+  const [activeArcade, setActiveArcade] = useState(null); // ✅ NUOVO stato arcade
   const [quizResult, setQuizResult] = useState(null);
   const [showQuizModal, setShowQuizModal] = useState(false);
   const [quizAnswer, setQuizAnswer] = useState(null);
@@ -45,8 +46,13 @@ export default function ClientApp() {
     // Senza token non ha senso chiamare le API
     if (!localStorage.getItem('discojoys_token')) return;
     try {
-      const [queueRes, myRes, perfRes, lbRes, quizRes] = await Promise.all([
-        api.getSongQueue(), api.getMyRequests(), api.getCurrentPerformance(), api.getLeaderboard(), api.getActiveQuiz(),
+      const [queueRes, myRes, perfRes, lbRes, quizRes, arcadeRes] = await Promise.all([
+        api.getSongQueue(), 
+        api.getMyRequests(), 
+        api.getCurrentPerformance(), 
+        api.getLeaderboard(), 
+        api.getActiveQuiz(),
+        api.getActiveArcadeGame(), // ✅ Carica arcade
       ]);
       setQueue(queueRes.data || []);
       setMyRequests(myRes.data || []);
@@ -70,8 +76,21 @@ export default function ClientApp() {
         if (serverQuiz.status === 'active' && !showQuizModal) { toast.success("📢 Nuovo Quiz!"); setShowQuizModal(true); }
         if (serverQuiz.status === 'showing_results' && quizAnswer !== null && !quizResult) { setTimeout(async () => { const { data } = await api.getQuizResults(serverQuiz.id); setQuizResult(data); }, 500); }
       } else { setActiveQuiz(null); setQuizResult(null); setShowQuizModal(false); }
+      
+      // ✅ GESTIONE ARCADE - Cambio automatico tab
+      const serverArcade = arcadeRes.data;
+      if (serverArcade && serverArcade.status === 'active') {
+        // Nuovo gioco arcade o primo caricamento
+        if (!activeArcade || activeArcade.id !== serverArcade.id) {
+          setActiveTab('arcade'); // ✅ Cambio automatico alla tab arcade
+          toast.success("🎮 Nuovo Gioco Arcade! Indovina la canzone!");
+        }
+        setActiveArcade(serverArcade);
+      } else {
+        setActiveArcade(null);
+      }
     } catch (error) { console.error("Errore caricamento:", error); }
-  }, [activeQuiz, showQuizModal, user, hasVoted, quizAnswer, quizResult]);
+  }, [activeQuiz, showQuizModal, user, hasVoted, quizAnswer, quizResult, activeArcade]);
 
   useEffect(() => { loadData(); pollIntervalRef.current = setInterval(loadData, 3000); return () => clearInterval(pollIntervalRef.current); }, [loadData]);
 

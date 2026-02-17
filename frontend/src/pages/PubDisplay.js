@@ -569,7 +569,7 @@ export default function PubDisplay() {
 
     useEffect(() => {
         load();
-        const int = setInterval(load, 3000);
+        const int = setInterval(load, 1000); // ✅ Ridotto a 1 secondo per reattività immediata
         
         const ch = supabase.channel('tv_ctrl')
             .on('broadcast', {event: 'control'}, p => { if(p.payload.command === 'mute') setIsMuted(p.payload.value); })
@@ -577,6 +577,8 @@ export default function PubDisplay() {
             .on('postgres_changes', {event: '*', schema: 'public', table: 'performances'}, load)
             .on('postgres_changes', {event: '*', schema: 'public', table: 'quizzes'}, load)
             .on('postgres_changes', {event: 'UPDATE', schema: 'public', table: 'events'}, load)
+            .on('postgres_changes', {event: '*', schema: 'public', table: 'arcade_games'}, load) // ✅ Reload immediato per arcade
+            .on('postgres_changes', {event: '*', schema: 'public', table: 'arcade_bookings'}, load) // ✅ Reload immediato per prenotazioni
             .subscribe();
             
         return () => { clearInterval(int); supabase.removeChannel(ch); };

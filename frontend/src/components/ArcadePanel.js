@@ -54,17 +54,19 @@ export default function ArcadePanel({
         
         const { data: current } = await api.getCurrentBooking(game.id);
         
-        // ── Nuova prenotazione arrivata? Solo alert, il player CONTINUA ──
+        // ── Nuova prenotazione arrivata? FERMA LA MUSICA ──
         if (current && current.id !== prevBookingIdRef.current) {
           prevBookingIdRef.current = current.id;
+          setIsPlayerVisible(false); // ✅ FERMA LA MUSICA
           setNewBookingAlert(true);
           toast.info(`🎤 ${current.participants?.nickname} si è prenotato!`);
         }
 
-        // ── Nessuna prenotazione → rimuovi alert ──
+        // ── Nessuna prenotazione → Lascia player com'è (DJ lo gestisce manualmente) ──
         if (!current && prevBookingIdRef.current !== null) {
           prevBookingIdRef.current = null;
           setNewBookingAlert(false);
+          // NON riaccendere player automaticamente - lo fa il DJ
         }
 
         setCurrentBooking(current);
@@ -108,12 +110,12 @@ export default function ArcadePanel({
   const handleCreateGame = async () => {
     if (!selectedTrack) { toast.error('Seleziona una traccia!'); return; }
     setLoading(true);
+    
+    // ✅ MANTIENI PLAYER VISIBILE prima di tutto
+    setIsPlayerVisible(true);
+    
     try {
       const correctAnswer = selectedTrack.options[selectedTrack.correct_index];
-      
-      // IMPORTANTE: Mantieni il player visibile PRIMA di creare il gioco
-      // così la musica continua a suonare
-      setIsPlayerVisible(true);
       
       const { data } = await api.createArcadeGame({
         gameType: 'song_guess',
@@ -127,19 +129,19 @@ export default function ArcadePanel({
         penaltySeconds: 10,
         mediaType: selectedTrack.media_type === 'spotify' ? 'spotify' : 'youtube',
         category: selectedTrack.category || 'Generale',
-        // 🎯 AGGIUNGI domanda e opzioni per mostrarle nel display
         question: selectedTrack.question || 'Indovina la canzone!',
         options: selectedTrack.options || []
       });
       
-      toast.success('🎮 Gioco creato e avviato!');
+      // ✅ NON cambiare isPlayerVisible, resta true
       setActiveGame(data);
       setShowSetup(false);
       setSelectedTrack(null);
       setSearchQuery('');
       
-      // Avvia il gioco mantenendo il player attivo
+      // Avvia il gioco - player già visibile, musica continua
       await handleStartGame(data.id);
+      toast.success('🎮 Gioco avviato! La musica continua.');
     } catch (error) {
       toast.error('Errore: ' + error.message);
     } finally {
@@ -272,10 +274,16 @@ export default function ArcadePanel({
           </button>
         </div>
 
-        {/* iframe — visibile/nascosto */}
-        <div style={{ display: isPlayerVisible ? 'block' : 'none' }}>
+        {/* iframe — sempre montato, nascosto con opacity */}
+        <div style={{ 
+          opacity: isPlayerVisible ? 1 : 0, 
+          height: isPlayerVisible ? 'auto' : '0',
+          overflow: 'hidden',
+          transition: 'opacity 0.3s ease'
+        }}>
           {spotifyUrl ? (
             <iframe
+              key={game.id} // ✅ Key basata su game.id per non ricaricare se cambia solo visibility
               src={spotifyUrl}
               width="100%"
               height="80"
@@ -561,6 +569,21 @@ export default function ArcadePanel({
 
       {/* CONTROLLI */}
       <div className="flex gap-2">
+        {/* Bottone RIPRENDI MUSICA - visibile solo se player nascosto */}
+        {!isPlayerVisible && activeGame.status === 'active' && (
+          <Button 
+            size="sm" 
+            onClick={() => {
+              setIsPlayerVisible(true);
+              setNewBookingAlert(false);
+              toast.success('▶️ Musica ripresa!');
+            }}
+            className="flex-1 bg-green-600 hover:bg-green-500 font-bold"
+          >
+            <Play className="w-3 h-3 mr-1" /> RIPRENDI MUSICA
+          </Button>
+        )}
+        
         {activeGame.status === 'active' ? (
           <Button size="sm" variant="outline" onClick={handlePauseGame} className="flex-1">
             <Pause className="w-3 h-3 mr-1" /> Pausa
