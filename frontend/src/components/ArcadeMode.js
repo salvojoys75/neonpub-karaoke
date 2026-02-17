@@ -141,7 +141,6 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
 
   // ══════════════════════════════════════════════════════════
   // FRAME 1: VINCITORE (gioco ended con winner)
-  // Sparisce immediatamente se il modulo attivo non è più arcade
   // ══════════════════════════════════════════════════════════
   if (result && result.winner) {
     return (
