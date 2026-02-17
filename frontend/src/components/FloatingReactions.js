@@ -1,32 +1,28 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 
 const FloatingReactions = ({ newReaction }) => {
   const [reactions, setReactions] = useState([]);
-  const lastUidRef = useRef(null);
 
   useEffect(() => {
-    if (!newReaction?.emoji) return;
+    if (newReaction) {
+      const id = Date.now();
+      // Posizione casuale orizzontale
+      const left = Math.floor(Math.random() * 80) + 10; 
+      
+      setReactions(prev => [...prev, { ...newReaction, id, left }]);
 
-    // Evita di processare la stessa reazione due volte
-    const uid = newReaction._uid || newReaction.id || Date.now();
-    if (uid === lastUidRef.current) return;
-    lastUidRef.current = uid;
-
-    const left = Math.floor(Math.random() * 75) + 10;
-    const rid = uid;
-
-    setReactions(prev => [...prev, { emoji: newReaction.emoji, nickname: newReaction.nickname || null, rid, left }]);
-
-    setTimeout(() => {
-      setReactions(prev => prev.filter(r => r.rid !== rid));
-    }, 4000);
+      // Rimuovi dopo animazione
+      setTimeout(() => {
+        setReactions(prev => prev.filter(r => r.id !== id));
+      }, 4000);
+    }
   }, [newReaction]);
 
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none z-[60]">
       {reactions.map(r => (
         <div
-          key={r.rid}
+          key={r.id}
           className="absolute bottom-0 flex flex-col items-center animate-float-up"
           style={{ left: `${r.left}%` }}
         >
