@@ -1,31 +1,19 @@
-// ============================================================
-// 🎮 ARCADE PANEL - Sezione Arcade per AdminDashboard
-// ============================================================
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { 
-  Play, Square, Check, X, Trophy, 
-  Users, Zap, AlertCircle, Pause, Volume2, VolumeX
-} from 'lucide-react';
+import { Play, Square, Check, X, Trophy, Users, Zap, Pause, Volume2, VolumeX } from 'lucide-react';
 import { toast } from 'sonner';
 import * as api from '@/lib/api';
 
-export default function ArcadePanel({ 
-  quizCatalog = [],
-  onRefresh 
-}) {
+export default function ArcadePanel({ quizCatalog = [] }) {
   const [activeGame, setActiveGame] = useState(null);
   const [bookings, setBookings] = useState([]);
   const [currentBooking, setCurrentBooking] = useState(null);
   const [loading, setLoading] = useState(false);
-  
   const [isPlayerVisible, setIsPlayerVisible] = useState(true);
   const [newBookingAlert, setNewBookingAlert] = useState(false);
   const prevBookingIdRef = useRef(null);
-
   const [showSetup, setShowSetup] = useState(false);
   const [selectedTrack, setSelectedTrack] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -41,12 +29,10 @@ export default function ArcadePanel({
     try {
       const { data: game } = await api.getActiveArcadeGame();
       setActiveGame(game);
-      
       if (game) {
         const { data: allBookings } = await api.getArcadeBookings(game.id);
         setBookings(allBookings || []);
         const { data: current } = await api.getCurrentBooking(game.id);
-        
         if (current && current.id !== prevBookingIdRef.current) {
           prevBookingIdRef.current = current.id;
           setIsPlayerVisible(false); 
@@ -66,16 +52,10 @@ export default function ArcadePanel({
   useEffect(() => {
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      const filtered = quizCatalog.filter(q => 
-        q.question?.toLowerCase().includes(query) ||
-        q.category?.toLowerCase().includes(query) ||
-        (q.media_url && q.media_type === 'spotify')
-      );
+      const filtered = quizCatalog.filter(q => q.question?.toLowerCase().includes(query) || q.category?.toLowerCase().includes(query) || (q.media_url && q.media_type === 'spotify'));
       setFilteredTracks(filtered.slice(0, 20));
     } else {
-      setFilteredTracks(
-        quizCatalog.filter(q => q.media_url && (q.media_type === 'spotify' || q.media_type === 'audio')).slice(0, 20)
-      );
+      setFilteredTracks(quizCatalog.filter(q => q.media_url && (q.media_type === 'spotify' || q.media_type === 'audio')).slice(0, 20));
     }
   }, [searchQuery, quizCatalog]);
 
@@ -85,19 +65,7 @@ export default function ArcadePanel({
     try {
       const correctAnswer = selectedTrack.options[selectedTrack.correct_index];
       const { data } = await api.createArcadeGame({
-        gameType: 'song_guess',
-        trackId: selectedTrack.media_url,
-        trackTitle: correctAnswer,
-        trackArtist: '',
-        trackUrl: selectedTrack.media_url,
-        correctAnswer: correctAnswer.toLowerCase().trim(),
-        pointsReward: selectedTrack.points || 100,
-        maxAttempts: 5,
-        penaltySeconds: 10,
-        mediaType: selectedTrack.media_type === 'spotify' ? 'spotify' : 'youtube',
-        category: selectedTrack.category || 'Generale',
-        question: selectedTrack.question || 'Indovina la canzone!',
-        options: selectedTrack.options || []
+        gameType: 'song_guess', trackId: selectedTrack.media_url, trackTitle: correctAnswer, trackArtist: '', trackUrl: selectedTrack.media_url, correctAnswer: correctAnswer.toLowerCase().trim(), pointsReward: selectedTrack.points || 100, maxAttempts: 5, penaltySeconds: 10, mediaType: selectedTrack.media_type === 'spotify' ? 'spotify' : 'youtube', category: selectedTrack.category || 'Generale', question: selectedTrack.question || 'Indovina la canzone!', options: selectedTrack.options || []
       });
       setActiveGame(data);
       setShowSetup(false);
@@ -112,14 +80,11 @@ export default function ArcadePanel({
   const handlePauseGame = async () => { await api.pauseArcadeGame(activeGame.id); setIsPlayerVisible(false); toast.info('⏸️ Gioco in pausa'); loadArcadeData(); };
   const handleResumeGame = async () => { await api.resumeArcadeGame(activeGame.id); setIsPlayerVisible(true); setNewBookingAlert(false); toast.success('▶️ Gioco ripreso!'); loadArcadeData(); };
   
-  // FIX: Se il gioco è già ended (es. qualcuno ha vinto), non chiamare endArcadeGame che resetta il timer
+  // FIX: Archivia il gioco (status='archived') così sparisce dal display
   const handleEndGame = async () => {
     if (!confirm('Chiudere il gioco?')) return;
     try {
-      // Se non è già finito, lo chiudiamo
-      if (activeGame?.status !== 'ended') {
-          await api.endArcadeGame(activeGame.id);
-      }
+      await api.archiveArcadeGame(activeGame.id);
       toast.info('🛑 Gioco chiuso');
       setActiveGame(null);
       setBookings([]);
@@ -170,12 +135,7 @@ export default function ArcadePanel({
         {isPlayerVisible && spotifyUrl && (
           <iframe key={spotifyUrl} src={spotifyUrl} width="100%" height="80" frameBorder="0" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" className="block" />
         )}
-        {!isPlayerVisible && (
-          <div className="bg-zinc-950 p-6 text-center border-t border-zinc-800">
-            <VolumeX className="w-10 h-10 mx-auto text-zinc-700 mb-2" />
-            <p className="text-zinc-600 text-sm font-bold">🎵 Player Fermato</p>
-          </div>
-        )}
+        {!isPlayerVisible && (<div className="bg-zinc-950 p-6 text-center border-t border-zinc-800"><VolumeX className="w-10 h-10 mx-auto text-zinc-700 mb-2" /><p className="text-zinc-600 text-sm font-bold">🎵 Player Fermato</p></div>)}
       </div>
     );
   };
@@ -204,9 +164,7 @@ export default function ArcadePanel({
             </ScrollArea>
             <Button size="sm" onClick={handleCreateGame} disabled={!selectedTrack || loading} className="w-full bg-green-600">{loading ? '...' : 'Crea & Avvia'}</Button>
           </div>
-        ) : (
-          <div className="text-center py-12 text-zinc-600"><p className="text-sm">Nessun gioco attivo</p></div>
-        )}
+        ) : (<div className="text-center py-12 text-zinc-600"><p className="text-sm">Nessun gioco attivo</p></div>)}
       </div>
     );
   }
@@ -227,7 +185,6 @@ export default function ArcadePanel({
         <div className="text-xs text-green-400 mt-1 font-mono">Risposta: {activeGame.correct_answer}</div>
       </div>
 
-      {/* Se il gioco è finito, non mostrare il player o i controlli di validazione, ma solo la cronologia e il tasto termina */}
       {activeGame.status !== 'ended' && renderPlayer(activeGame)}
 
       {activeGame.status === 'ended' && (
@@ -269,11 +226,8 @@ export default function ArcadePanel({
       )}
 
       <div className="flex gap-2 mt-4">
-        {/* Se il gioco è ended, mostriamo solo il tasto per chiudere definitivamente/pulire */}
         {activeGame.status === 'ended' ? (
-             <Button size="sm" variant="destructive" onClick={handleEndGame} className="w-full h-10 font-bold">
-               <Square className="w-4 h-4 mr-2" /> Termina
-             </Button>
+             <Button size="sm" variant="destructive" onClick={handleEndGame} className="w-full h-10 font-bold"><Square className="w-4 h-4 mr-2" /> Termina</Button>
         ) : (
             <>
                 {!isPlayerVisible && activeGame.status === 'active' && <Button size="sm" onClick={() => { setIsPlayerVisible(true); setNewBookingAlert(false); }} className="flex-1 bg-green-600"><Play className="w-3 h-3 mr-1" /> PLAY MUSIC</Button>}
