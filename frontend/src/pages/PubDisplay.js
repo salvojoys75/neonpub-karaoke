@@ -683,20 +683,6 @@ export default function PubDisplay() {
         load();
         const int = setInterval(load, 1000); // ✅ Ridotto a 1 secondo per reattività immediata
         
-        // ── Ottieni event_id prima di aprire il channel, così il filtro è preciso ──
-        let eventId = eventIdRef.current;
-        if (!eventId) {
-            try {
-                const res = await api.getDisplayData(pubCode);
-                eventId = res.data?.pub?.id || null;
-                eventIdRef.current = eventId;
-            } catch(e) { /* continua senza filtro */ }
-        }
-
-        const reactionFilter = eventId
-            ? `event_id=eq.${eventId}`
-            : undefined;
-
         const ch = supabase.channel(`display-${pubCode}`)
             .on('broadcast', {event: 'control'}, p => { if(p.payload.command === 'mute') setIsMuted(p.payload.value); })
             .on('postgres_changes',
@@ -704,11 +690,10 @@ export default function PubDisplay() {
                     event: 'INSERT',
                     schema: 'public',
                     table: 'reactions',
-                    ...(reactionFilter ? { filter: reactionFilter } : {})
                 },
                 p => {
                     const reaction = p.new;
-                    // Doppio controllo: scarta reazioni di altri eventi
+                    // Scarta reazioni di altri eventi (eventIdRef aggiornato da load())
                     if (eventIdRef.current && reaction.event_id !== eventIdRef.current) return;
                     if (!reaction.emoji) return;
                     setNewReaction({
