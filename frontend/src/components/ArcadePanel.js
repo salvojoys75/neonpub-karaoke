@@ -6,22 +6,22 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { 
-  Play, Square, Check, X, Music, Trophy, 
+import {
+  Play, Square, Check, X, Music, Trophy,
   Users, Zap, AlertCircle, Pause, Volume2, VolumeX
 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as api from '@/lib/api';
 
-export default function ArcadePanel({ 
+export default function ArcadePanel({
   quizCatalog = [],
-  onRefresh 
+  onRefresh
 }) {
   const [activeGame, setActiveGame] = useState(null);
   const [bookings, setBookings] = useState([]);
   const [currentBooking, setCurrentBooking] = useState(null);
   const [loading, setLoading] = useState(false);
-  
+
   // Player
   const [isPlayerVisible, setIsPlayerVisible] = useState(true);
   const [newBookingAlert, setNewBookingAlert] = useState(false);
@@ -47,17 +47,17 @@ export default function ArcadePanel({
     try {
       const { data: game } = await api.getActiveArcadeGame();
       setActiveGame(game);
-      
+
       if (game) {
         const { data: allBookings } = await api.getArcadeBookings(game.id);
         setBookings(allBookings || []);
-        
+
         const { data: current } = await api.getCurrentBooking(game.id);
-        
+
         // ── Nuova prenotazione arrivata? FERMA LA MUSICA ──
         if (current && current.id !== prevBookingIdRef.current) {
           prevBookingIdRef.current = current.id;
-          setIsPlayerVisible(false); // ✅ FERMA LA MUSICA
+          setIsPlayerVisible(false);
           setNewBookingAlert(true);
           toast.info(`🎤 ${current.participants?.nickname} si è prenotato!`);
         }
@@ -66,7 +66,6 @@ export default function ArcadePanel({
         if (!current && prevBookingIdRef.current !== null) {
           prevBookingIdRef.current = null;
           setNewBookingAlert(false);
-          // NON riaccendere player automaticamente - lo fa il DJ
         }
 
         setCurrentBooking(current);
@@ -88,7 +87,7 @@ export default function ArcadePanel({
   useEffect(() => {
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      const filtered = quizCatalog.filter(q => 
+      const filtered = quizCatalog.filter(q =>
         q.question?.toLowerCase().includes(query) ||
         q.category?.toLowerCase().includes(query) ||
         (q.media_url && q.media_type === 'spotify')
@@ -110,10 +109,10 @@ export default function ArcadePanel({
   const handleCreateGame = async () => {
     if (!selectedTrack) { toast.error('Seleziona una traccia!'); return; }
     setLoading(true);
-    
+
     try {
       const correctAnswer = selectedTrack.options[selectedTrack.correct_index];
-      
+
       const { data } = await api.createArcadeGame({
         gameType: 'song_guess',
         trackId: selectedTrack.media_url,
@@ -129,12 +128,12 @@ export default function ArcadePanel({
         question: selectedTrack.question || 'Indovina la canzone!',
         options: selectedTrack.options || []
       });
-      
+
       setActiveGame(data);
       setShowSetup(false);
       setSelectedTrack(null);
       setSearchQuery('');
-      
+
       await handleStartGame(data.id);
       toast.success('🎮 Gioco avviato!');
     } catch (error) {
@@ -202,10 +201,10 @@ export default function ArcadePanel({
         toast.success(`🎉 ${currentBooking.participants?.nickname} ha vinto!`);
         setIsPlayerVisible(false);
         setNewBookingAlert(false);
+        // ✅ FIX: NON resettare activeGame qui - lascia che il display mostri il vincitore
+        // Il gioco verrà resettato dopo 30 secondi automaticamente
       } else {
         toast.error('❌ Risposta sbagliata');
-        // NON rimostrare player automaticamente
-        // Il DJ deve farlo manualmente cliccando "Riprendi" o riavviando
         setNewBookingAlert(false);
         prevBookingIdRef.current = null;
       }
@@ -222,7 +221,6 @@ export default function ArcadePanel({
 
   const getSpotifyEmbedUrl = (url) => {
     if (!url) return null;
-    // Formato: https://open.spotify.com/track/XXXXX o solo ID
     const match = url.match(/(?:track\/)([a-zA-Z0-9]+)/);
     const id = match ? match[1] : (/^[a-zA-Z0-9]{22}$/.test(url) ? url : null);
     if (!id) return null;
@@ -243,17 +241,16 @@ export default function ArcadePanel({
 
     return (
       <div className={`mb-3 rounded-lg overflow-hidden border transition-all duration-300 ${
-        newBookingAlert 
-          ? 'border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.5)]' 
+        newBookingAlert
+          ? 'border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.5)]'
           : 'border-zinc-700'
       }`}>
-        {/* Header player */}
         <div className={`flex items-center justify-between px-3 py-2 text-xs font-bold uppercase tracking-widest ${
           newBookingAlert ? 'bg-red-900/40 text-red-400' : 'bg-zinc-900 text-zinc-400'
         }`}>
           <div className="flex items-center gap-2">
-            {isPlayerVisible 
-              ? <Volume2 className="w-3 h-3 text-green-400" /> 
+            {isPlayerVisible
+              ? <Volume2 className="w-3 h-3 text-green-400" />
               : <VolumeX className="w-3 h-3 text-red-400" />
             }
             <span>{isPlayerVisible ? 'MUSICA IN RIPRODUZIONE' : newBookingAlert ? '⚡ PRENOTAZIONE ARRIVATA — MUSICA FERMA' : 'MUSICA FERMA'}</span>
@@ -269,14 +266,11 @@ export default function ArcadePanel({
           </button>
         </div>
 
-        {/* ✅ IFRAME - MONTATO SOLO SE isPlayerVisible = true */}
-        {/* Quando isPlayerVisible = false, l'iframe viene COMPLETAMENTE SMONTATO */}
-        {/* Spotify lo interpreta come "pagina chiusa" e ferma la musica */}
         {isPlayerVisible && (
           <div>
             {spotifyUrl ? (
               <iframe
-                key={spotifyUrl} // ✅ Key basata su URL, non su game.id
+                key={spotifyUrl}
                 src={spotifyUrl}
                 width="100%"
                 height="80"
@@ -287,7 +281,7 @@ export default function ArcadePanel({
             ) : youtubeUrl ? (
               <div className="relative w-full" style={{ paddingTop: '30%' }}>
                 <iframe
-                  key={youtubeUrl} // ✅ Key basata su URL
+                  key={youtubeUrl}
                   src={youtubeUrl}
                   className="absolute top-0 left-0 w-full h-full"
                   frameBorder="0"
@@ -303,7 +297,6 @@ export default function ArcadePanel({
           </div>
         )}
 
-        {/* ✅ Placeholder quando player è fermato */}
         {!isPlayerVisible && (
           <div className="bg-zinc-950 p-6 text-center border-t border-zinc-800">
             <VolumeX className="w-10 h-10 mx-auto text-zinc-700 mb-2" />
@@ -320,7 +313,6 @@ export default function ArcadePanel({
   // ============================================================
 
   if (!activeGame) {
-    // ✅ Crea un fake game per mostrare player anche prima di avviare
     const previewGame = selectedTrack ? {
       id: 'preview',
       track_url: selectedTrack.media_url,
@@ -344,7 +336,6 @@ export default function ArcadePanel({
           </Button>
         </div>
 
-        {/* ✅ PLAYER - Mostrato SEMPRE se c'è una traccia selezionata */}
         {previewGame && renderPlayer(previewGame)}
 
         {showSetup ? (
@@ -389,7 +380,6 @@ export default function ArcadePanel({
               </div>
             </ScrollArea>
 
-            {/* Info traccia selezionata - NIENTE PLAYER QUI */}
             {selectedTrack && (
               <div className="bg-fuchsia-900/20 border border-fuchsia-600 rounded-lg p-3">
                 <div className="text-xs text-fuchsia-400 uppercase tracking-wider mb-1">Traccia Selezionata:</div>
@@ -450,11 +440,13 @@ export default function ArcadePanel({
             <div className={`w-3 h-3 rounded-full animate-pulse ${
               activeGame.status === 'active' ? 'bg-green-500' :
               activeGame.status === 'paused' ? 'bg-yellow-500' :
+              activeGame.status === 'ended' ? 'bg-blue-500' :
               'bg-zinc-600'
             }`} />
             <span className="text-xs uppercase font-bold text-zinc-400">
               {activeGame.status === 'active' ? '🔴 IN ONDA' :
-               activeGame.status === 'paused' ? '⏸️ IN PAUSA' : '⏳'}
+               activeGame.status === 'paused' ? '⏸️ IN PAUSA' :
+               activeGame.status === 'ended' ? '🏆 TERMINATO' : '⏳'}
             </span>
           </div>
           <div className="flex items-center gap-2 text-xs text-zinc-500">
@@ -468,11 +460,20 @@ export default function ArcadePanel({
         </div>
       </div>
 
-      {/* PLAYER */}
+      {/* PLAYER - Non mostrare se il gioco è terminato */}
       {activeGame.status !== 'ended' && renderPlayer(activeGame)}
 
+      {/* ✅ FIX: Mostra messaggio vincitore se il gioco è ended con winner_id */}
+      {activeGame.status === 'ended' && activeGame.winner_id && (
+        <div className="bg-green-900/30 border-2 border-green-500 rounded-lg p-4 text-center">
+          <Trophy className="w-12 h-12 text-yellow-400 mx-auto mb-2" />
+          <div className="text-2xl font-black text-white">🎉 VINCITORE!</div>
+          <div className="text-sm text-green-300 mt-2">Il display sta mostrando la schermata vincitore</div>
+        </div>
+      )}
+
       {/* PRENOTAZIONE CORRENTE */}
-      {currentBooking ? (
+      {currentBooking && activeGame.status !== 'ended' ? (
         <div className={`border-2 rounded-lg p-3 transition-all ${
           newBookingAlert ? 'bg-red-900/20 border-red-500 animate-pulse' : 'bg-fuchsia-900/20 border-fuchsia-600'
         }`}>
@@ -555,10 +556,9 @@ export default function ArcadePanel({
 
       {/* CONTROLLI */}
       <div className="flex gap-2">
-        {/* Bottone RIPRENDI MUSICA - visibile solo se player nascosto */}
         {!isPlayerVisible && activeGame.status === 'active' && (
-          <Button 
-            size="sm" 
+          <Button
+            size="sm"
             onClick={() => {
               setIsPlayerVisible(true);
               setNewBookingAlert(false);
@@ -569,7 +569,7 @@ export default function ArcadePanel({
             <Play className="w-3 h-3 mr-1" /> RIPRENDI MUSICA
           </Button>
         )}
-        
+
         {activeGame.status === 'active' ? (
           <Button size="sm" variant="outline" onClick={handlePauseGame} className="flex-1">
             <Pause className="w-3 h-3 mr-1" /> Pausa
@@ -579,7 +579,7 @@ export default function ArcadePanel({
             <Play className="w-3 h-3 mr-1" /> Riprendi
           </Button>
         ) : null}
-        
+
         <Button size="sm" variant="destructive" onClick={handleEndGame} className="flex-1">
           <Square className="w-3 h-3 mr-1" /> Termina
         </Button>

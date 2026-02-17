@@ -34,14 +34,14 @@ const WAVE_STYLES = `
   .bar8{animation:wave8 0.65s ease-in-out infinite 0.1s}
   @keyframes wavePaused { 0%,100%{height:8px} }
   .bar-paused { animation: wavePaused 1s ease-in-out infinite !important; opacity: 0.3; }
-  
+
   @keyframes shake {
     0%, 100% { transform: translateX(0); }
     10%, 30%, 50%, 70%, 90% { transform: translateX(-10px); }
     20%, 40%, 60%, 80% { transform: translateX(10px); }
   }
   .shake-animation { animation: shake 0.5s; }
-  
+
   @keyframes pulse-red {
     0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
     50% { box-shadow: 0 0 0 20px rgba(239, 68, 68, 0); }
@@ -75,14 +75,13 @@ const MusicWaves = ({ paused = false, size = 'large' }) => {
 };
 
 // 🎵 SPOTIFY PLAYER NASCOSTO
-// Si ferma quando qualcuno si prenota (hasBooking = true)
 const HiddenSpotifyPlayer = ({ trackUrl, isPlaying }) => {
   const iframeRef = useRef(null);
-  
+
   const getSpotifyEmbedUrl = (url) => {
     if (!url) return null;
     if (url.includes('embed.spotify.com')) return url;
-    
+
     const match = url.match(/track\/([a-zA-Z0-9]+)/);
     if (match) {
       return `https://open.spotify.com/embed/track/${match[1]}?utm_source=generator`;
@@ -93,7 +92,6 @@ const HiddenSpotifyPlayer = ({ trackUrl, isPlaying }) => {
   const embedUrl = getSpotifyEmbedUrl(trackUrl);
   if (!embedUrl || !isPlaying) return null;
 
-  // Player completamente nascosto
   return (
     <iframe
       ref={iframeRef}
@@ -115,12 +113,11 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
   useEffect(() => {
     if (bookingQueue.length > prevBookingCountRef.current) {
       prevBookingCountRef.current = bookingQueue.length;
-      
-      // Riproduci suono di prenotazione
+
       BOOKING_SOUND.currentTime = 0;
       BOOKING_SOUND.play().catch(e => console.log('Audio beep failed:', e));
     }
-    
+
     if (bookingQueue.length === 0) {
       prevBookingCountRef.current = 0;
     }
@@ -132,8 +129,7 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
       setShowError(true);
       ERROR_SOUND.currentTime = 0;
       ERROR_SOUND.play().catch(e => console.log('Error sound failed:', e));
-      
-      // Nascondi dopo 3 secondi
+
       const timer = setTimeout(() => setShowError(false), 3000);
       return () => clearTimeout(timer);
     }
@@ -146,7 +142,7 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
     return (
       <div className="w-full h-full flex flex-col bg-gradient-to-br from-green-900 via-black to-black relative overflow-hidden">
         <style>{WAVE_STYLES}</style>
-        
+
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute top-0 left-1/4 w-96 h-96 bg-green-500/20 rounded-full blur-[150px] animate-pulse"></div>
           <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-yellow-500/20 rounded-full blur-[150px] animate-pulse"></div>
@@ -155,10 +151,10 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
         <div className="relative z-10 flex-1 flex flex-col items-center justify-center p-12">
           <div className="bg-green-600/90 backdrop-blur-xl px-12 py-6 rounded-[3rem] mb-12 shadow-[0_0_100px_rgba(34,197,94,0.6)] border-4 border-green-400 animate-in zoom-in duration-500">
             <div className="text-white/80 uppercase font-bold tracking-widest text-2xl mb-2 text-center">✅ Risposta Corretta!</div>
-            <div className="text-6xl font-black text-white text-center leading-tight">{arcade.correct_answer}</div>
+            <div className="text-6xl font-black text-white text-center leading-tight">{arcade?.correct_answer || ''}</div>
           </div>
 
-          <div className="glass-panel p-10 rounded-[3rem] max-w-4xl w-full border-4 border-yellow-500/50">
+          <div className="glass-panel p-10 rounded-[3rem] max-w-4xl w-full border-4 border-yellow-500/50" style={{background: 'rgba(15, 15, 20, 0.7)', backdropFilter: 'blur(20px)'}}>
             <div className="flex items-center justify-center gap-8 mb-8">
               <Trophy className="w-24 h-24 text-yellow-400 animate-bounce" />
               <div className="text-center">
@@ -173,7 +169,7 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
               </div>
             )}
             <div className="text-center">
-              <div className="text-6xl font-black text-yellow-400">+{arcade.points_reward} PUNTI</div>
+              <div className="text-6xl font-black text-yellow-400">+{arcade?.points_reward || 100} PUNTI</div>
             </div>
           </div>
         </div>
@@ -184,25 +180,21 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
   // ══════════════════════════════════════════════════════════
   // FRAME 2: GIOCO ATTIVO CON DOMANDA E RISPOSTE
   // ══════════════════════════════════════════════════════════
-  
-  // Musica suona solo se NON ci sono prenotazioni
+
   const hasBookings = bookingQueue && bookingQueue.length > 0;
   const isPlaying = !hasBookings;
 
   return (
     <div className="w-full h-full flex flex-col bg-gradient-to-br from-[#0d0d1a] via-black to-[#0d0d1a] relative overflow-hidden">
       <style>{WAVE_STYLES}</style>
-      
-      {/* 🎵 SPOTIFY PLAYER - Si ferma quando ci sono prenotazioni */}
-      {arcade.track_url && <HiddenSpotifyPlayer trackUrl={arcade.track_url} isPlaying={isPlaying} />}
 
-      {/* Sfondo glow */}
+      {arcade?.track_url && <HiddenSpotifyPlayer trackUrl={arcade.track_url} isPlaying={isPlaying} />}
+
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-1/3 left-1/4 w-[500px] h-[500px] bg-fuchsia-600/15 rounded-full blur-[180px] animate-pulse"></div>
         <div className="absolute bottom-1/4 right-1/4 w-[500px] h-[500px] bg-purple-600/15 rounded-full blur-[180px] animate-pulse" style={{animationDelay:'1s'}}></div>
       </div>
 
-      {/* 🚨 OVERLAY ERRORE */}
       {showError && lastError && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-red-900/40 backdrop-blur-sm animate-in fade-in duration-300">
           <div className="bg-red-600/90 backdrop-blur-xl px-16 py-8 rounded-[3rem] border-4 border-red-400 shadow-[0_0_100px_rgba(239,68,68,0.8)] shake-animation">
@@ -219,8 +211,7 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
 
       <div className="relative z-10 flex-1 flex flex-col items-center justify-center p-8">
 
-        {/* 🎵 DOMANDA */}
-        {arcade.question && (
+        {arcade?.question && (
           <div className="bg-fuchsia-600/90 backdrop-blur-xl px-12 py-6 rounded-[3rem] mb-8 shadow-[0_0_60px_rgba(192,38,211,0.6)] border-4 border-fuchsia-400 max-w-5xl w-full">
             <div className="text-5xl font-black text-white text-center leading-tight">
               {arcade.question}
@@ -228,13 +219,13 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
           </div>
         )}
 
-        {/* 📝 OPZIONI DI RISPOSTA */}
-        {arcade.options && arcade.options.length > 0 && (
+        {arcade?.options && arcade.options.length > 0 && (
           <div className="grid grid-cols-2 gap-6 mb-8 max-w-5xl w-full">
             {arcade.options.map((option, index) => (
               <div
                 key={index}
-                className="glass-panel px-8 py-6 rounded-2xl border-2 border-white/20 hover:border-fuchsia-500/50 transition-all"
+                className="px-8 py-6 rounded-2xl border-2 border-white/20 hover:border-fuchsia-500/50 transition-all"
+                style={{background: 'rgba(15, 15, 20, 0.7)', backdropFilter: 'blur(20px)'}}
               >
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 rounded-full bg-fuchsia-600 flex items-center justify-center text-2xl font-black text-white shrink-0">
@@ -249,16 +240,15 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
           </div>
         )}
 
-        {/* 🎤 CODA PRENOTAZIONI (primi 5) */}
         {hasBookings ? (
-          <div className="glass-panel p-6 rounded-2xl border-4 border-fuchsia-500 max-w-4xl w-full mb-6">
+          <div className="p-6 rounded-2xl border-4 border-fuchsia-500 max-w-4xl w-full mb-6" style={{background: 'rgba(15, 15, 20, 0.7)', backdropFilter: 'blur(20px)'}}>
             <div className="flex items-center gap-3 mb-4">
               <Users className="w-8 h-8 text-fuchsia-400" />
               <div className="text-2xl font-black text-white uppercase">
                 🎤 Prenotati ({bookingQueue.length})
               </div>
             </div>
-            
+
             <div className="space-y-3">
               {bookingQueue.slice(0, 5).map((booking, index) => (
                 <div
@@ -272,7 +262,7 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
                   <div className="w-12 h-12 rounded-full bg-yellow-500 flex items-center justify-center text-2xl font-black text-black shrink-0">
                     {index + 1}
                   </div>
-                  
+
                   {booking.participants?.avatar_url && (
                     <img
                       src={booking.participants.avatar_url}
@@ -280,7 +270,7 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
                       className="w-16 h-16 rounded-full border-2 border-white/30"
                     />
                   )}
-                  
+
                   <div className="flex-1">
                     <div className="text-3xl font-black text-white">
                       {booking.participants?.nickname || 'Partecipante'}
@@ -297,12 +287,10 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
           </div>
         ) : (
           <>
-            {/* Onde musicali animate */}
             <div className="mb-8">
               <MusicWaves paused={false} size="large" />
             </div>
 
-            {/* Call to action */}
             <div className="text-center mb-8">
               <div
                 className="font-black text-white mb-6 leading-none tracking-tight drop-shadow-2xl"
@@ -317,23 +305,21 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
           </>
         )}
 
-        {/* Info gioco */}
         <div className="flex gap-6 items-center flex-wrap justify-center">
-          <div className="glass-panel px-8 py-4 rounded-full border-2 border-fuchsia-500/40">
+          <div className="px-8 py-4 rounded-full border-2 border-fuchsia-500/40" style={{background: 'rgba(15, 15, 20, 0.7)', backdropFilter: 'blur(20px)'}}>
             <div className="text-3xl font-bold text-fuchsia-300 flex items-center gap-3">
               <Trophy className="w-8 h-8 text-yellow-400" />
-              {arcade.points_reward} punti
+              {arcade?.points_reward || 100} punti
             </div>
           </div>
-          <div className="glass-panel px-8 py-4 rounded-full border-2 border-white/20">
+          <div className="px-8 py-4 rounded-full border-2 border-white/20" style={{background: 'rgba(15, 15, 20, 0.7)', backdropFilter: 'blur(20px)'}}>
             <div className="text-2xl font-bold text-white">
-              🎯 {arcade.attempts_count || 0}/{arcade.max_attempts} tentativi
+              🎯 {arcade?.attempts_count || 0}/{arcade?.max_attempts || 5} tentativi
             </div>
           </div>
         </div>
       </div>
 
-      {/* Footer */}
       <div className="relative z-10 p-6 text-center">
         <div className="text-lg text-zinc-600 uppercase tracking-widest">
           {hasBookings ? '🎤 Ascolta le risposte dei concorrenti' : '🎵 Ascolta la canzone e prenota quando sei pronto!'}

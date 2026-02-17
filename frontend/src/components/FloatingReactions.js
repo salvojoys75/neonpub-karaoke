@@ -4,19 +4,26 @@ const FloatingReactions = ({ newReaction }) => {
   const [reactions, setReactions] = useState([]);
 
   useEffect(() => {
-    if (newReaction) {
-      const id = Date.now();
-      // Posizione casuale orizzontale
-      const left = Math.floor(Math.random() * 80) + 10; 
-      
-      setReactions(prev => [...prev, { ...newReaction, id, left }]);
+    if (newReaction && newReaction.emoji) {
+      // Usa _t o id dalla reaction originale per unicità
+      const uniqueId = newReaction._t || newReaction.id || Date.now();
+      const left = Math.floor(Math.random() * 80) + 10;
+
+      const reactionItem = {
+        emoji: newReaction.emoji,
+        nickname: newReaction.nickname || '',
+        id: uniqueId,
+        left
+      };
+
+      setReactions(prev => [...prev, reactionItem]);
 
       // Rimuovi dopo animazione
       setTimeout(() => {
-        setReactions(prev => prev.filter(r => r.id !== id));
+        setReactions(prev => prev.filter(r => r.id !== uniqueId));
       }, 4000);
     }
-  }, [newReaction]);
+  }, [newReaction?._t, newReaction?.id, newReaction?.emoji]);
 
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none z-[60]">
