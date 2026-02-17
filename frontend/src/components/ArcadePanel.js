@@ -111,9 +111,6 @@ export default function ArcadePanel({
     if (!selectedTrack) { toast.error('Seleziona una traccia!'); return; }
     setLoading(true);
     
-    // ✅ NON toccare isPlayerVisible - lascialo com'è
-    // Se il DJ ha già fatto play, il player resta visibile e musica continua
-    
     try {
       const correctAnswer = selectedTrack.options[selectedTrack.correct_index];
       
@@ -138,9 +135,8 @@ export default function ArcadePanel({
       setSelectedTrack(null);
       setSearchQuery('');
       
-      // Avvia il gioco - player non viene toccato
       await handleStartGame(data.id);
-      toast.success('🎮 Gioco avviato! La musica continua.');
+      toast.success('🎮 Gioco avviato!');
     } catch (error) {
       toast.error('Errore: ' + error.message);
     } finally {
@@ -324,6 +320,13 @@ export default function ArcadePanel({
   // ============================================================
 
   if (!activeGame) {
+    // ✅ Crea un fake game per mostrare player anche prima di avviare
+    const previewGame = selectedTrack ? {
+      id: 'preview',
+      track_url: selectedTrack.media_url,
+      track_title: selectedTrack.options[selectedTrack.correct_index]
+    } : null;
+
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
@@ -340,6 +343,9 @@ export default function ArcadePanel({
             Nuovo Gioco
           </Button>
         </div>
+
+        {/* ✅ PLAYER - Mostrato SEMPRE se c'è una traccia selezionata */}
+        {previewGame && renderPlayer(previewGame)}
 
         {showSetup ? (
           <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 space-y-3">
@@ -383,28 +389,17 @@ export default function ArcadePanel({
               </div>
             </ScrollArea>
 
-            {/* Anteprima traccia selezionata */}
-            {selectedTrack?.media_url && (
-              <div className="border border-zinc-700 rounded-lg overflow-hidden">
-                <div className="text-xs text-zinc-500 px-3 py-1 bg-zinc-900">Anteprima</div>
-                {getSpotifyEmbedUrl(selectedTrack.media_url) ? (
-                  <iframe
-                    src={getSpotifyEmbedUrl(selectedTrack.media_url)}
-                    width="100%"
-                    height="80"
-                    frameBorder="0"
-                    allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                  />
-                ) : getYoutubeEmbedUrl(selectedTrack.media_url) ? (
-                  <div className="relative w-full" style={{ paddingTop: '30%' }}>
-                    <iframe
-                      src={getYoutubeEmbedUrl(selectedTrack.media_url)}
-                      className="absolute top-0 left-0 w-full h-full"
-                      frameBorder="0"
-                      allow="autoplay; encrypted-media"
-                    />
-                  </div>
-                ) : null}
+            {/* Info traccia selezionata - NIENTE PLAYER QUI */}
+            {selectedTrack && (
+              <div className="bg-fuchsia-900/20 border border-fuchsia-600 rounded-lg p-3">
+                <div className="text-xs text-fuchsia-400 uppercase tracking-wider mb-1">Traccia Selezionata:</div>
+                <div className="font-bold text-white text-sm">{selectedTrack.options[selectedTrack.correct_index]}</div>
+                <div className="text-xs text-zinc-500 mt-1">{selectedTrack.category} • {selectedTrack.points || 100} punti</div>
+                <div className="mt-2 pt-2 border-t border-fuchsia-800">
+                  <p className="text-xs text-fuchsia-300">
+                    💡 Fai PLAY sul player Spotify sopra prima di cliccare "Crea & Avvia"
+                  </p>
+                </div>
               </div>
             )}
 
