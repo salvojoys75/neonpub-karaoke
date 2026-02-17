@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
-  Play, Square, Check, X, Music, Trophy,
+  Play, Square, Check, X, Trophy,
   Users, Zap, AlertCircle, Pause, Volume2, VolumeX, RotateCcw
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -26,6 +26,9 @@ export default function ArcadePanel({
   const [isPlayerVisible, setIsPlayerVisible] = useState(true);
   const [newBookingAlert, setNewBookingAlert] = useState(false);
   const prevBookingIdRef = useRef(null);
+  
+  // FIX LOOP: Lista di ID giochi da ignorare perché chiusi manualmente
+  const ignoredGamesRef = useRef(new Set());
 
   // Setup nuovo gioco
   const [showSetup, setShowSetup] = useState(false);
@@ -46,8 +49,15 @@ export default function ArcadePanel({
   const loadArcadeData = async () => {
     try {
       const { data: game } = await api.getActiveArcadeGame();
-      // FIX ARCADE: Se il gioco è terminato, non mostrarlo come attivo se vogliamo creare uno nuovo
-      // A meno che non siamo nella schermata di fine per vedere i risultati.
+      
+      // FIX LOOP: Se il gioco è nella lista ignorati, facciamo finta che non esista
+      if (game && ignoredGamesRef.current.has(game.id)) {
+          setActiveGame(null);
+          setBookings([]);
+          setCurrentBooking(null);
+          return;
+      }
+
       setActiveGame(game);
 
       if (game && game.status !== 'ended') {
@@ -70,7 +80,7 @@ export default function ArcadePanel({
 
         setCurrentBooking(current);
       } else {
-        // Se è ended o null
+        // Se è ended (ma non ignorato) o null
         setBookings([]);
         setCurrentBooking(null);
         prevBookingIdRef.current = null;
@@ -180,7 +190,13 @@ export default function ArcadePanel({
     try {
       await api.endArcadeGame(activeGame.id);
       toast.info('🛑 Gioco terminato');
-      setActiveGame(null); // Clear local to allow new game immediately
+      
+      // Aggiungi ai giochi ignorati così non ricompare
+      if (activeGame?.id) {
+          ignoredGamesRef.current.add(activeGame.id);
+      }
+      
+      setActiveGame(null); 
       setBookings([]);
       setCurrentBooking(null);
       setIsPlayerVisible(true);
@@ -189,24 +205,32 @@ export default function ArcadePanel({
     } catch (error) { toast.error('Errore: ' + error.message); }
   };
 
+  // FIX LOOP: Quando chiudi manualmente il pannello rosso
   const handleCloseEndedGame = () => {
-      // Forza la pulizia locale per poter creare un nuovo gioco
+      if (activeGame?.id) {
+          ignoredGamesRef.current.add(activeGame.id);
+      }
       setActiveGame(null);
+      setBookings([]);
+      setCurrentBooking(null);
   };
 
   // ============================================================
-  // VALIDAZIONE RISPOSTA
+  // VALIDAZIONE RISPOSTA E VITTORIA
   // ============================================================
 
   const handleValidate = async (isCorrect) => {
     if (!currentBooking) return;
     try {
+      // Questa chiamata API in api.js si occupa di settare il vincitore e chiudere il gioco
       await api.validateArcadeAnswer(currentBooking.id, isCorrect, null);
 
       if (isCorrect) {
         toast.success(`🎉 ${currentBooking.participants?.nickname} ha vinto!`);
         setIsPlayerVisible(false);
         setNewBookingAlert(false);
+        // NON chiudiamo subito qui, lasciamo che il poll carichi lo stato "ended"
+        // così vediamo il messaggio di vittoria nel pannello per un po'
       } else {
         toast.error('❌ Risposta sbagliata');
         setNewBookingAlert(false);
@@ -316,7 +340,6 @@ export default function ArcadePanel({
   // RENDER: NESSUN GIOCO ATTIVO (o GIOCO ENDED che vogliamo resettare)
   // ============================================================
 
-  // FIX ARCADE: Se lo status è 'ended', mostriamo un pannello per chiudere e ricominciare
   if (activeGame && activeGame.status === 'ended') {
       return (
           <div className="space-y-4">
@@ -327,9 +350,9 @@ export default function ArcadePanel({
                    
                    <Button 
                      onClick={handleCloseEndedGame}
-                     className="bg-red-600 hover:bg-red-500 font-bold w-full"
+                     className="bg-red-600 hover:bg-red-500 font-bold w-full h-12"
                    >
-                     <RotateCcw className="w-4 h-4 mr-2"/> CHIUDI E APRI NUOVO GIOCO
+                     <RotateCcw className="w-5 h-5 mr-2"/> CHIUDI E APRI NUOVO GIOCO
                    </Button>
                </div>
           </div>
