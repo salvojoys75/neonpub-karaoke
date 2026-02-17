@@ -187,31 +187,18 @@ export const endArcadeGame = async (gameId) => {
  */
 export const getActiveArcadeGame = async () => {
   try {
-    // Funziona sia per partecipante (token JWT) che per admin (pub_code)
-    let eventId = null;
-
-    const token = localStorage.getItem('discojoys_token');
-    if (token) {
-      try { eventId = JSON.parse(atob(token)).event_id; } catch(e) {}
-    }
-    if (!eventId) {
-      const pubCode = localStorage.getItem('discojoys_pub_code');
-      if (pubCode) {
-        const { data: ev } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
-        eventId = ev?.id;
-      }
-    }
-    if (!eventId) return { data: null };
-
+    const event = await getAdminEvent();
+    
     const { data, error } = await supabase
       .from('arcade_games')
       .select('*')
-      .eq('event_id', eventId)
+      .eq('event_id', event.id)
       .in('status', ['setup', 'waiting', 'active', 'paused'])
       .order('created_at', { ascending: false })
       .limit(1);
-
+    
     if (error) throw error;
+    
     return { data: data?.[0] || null };
   } catch (error) {
     console.error('❌ Errore caricamento gioco attivo:', error);
@@ -341,22 +328,29 @@ export const validateArcadeAnswer = async (bookingId, isCorrect, givenAnswer = n
     
     // Se è corretta, aggiorna il gioco
     if (isCorrect) {
-      // Incrementa i punti del partecipante (fetch + update manuale, evita il 400 di supabase.rpc dentro update)
-      try {
-        const { data: participant, error: fetchErr } = await supabase
+      // Incrementa i punti del partecipante
+      const { error: pointsError } = await supabase
+        .from('participants')
+        .update({
+          score: supabase.rpc('increment_score', { 
+            row_id: booking.participant_id, 
+            increment_value: pointsAwarded 
+          })
+        })
+        .eq('id', booking.participant_id);
+      
+      if (pointsError) {
+        // Fallback se rpc non funziona
+        const { data: participant } = await supabase
           .from('participants')
           .select('score')
           .eq('id', booking.participant_id)
-          .maybeSingle();
+          .single();
         
-        if (!fetchErr && participant !== null) {
-          await supabase
-            .from('participants')
-            .update({ score: (participant?.score || 0) + pointsAwarded })
-            .eq('id', booking.participant_id);
-        }
-      } catch(scoreErr) {
-        console.warn('⚠️ Impossibile aggiornare punteggio partecipante:', scoreErr);
+        await supabase
+          .from('participants')
+          .update({ score: (participant?.score || 0) + pointsAwarded })
+          .eq('id', booking.participant_id);
       }
       
       // Imposta il vincitore e chiudi il gioco
@@ -606,16 +600,12 @@ export const getActiveEventsForUser = async () => {
 }
 
 const closeExpiredEvents = async (ownerId) => {
-    try {
-        const now = new Date().toISOString();
-        await supabase.from('events')
-            .update({ status: 'ended' })
-            .eq('owner_id', ownerId)
-            .eq('status', 'active')
-            .lte('expires_at', now);
-    } catch(e) {
-        // RLS potrebbe bloccare questo update - ignora silenziosamente
-    }
+    const now = new Date().toISOString();
+    await supabase.from('events')
+        .update({ status: 'ended' })
+        .eq('owner_id', ownerId)
+        .eq('status', 'active')
+        .lte('expires_at', now);
 }
 
 export const uploadLogo = async (file) => {
@@ -1072,19 +1062,7 @@ export const getAdminQueue = async () => {
 }
 
 export const approveRequest = async (requestId) => {
-  const event = await getAdminEvent()
-  // Conta quante sono già in coda per assegnare la position successiva
-  const { count } = await supabase
-    .from('song_requests')
-    .select('id', { count: 'exact', head: true })
-    .eq('event_id', event.id)
-    .eq('status', 'queued')
-  const nextPosition = (count || 0) + 1
-  const { data, error } = await supabase
-    .from('song_requests')
-    .update({ status: 'queued', position: nextPosition })
-    .eq('id', requestId)
-    .select()
+  const { data, error } = await supabase.from('song_requests').update({ status: 'queued' }).eq('id', requestId).select()
   if (error) throw error; return { data }
 }
 
@@ -1224,36 +1202,6 @@ export const sendReaction = async (data) => {
   if (error) throw error
   return { data: reaction }
 }
-
-
-/**
- * Sottoscrizione Realtime alle reazioni — usata dal Display TV
- * Ritorna la funzione unsubscribe da chiamare nel cleanup.
- *
- * Esempio di utilizzo nel Display:
- *   useEffect(() => {
- *     const unsub = api.subscribeToReactions(eventId, (reaction) => {
- *       setNewReaction(reaction); // { emoji, nickname }
- *     });
- *     return () => unsub();
- *   }, [eventId]);
- */
-export const subscribeToReactions = (eventId, onReaction) => {
-  const channel = supabase
-    .channel(`reactions:${eventId}`)
-    .on(
-      'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'reactions', filter: `event_id=eq.${eventId}` },
-      (payload) => {
-        // payload.new contiene: { emoji, nickname, participant_id, event_id, ... }
-        if (payload?.new?.emoji) {
-          onReaction({ emoji: payload.new.emoji, nickname: payload.new.nickname || null });
-        }
-      }
-    )
-    .subscribe();
-  return () => supabase.removeChannel(channel);
-};
 
 export const sendMessage = async (data) => {
   // PRIORITÀ 1: Controlla se è un UTENTE (ha discojoys_token)
@@ -1541,7 +1489,6 @@ export const getDisplayData = async (pubCode) => {
     // Messaggi UTENTI
     supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).not('participant_id', 'is', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(10),
 // 🎮 ARCADE GAME ATTIVO
-// Per gli "ended": includi solo se terminati da meno di 30 secondi (schermata vincitore temporanea)
 supabase.from('arcade_games').select('*').eq('event_id', event.id).in('status', ['setup', 'waiting', 'active', 'paused', 'ended']).order('created_at', {ascending: false}).limit(1).maybeSingle()
   ])
 
@@ -1560,15 +1507,6 @@ supabase.from('arcade_games').select('*').eq('event_id', event.id).in('status', 
     .filter(q => !liveRequestId || q.id !== liveRequestId)
     .map(q => ({...q, user_nickname: q.participants?.nickname, user_avatar: q.participants?.avatar_url}));
 
-  // 🎮 FIX: schermata vincitore sparisce dopo 30s, e subito se è partito karaoke/quiz
-  let arcadeForDisplay = activeArcade.data;
-  if (arcadeForDisplay && arcadeForDisplay.status === 'ended' && arcadeForDisplay.ended_at) {
-    const secondsSinceEnd = (new Date() - new Date(arcadeForDisplay.ended_at)) / 1000;
-    if (secondsSinceEnd > 30) {
-      arcadeForDisplay = null;
-    }
-  }
-
   return {
     data: {
       pub: event,
@@ -1579,7 +1517,7 @@ supabase.from('arcade_games').select('*').eq('event_id', event.id).in('status', 
       admin_message: adminMsg.data,
       extraction_data: event.extraction_data,
       // 🎮 ARCADE
-      active_arcade: arcadeForDisplay,
+      active_arcade: activeArcade.data,
       // FILTRO: solo messaggi UTENTI (con participants.nickname)
       approved_messages: approvedMsgs.data?.filter(m => m.participants?.nickname).map(m => ({text: m.text, nickname: m.participants?.nickname})) || []
     }
