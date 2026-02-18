@@ -1188,6 +1188,7 @@ export default function PubDisplay() {
     const [isMuted, setIsMuted]     = useState(false);
     const [quizResult, setQuizResult] = useState(null);
     const [newReaction, setNewReaction] = useState(null);
+    const [standby, setStandby]     = useState(true); // schermata di attesa iniziale
 
     // ── Reazioni realtime ────────────────────────────────────────────────────
     useEffect(() => {
@@ -1254,6 +1255,7 @@ export default function PubDisplay() {
         const ctrlMediaChannel = supabase.channel('tv_ctrl_media')
             .on('broadcast', {event: 'control'}, p => {
                 if (p.payload.command === 'play_media' && triggerManual) {
+                    setStandby(false); // esci dallo standby quando arriva un comando regia
                     triggerManual(p.payload.key);
                 }
             })
@@ -1261,11 +1263,113 @@ export default function PubDisplay() {
         return () => { supabase.removeChannel(ctrlMediaChannel); };
     }, [triggerManual]);
 
-    // ── Schermata di caricamento ─────────────────────────────────────────────
+    // Esci dallo standby automaticamente quando parte un'attività reale
+    useEffect(() => {
+        if (!data) return;
+        const { current_performance: perf, active_quiz: quiz, extraction_data } = data;
+        const arcade = data.active_arcade;
+        const hasActivity =
+            (perf && ['live', 'paused', 'voting', 'ended'].includes(perf.status)) ||
+            (quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status)) ||
+            (arcade && ['active', 'paused'].includes(arcade.status)) ||
+            !!data.arcade_result ||
+            !!extraction_data;
+        if (hasActivity) setStandby(false);
+    }, [data]);
+
+    // ── Schermata di caricamento dati ───────────────────────────────────────
     if (!data) return (
         <div className="w-screen h-screen bg-black flex flex-col items-center justify-center">
              <div className="w-20 h-20 border-8 border-fuchsia-600 border-t-transparent rounded-full animate-spin mb-6"></div>
              <div className="text-white text-3xl font-black font-mono tracking-[0.5em] animate-pulse">CARICAMENTO...</div>
+        </div>
+    );
+
+    const { pub, current_performance: perf, queue, active_quiz: quiz, admin_message, leaderboard, approved_messages, extraction_data } = data;
+
+    // ── Schermata STANDBY — attesa prima che la regia inizi ─────────────────
+    if (standby) return (
+        <div
+            className="w-screen h-screen bg-black flex flex-col items-center justify-center relative overflow-hidden"
+            onClick={() => setStandby(false)} // click di emergenza
+        >
+            <style>{STYLES}</style>
+            {/* Sfondo animato */}
+            <div className="absolute inset-0 animated-bg opacity-60" />
+            <div className="absolute inset-0" style={{
+                background: 'radial-gradient(ellipse at center, rgba(217,70,239,0.15) 0%, transparent 70%)',
+            }}/>
+            {/* Pattern */}
+            <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-5 pointer-events-none"/>
+
+            <div className="relative z-10 flex flex-col items-center gap-8">
+                {/* Logo o iniziali */}
+                {pub?.logo_url ? (
+                    <img src={pub.logo_url} alt="Logo"
+                        className="w-40 h-40 rounded-[2rem] border-4 border-white/10 shadow-2xl object-contain bg-black p-4"
+                    />
+                ) : (
+                    <div className="w-40 h-40 rounded-[2rem] bg-gradient-to-br from-fuchsia-600 to-purple-800 flex items-center justify-center border-4 border-white/10 shadow-2xl">
+                        <span style={{ fontSize: '4rem', fontWeight: 900, color: '#fff', fontFamily: "'Montserrat', sans-serif" }}>
+                            {pub?.name?.charAt(0)?.toUpperCase() || 'D'}
+                        </span>
+                    </div>
+                )}
+
+                {/* Nome locale */}
+                <div style={{
+                    fontFamily: "'Montserrat', sans-serif",
+                    fontSize: 'clamp(2rem, 5vw, 4.5rem)',
+                    fontWeight: 900,
+                    color: '#fff',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.15em',
+                    textAlign: 'center',
+                    textShadow: '0 0 40px rgba(217,70,239,0.5)',
+                }}>
+                    {pub?.name || 'DiscoJoys'}
+                </div>
+
+                {/* Indicatore attesa */}
+                <div style={{
+                    fontFamily: "'Montserrat', sans-serif",
+                    fontSize: 'clamp(0.8rem, 1.5vw, 1.2rem)',
+                    fontWeight: 600,
+                    color: 'rgba(255,255,255,0.3)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5em',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                }}>
+                    <span style={{
+                        display: 'inline-block',
+                        width: '8px', height: '8px',
+                        borderRadius: '50%',
+                        background: '#d946ef',
+                        boxShadow: '0 0 12px #d946ef',
+                        animation: 'pulse 1.5s ease infinite',
+                    }}/>
+                    In attesa della regia
+                </div>
+
+                {/* QR code piccolo */}
+                {pubCode && (
+                    <div className="mt-4 bg-white p-3 rounded-2xl shadow-2xl">
+                        <QRCodeSVG value={`${window.location.origin}/join/${pubCode}`} size={120} level="M" />
+                    </div>
+                )}
+                <div style={{
+                    fontFamily: "'Montserrat', sans-serif",
+                    fontSize: 'clamp(1.5rem, 3vw, 2.5rem)',
+                    fontWeight: 900,
+                    color: 'rgba(255,255,255,0.6)',
+                    letterSpacing: '0.3em',
+                    fontFamily: 'monospace',
+                }}>
+                    {pubCode}
+                </div>
+            </div>
         </div>
     );
 
