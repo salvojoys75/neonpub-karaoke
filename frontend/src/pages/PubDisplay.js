@@ -956,7 +956,7 @@ const ScoreMode = ({ perf, pubCode }) => {
     useEffect(() => {
         const t = setTimeout(async () => {
             try { await api.stopAndNext(perf.id); } catch {}
-        }, 7000);
+        }, 2000);
         return () => clearTimeout(t);
     }, [perf?.id]);
     return (

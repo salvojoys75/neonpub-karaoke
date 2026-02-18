@@ -444,7 +444,7 @@ export const closeVoting = async (performanceId) => {
   const { data, error } = await supabase.from('performances').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', performanceId).select();
   if (error) throw error;
   if (perf.song_request_id) {
-      await supabase.from('song_requests').update({ status: 'ended' }).eq('id', perf.song_request_id);
+      await supabase.from('song_requests').update({ status: 'performed' }).eq('id', perf.song_request_id);
   }
   if (perf.participant_id && perf.average_score > 0) {
       const currentScore = perf.participants?.score || 0;
@@ -457,7 +457,7 @@ export const closeVoting = async (performanceId) => {
 export const stopAndNext = async (performanceId) => {
     const { data: perf } = await supabase.from('performances').select('song_request_id').eq('id', performanceId).single();
     if (perf?.song_request_id) {
-        await supabase.from('song_requests').update({ status: 'ended' }).eq('id', perf.song_request_id);
+        await supabase.from('song_requests').update({ status: 'performed' }).eq('id', perf.song_request_id);
     }
     const { data, error } = await supabase.from('performances').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', performanceId).select()
     if (error) throw error; 
