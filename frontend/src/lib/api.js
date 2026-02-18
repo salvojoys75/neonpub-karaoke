@@ -455,10 +455,6 @@ export const closeVoting = async (performanceId) => {
 }
 
 export const stopAndNext = async (performanceId) => {
-    const { data: perf } = await supabase.from('performances').select('song_request_id').eq('id', performanceId).single();
-    if (perf?.song_request_id) {
-        await supabase.from('song_requests').update({ status: 'performed' }).eq('id', perf.song_request_id);
-    }
     const { data, error } = await supabase.from('performances').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', performanceId).select()
     if (error) throw error; 
     return { data };
