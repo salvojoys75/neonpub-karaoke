@@ -42,7 +42,8 @@ function useMediaOrchestrator(data) {
   const subfontoRef    = useRef(null);
   const dismissTimerRef = useRef(null);
   const isFirstDataRef  = useRef(true);
-  const overlayActiveRef = useRef(false); // blocca sottofondo durante overlay
+  const overlayActiveRef = useRef(false);
+  const manualStopRef  = useRef(false); // impedisce riavvio sottofondo dopo stop manuale
 
   const dismiss = useCallback(() => {
     if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
@@ -145,9 +146,12 @@ function useMediaOrchestrator(data) {
       return;
     }
 
-    // 5. IDLE → sottofondo loop (solo se nessun overlay attivo)
-    if (currMode === 'idle' && !overlayActiveRef.current) startSottofondo();
-    else stopSottofondo();
+    // 5. IDLE → sottofondo loop (solo se nessun overlay attivo e nessuno stop manuale)
+    if (currMode === 'idle' && !overlayActiveRef.current && !manualStopRef.current) startSottofondo();
+    else if (currMode !== 'idle') {
+      manualStopRef.current = false; // reset quando esce dall'idle
+      stopSottofondo();
+    }
 
     prevDataRef.current = curr;
     prevModeRef.current = currMode;
@@ -163,6 +167,7 @@ function useMediaOrchestrator(data) {
   // triggerManual: usato dalla regia per lanciare effetti a mano
   const triggerManual = useCallback((key) => {
     if (key === 'stop_sottofondo') {
+      manualStopRef.current = true; // blocca riavvio automatico
       stopSottofondoImmediate();
       return;
     }
