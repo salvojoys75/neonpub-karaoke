@@ -84,13 +84,9 @@ function useMediaOrchestrator(data) {
     const currMode = getActiveMode(curr);
     const prevMode = prevModeRef.current;
 
-    // 1. SIGLA — una sola volta al primo caricamento
+    // 1. SIGLA — NON parte automaticamente, solo dalla regia manualmente
     if (isFirstDataRef.current) {
       isFirstDataRef.current = false;
-      if (!siglaShownRef.current) {
-        siglaShownRef.current = true;
-        trigger('sigla');
-      }
       prevDataRef.current = curr;
       prevModeRef.current = currMode;
       return;
@@ -277,8 +273,10 @@ function SiglaOverlay({ onDismiss, pubData }) {
   }, [elapsed, flashActive]);
 
   // Visibilità dei blocchi di testo
-  const show15  = elapsed >= 15  && elapsed < 28;
-  const show30  = elapsed >= 30  && elapsed < 44;
+  const show15  = elapsed >= 15  && elapsed < 22;
+  const show22  = elapsed >= 22  && elapsed < 30;
+  const show30  = elapsed >= 30  && elapsed < 38;
+  const show38  = elapsed >= 38  && elapsed < 46;
   const show46  = elapsed >= 46  && elapsed < 56;
   const show58  = elapsed >= 58  && elapsed < 63;
   const show101 = elapsed >= 61  && elapsed < 68;
@@ -323,13 +321,24 @@ function SiglaOverlay({ onDismiss, pubData }) {
             alignItems: 'center', justifyContent: 'center',
             pointerEvents: 'none',
           }}>
-            {/* Glow background */}
             <div style={{
               position: 'absolute',
               width: '600px', height: '300px',
               background: 'radial-gradient(ellipse, rgba(217,70,239,0.35) 0%, transparent 70%)',
               animation: 'siglaBgPulse 1.2s ease infinite',
             }}/>
+            <div style={{
+              fontFamily: "'Montserrat', sans-serif",
+              fontSize: 'clamp(1rem, 2vw, 1.6rem)',
+              fontWeight: 600,
+              color: 'rgba(217,70,239,0.9)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.5em',
+              marginBottom: '16px',
+              animation: 'siglaFadeUp 0.5s ease forwards',
+            }}>
+              Benvenuti a
+            </div>
             <div style={{
               fontFamily: "'Montserrat', sans-serif",
               fontSize: 'clamp(3rem, 8vw, 7rem)',
@@ -343,7 +352,6 @@ function SiglaOverlay({ onDismiss, pubData }) {
             }}>
               {nomLocale}
             </div>
-            {/* Linea decorativa */}
             <div style={{
               height: '3px',
               background: 'linear-gradient(to right, transparent, #d946ef, #a855f7, transparent)',
@@ -351,6 +359,41 @@ function SiglaOverlay({ onDismiss, pubData }) {
               animation: 'siglaLineGrow 0.8s ease 0.4s forwards',
               width: 0,
             }}/>
+          </div>
+        )}
+
+        {/* ── 00:22 — STASERA QUALCOSA DI SPECIALE ── */}
+        {show22 && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            pointerEvents: 'none',
+          }}>
+            <div style={{
+              fontFamily: "'Montserrat', sans-serif",
+              fontSize: 'clamp(1.5rem, 4vw, 3.5rem)',
+              fontWeight: 700,
+              color: 'rgba(255,255,255,0.6)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.3em',
+              textAlign: 'center',
+              animation: 'siglaFadeUp 0.6s ease forwards',
+            }}>
+              Stasera qualcosa
+            </div>
+            <div style={{
+              fontFamily: "'Montserrat', sans-serif",
+              fontSize: 'clamp(2rem, 5.5vw, 5rem)',
+              fontWeight: 900,
+              color: '#fff',
+              textTransform: 'uppercase',
+              letterSpacing: '0.15em',
+              textAlign: 'center',
+              animation: 'siglaFadeUp 0.6s ease 0.15s both, siglaPulse 2s ease infinite 0.8s',
+            }}>
+              di speciale
+            </div>
           </div>
         )}
 
@@ -389,41 +432,80 @@ function SiglaOverlay({ onDismiss, pubData }) {
           </div>
         )}
 
-        {/* ── 00:46 — PARTECIPANTI + ATTIVITÀ ── */}
+        {/* ── 00:38 — PARTECIPANTI ── */}
+        {show38 && nPartecipanti > 0 && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', gap: '12px',
+            pointerEvents: 'none',
+          }}>
+            <div style={{
+              fontFamily: "'Montserrat', sans-serif",
+              fontSize: 'clamp(1rem, 2vw, 1.8rem)',
+              fontWeight: 600,
+              color: 'rgba(255,255,255,0.6)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.35em',
+              animation: 'siglaFadeUp 0.5s ease forwards',
+            }}>
+              Pronti a sfidarsi
+            </div>
+            <div style={{
+              fontFamily: "'Montserrat', sans-serif",
+              fontSize: 'clamp(5rem, 14vw, 12rem)',
+              fontWeight: 900,
+              color: '#d946ef',
+              lineHeight: 1,
+              animation: 'siglaZoomIn 0.6s cubic-bezier(0.34,1.56,0.64,1) 0.1s both, siglaPulse 1.5s ease infinite 0.7s',
+            }}>
+              {nPartecipanti}
+            </div>
+            <div style={{
+              fontFamily: "'Montserrat', sans-serif",
+              fontSize: 'clamp(1.2rem, 2.5vw, 2rem)',
+              fontWeight: 800,
+              color: '#fff',
+              textTransform: 'uppercase',
+              letterSpacing: '0.25em',
+              animation: 'siglaFadeUp 0.5s ease 0.2s both',
+            }}>
+              {nPartecipanti === 1 ? 'Giocatore' : 'Giocatori'}
+            </div>
+          </div>
+        )}
+
+        {/* ── 00:46 — ATTIVITÀ UNA ALLA VOLTA ── */}
         {show46 && (
           <div style={{
             position: 'absolute', inset: 0,
             display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center', gap: '20px',
+            alignItems: 'center', justifyContent: 'center', gap: '16px',
             pointerEvents: 'none',
           }}>
-            {nPartecipanti > 0 && (
-              <div style={{
-                fontFamily: "'Montserrat', sans-serif",
-                fontSize: 'clamp(1.2rem, 3vw, 2.5rem)',
-                fontWeight: 800,
-                color: '#a855f7',
-                textTransform: 'uppercase',
-                letterSpacing: '0.2em',
-                animation: 'siglaFadeUp 0.5s ease forwards',
-              }}>
-                {nPartecipanti} {nPartecipanti === 1 ? 'Giocatore' : 'Giocatori'} pronti a sfidarsi
-              </div>
-            )}
-            {/* Pillole attività */}
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
-              {['🎤 Karaoke', '🧠 Quiz', '⚔️ Sfide', '🕹️ Arcade'].map((item, i) => (
+            <div style={{
+              fontFamily: "'Montserrat', sans-serif",
+              fontSize: 'clamp(0.9rem, 1.8vw, 1.4rem)',
+              fontWeight: 600,
+              color: 'rgba(255,255,255,0.5)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.4em',
+              animation: 'siglaFadeUp 0.4s ease forwards',
+            }}>
+              In programma questa sera
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center' }}>
+              {['Karaoke', 'Quiz Musicale', 'Sfide', 'Arcade'].map((item, i) => (
                 <div key={i} style={{
                   fontFamily: "'Montserrat', sans-serif",
-                  fontSize: 'clamp(0.8rem, 1.8vw, 1.4rem)',
-                  fontWeight: 800,
+                  fontSize: 'clamp(1.2rem, 3vw, 2.5rem)',
+                  fontWeight: 900,
                   color: '#fff',
-                  background: 'rgba(217,70,239,0.25)',
-                  border: '2px solid rgba(217,70,239,0.6)',
-                  borderRadius: '999px',
-                  padding: '8px 20px',
-                  backdropFilter: 'blur(8px)',
-                  animation: `siglaLetterPop 0.5s cubic-bezier(0.34,1.56,0.64,1) ${0.1 + i * 0.12}s both`,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.15em',
+                  textAlign: 'center',
+                  animation: `siglaFadeUp 0.4s ease ${0.15 + i * 0.2}s both`,
+                  textShadow: '0 0 30px rgba(217,70,239,0.6)',
                 }}>
                   {item}
                 </div>
@@ -482,42 +564,29 @@ function SiglaOverlay({ onDismiss, pubData }) {
             alignItems: 'center', justifyContent: 'center',
             pointerEvents: 'none',
           }}>
+            {/* Glow potente dietro */}
+            <div style={{
+              position: 'absolute',
+              width: '900px', height: '500px',
+              background: 'radial-gradient(ellipse, rgba(217,70,239,0.6) 0%, rgba(168,85,247,0.3) 40%, transparent 70%)',
+              animation: 'siglaBgPulse 0.9s ease infinite',
+            }}/>
             <div style={{
               fontFamily: "'Montserrat', sans-serif",
-              fontSize: 'clamp(2.5rem, 6vw, 5rem)',
+              fontSize: 'clamp(3.5rem, 9vw, 8rem)',
               fontWeight: 900,
-              color: '#fbbf24',
+              color: '#fff',
               textTransform: 'uppercase',
-              letterSpacing: '0.1em',
+              letterSpacing: '0.08em',
               textAlign: 'center',
-              lineHeight: 1.2,
-              animation: 'siglaFinaleGlow 7s ease forwards, siglaGoldenPulse 1.2s ease infinite',
+              lineHeight: 1.1,
+              textShadow: '0 0 60px rgba(217,70,239,1), 0 0 120px rgba(168,85,247,0.8), 0 0 200px rgba(217,70,239,0.4)',
+              animation: 'siglaFinaleGlow 7s ease forwards, siglaPulse 0.8s ease infinite',
             }}>
               Che la sfida<br/>abbia inizio!
             </div>
           </div>
         )}
-
-        {/* PULSANTE SKIP (angolo in basso a destra, sempre visibile) */}
-        <button
-          onClick={onDismiss}
-          style={{
-            position: 'absolute', bottom: '24px', right: '24px',
-            background: 'rgba(0,0,0,0.5)',
-            border: '1px solid rgba(255,255,255,0.2)',
-            borderRadius: '8px',
-            color: 'rgba(255,255,255,0.4)',
-            fontSize: '12px',
-            padding: '6px 14px',
-            cursor: 'pointer',
-            fontFamily: "'Montserrat', sans-serif",
-            letterSpacing: '0.1em',
-            textTransform: 'uppercase',
-            zIndex: 10,
-          }}
-        >
-          SKIP ▶
-        </button>
       </div>
     </>
   );
