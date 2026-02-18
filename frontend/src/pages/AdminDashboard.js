@@ -1418,7 +1418,7 @@ export default function AdminDashboard() {
          <aside className="col-span-4 border-r border-white/10 bg-zinc-900/50 flex flex-col">
             <div className="p-2 border-b border-white/5">
                <Tabs value={libraryTab} onValueChange={setLibraryTab} className="w-full">
-                  <TabsList className="grid w-full grid-cols-7 bg-zinc-950 p-1">
+                  <TabsList className="grid w-full grid-cols-8 bg-zinc-950 p-1">
                      <TabsTrigger value="karaoke" className="text-xs px-1 data-[state=active]:bg-blue-900/30" title="Karaoke">
                         <ListMusic className="w-5 h-5 text-blue-400" />
                      </TabsTrigger>
@@ -1440,6 +1440,9 @@ export default function AdminDashboard() {
 </TabsTrigger>
                      <TabsTrigger value="extraction" className="text-xs px-1 data-[state=active]:bg-purple-900/30" title="Estrazione Casuale">
                         <Dices className="w-5 h-5 text-purple-400" />
+                     </TabsTrigger>
+                     <TabsTrigger value="regia" className="text-xs px-1 data-[state=active]:bg-red-900/30" title="Regia">
+                        <Film className="w-5 h-5 text-red-400" />
                      </TabsTrigger>
                   </TabsList>
                </Tabs>
@@ -1926,6 +1929,103 @@ export default function AdminDashboard() {
                                <Dices className="w-4 h-4 mr-2"/> ESTRAI E METTI IN CODA
                            </Button>
                        </div>
+                   </div>
+               )}
+
+               {/* ===== PANNELLO REGIA ===== */}
+               {libraryTab === 'regia' && (
+                   <div className="space-y-4 pt-2">
+
+                       {/* HEADER */}
+                       <div className="flex items-center gap-2 mb-2">
+                           <Film className="w-4 h-4 text-red-400"/>
+                           <h3 className="text-sm font-bold text-white uppercase tracking-wider">Regia</h3>
+                       </div>
+                       <p className="text-[10px] text-zinc-500 -mt-2">Controlla effetti e media sul display in tempo reale.</p>
+
+                       {/* SIGLA */}
+                       <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-4 space-y-2">
+                           <div className="flex items-center gap-2 mb-1">
+                               <span className="text-base">🎬</span>
+                               <span className="text-sm font-bold text-white">Sigla DiscoJoys</span>
+                           </div>
+                           <p className="text-[10px] text-zinc-500">Lancia la sigla di apertura sul display. Blocca tutto fino alla fine.</p>
+                           <Button
+                               className="w-full bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 font-bold h-11"
+                               onClick={async () => {
+                                   try {
+                                       await supabase.channel('tv_ctrl').send({
+                                           type: 'broadcast',
+                                           event: 'control',
+                                           payload: { command: 'play_media', key: 'sigla' }
+                                       });
+                                       toast.success('🎬 Sigla lanciata sul display!');
+                                   } catch(e) {
+                                       toast.error('Errore invio comando');
+                                   }
+                               }}
+                           >
+                               <Play className="w-4 h-4 mr-2"/> LANCIA SIGLA
+                           </Button>
+                       </div>
+
+                       {/* APPLAUSI */}
+                       <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-4 space-y-2">
+                           <div className="flex items-center gap-2 mb-1">
+                               <span className="text-base">👏</span>
+                               <span className="text-sm font-bold text-white">Applausi</span>
+                           </div>
+                           <p className="text-[10px] text-zinc-500">Lancia applausi e coriandoli sul display (7 secondi).</p>
+                           <Button
+                               className="w-full bg-gradient-to-r from-yellow-600 to-amber-600 hover:from-yellow-500 hover:to-amber-500 font-bold h-11"
+                               onClick={async () => {
+                                   try {
+                                       await supabase.channel('tv_ctrl').send({
+                                           type: 'broadcast',
+                                           event: 'control',
+                                           payload: { command: 'play_media', key: 'applausi' }
+                                       });
+                                       toast.success('👏 Applausi lanciati!');
+                                   } catch(e) {
+                                       toast.error('Errore invio comando');
+                                   }
+                               }}
+                           >
+                               <Play className="w-4 h-4 mr-2"/> LANCIA APPLAUSI
+                           </Button>
+                       </div>
+
+                       {/* TRANSIZIONE */}
+                       <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-4 space-y-2">
+                           <div className="flex items-center gap-2 mb-1">
+                               <span className="text-base">⚡</span>
+                               <span className="text-sm font-bold text-white">Transizione</span>
+                           </div>
+                           <p className="text-[10px] text-zinc-500">Effetto cambio scena sul display.</p>
+                           <Button
+                               className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 font-bold h-11"
+                               onClick={async () => {
+                                   try {
+                                       await supabase.channel('tv_ctrl').send({
+                                           type: 'broadcast',
+                                           event: 'control',
+                                           payload: { command: 'play_media', key: 'transizione' }
+                                       });
+                                       toast.success('⚡ Transizione lanciata!');
+                                   } catch(e) {
+                                       toast.error('Errore invio comando');
+                                   }
+                               }}
+                           >
+                               <Play className="w-4 h-4 mr-2"/> LANCIA TRANSIZIONE
+                           </Button>
+                       </div>
+
+                       {/* SEPARATORE - altri effetti in arrivo */}
+                       <div className="border-t border-zinc-800 pt-3">
+                           <p className="text-[10px] text-zinc-600 text-center italic">Altri effetti disponibili prossimamente...</p>
+                       </div>
+
                    </div>
                )}
 

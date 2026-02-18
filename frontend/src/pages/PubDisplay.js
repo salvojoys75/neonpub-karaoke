@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '@/lib/supabase';
@@ -9,6 +9,614 @@ import ArcadeMode from '@/components/ArcadeMode';
 import KaraokePlayer from '@/components/KaraokePlayer';
 import FloatingReactions from '@/components/FloatingReactions';
 import ExtractionMode from '@/components/ExtractionMode';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MEDIA ORCHESTRATOR
+// Gestisce sigla, applausi, estrazione, transizioni e sottofondo
+// FILE ATTESI in /public/media/ :
+//   sigla.mp4, applausi.mp3, estrazione.mp4, transizione.mp4, sottofondo.mp3
+// ─────────────────────────────────────────────────────────────────────────────
+
+function getActiveMode(data) {
+  if (!data) return 'loading';
+  const { current_performance: perf, active_quiz: quiz, extraction_data } = data;
+  const arcade = data.active_arcade;
+  if (extraction_data) return 'extraction';
+  const isQuiz   = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
+  const isArcade = (arcade && ['active', 'paused'].includes(arcade.status)) || !!data.arcade_result;
+  const isKaraoke = !isQuiz && !isArcade && perf && ['live', 'paused'].includes(perf.status);
+  const isVoting  = !isQuiz && !isArcade && perf && perf.status === 'voting';
+  const isScore   = !isQuiz && !isArcade && perf && perf.status === 'ended';
+  if (isQuiz)   return 'quiz';
+  if (isArcade) return 'arcade';
+  if (isKaraoke || isVoting) return 'karaoke';
+  if (isScore)  return 'score';
+  return 'idle';
+}
+
+function useMediaOrchestrator(data) {
+  const [overlay, setOverlay]       = useState(null);
+  const prevDataRef    = useRef(null);
+  const prevModeRef    = useRef(null);
+  const siglaShownRef  = useRef(false);
+  const subfontoRef    = useRef(null);
+  const dismissTimerRef = useRef(null);
+  const isFirstDataRef  = useRef(true);
+
+  const dismiss = useCallback(() => {
+    if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
+    setOverlay(null);
+  }, []);
+
+  const trigger = useCallback((key, autoDismissMs = null) => {
+    if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
+    setOverlay({ key, triggeredAt: Date.now() });
+    if (autoDismissMs) {
+      dismissTimerRef.current = setTimeout(() => setOverlay(null), autoDismissMs);
+    }
+  }, []);
+
+  const startSottofondo = useCallback(() => {
+    if (subfontoRef.current) return;
+    const audio = new Audio('/media/sottofondo.mp3');
+    audio.loop   = true;
+    audio.volume = 0.22;
+    audio.play().catch(() => {});
+    subfontoRef.current = audio;
+  }, []);
+
+  const stopSottofondo = useCallback(() => {
+    if (!subfontoRef.current) return;
+    const audio = subfontoRef.current;
+    subfontoRef.current = null;
+    let vol = audio.volume;
+    const fade = setInterval(() => {
+      vol = Math.max(0, vol - 0.04);
+      audio.volume = vol;
+      if (vol <= 0) { clearInterval(fade); audio.pause(); }
+    }, 80);
+  }, []);
+
+  useEffect(() => {
+    if (!data) return;
+    const curr     = data;
+    const prev     = prevDataRef.current;
+    const currMode = getActiveMode(curr);
+    const prevMode = prevModeRef.current;
+
+    // 1. SIGLA — una sola volta al primo caricamento
+    if (isFirstDataRef.current) {
+      isFirstDataRef.current = false;
+      if (!siglaShownRef.current) {
+        siglaShownRef.current = true;
+        trigger('sigla');
+      }
+      prevDataRef.current = curr;
+      prevModeRef.current = currMode;
+      return;
+    }
+
+    // 2. ESTRAZIONE — ExtractionMode gestisce tutto da solo, nessun video necessario
+    // (il componente ha già countdown, drumroll, reveal e celebration integrati)
+    const extractionAppeared = !prev?.extraction_data && curr.extraction_data;
+    if (extractionAppeared) {
+      stopSottofondo(); // ferma musica di sottofondo durante l'estrazione
+      prevDataRef.current = curr;
+      prevModeRef.current = currMode;
+      return;
+    }
+
+    // 3. FINE ESIBIZIONE → applausi
+    const prevPerf = prev?.current_performance;
+    const currPerf = curr.current_performance;
+    const perfFinita =
+      prevPerf &&
+      !['ended'].includes(prevPerf.status) &&
+      currPerf?.status === 'ended';
+    if (perfFinita) {
+      stopSottofondo();
+      trigger('applausi', 7000);
+      prevDataRef.current = curr;
+      prevModeRef.current = currMode;
+      return;
+    }
+
+    // 4. CAMBIO MODULO → transizione
+    const MODULI = ['quiz', 'arcade', 'karaoke', 'idle'];
+    const moduloCambiato =
+      prevMode !== null &&
+      prevMode !== currMode &&
+      MODULI.includes(prevMode) &&
+      MODULI.includes(currMode) &&
+      prevMode !== 'score';
+    if (moduloCambiato) {
+      stopSottofondo();
+      trigger('transizione');
+      prevDataRef.current = curr;
+      prevModeRef.current = currMode;
+      return;
+    }
+
+    // 5. IDLE → sottofondo loop
+    if (currMode === 'idle') startSottofondo();
+    else stopSottofondo();
+
+    prevDataRef.current = curr;
+    prevModeRef.current = currMode;
+  }, [data, trigger, startSottofondo, stopSottofondo]);
+
+  useEffect(() => {
+    return () => {
+      stopSottofondo();
+      if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
+    };
+  }, [stopSottofondo]);
+
+  // triggerManual: usato dalla regia per lanciare effetti a mano
+  const triggerManual = useCallback((key) => {
+    stopSottofondo();
+    trigger(key, key === 'applausi' ? 7000 : null);
+  }, [trigger, stopSottofondo]);
+
+  return { overlay, dismissOverlay: dismiss, triggerManual };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MEDIA OVERLAY COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MEDIA_OVERLAY_STYLES = `
+  @keyframes celebrationFadeInOut {
+    0%   { opacity: 0; }
+    10%  { opacity: 1; }
+    80%  { opacity: 1; }
+    100% { opacity: 0; }
+  }
+  @keyframes confettiFall {
+    0%   { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+    100% { transform: translateY(115vh) rotate(720deg); opacity: 0; }
+  }
+  @keyframes celebrationPop {
+    0%   { transform: scale(0) rotate(-20deg); opacity: 0; }
+    40%  { transform: scale(1.3) rotate(8deg);  opacity: 1; }
+    100% { transform: scale(1)   rotate(0deg);  opacity: 1; }
+  }
+
+  /* ── SIGLA ANIMATIONS ── */
+  @keyframes siglaZoomIn {
+    0%   { transform: scale(0.2); opacity: 0; filter: blur(20px); }
+    60%  { transform: scale(1.08); opacity: 1; filter: blur(0px); }
+    100% { transform: scale(1); opacity: 1; filter: blur(0px); }
+  }
+  @keyframes siglaSlideLeft {
+    0%   { transform: translateX(-120%); opacity: 0; }
+    60%  { transform: translateX(6px); opacity: 1; }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+  @keyframes siglaSlideRight {
+    0%   { transform: translateX(120%); opacity: 0; }
+    60%  { transform: translateX(-6px); opacity: 1; }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+  @keyframes siglaFadeUp {
+    0%   { transform: translateY(40px); opacity: 0; }
+    100% { transform: translateY(0);    opacity: 1; }
+  }
+  @keyframes siglaFlashBoom {
+    0%   { transform: scale(0.5); opacity: 0; }
+    20%  { transform: scale(1.25); opacity: 1; }
+    40%  { transform: scale(0.95); }
+    60%  { transform: scale(1.06); }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  @keyframes siglaWhiteFlash {
+    0%   { opacity: 0; }
+    10%  { opacity: 0.85; }
+    40%  { opacity: 0; }
+    100% { opacity: 0; }
+  }
+  @keyframes siglaPulse {
+    0%,100% { text-shadow: 0 0 30px rgba(217,70,239,0.8), 0 0 60px rgba(217,70,239,0.4); }
+    50%     { text-shadow: 0 0 60px rgba(217,70,239,1),   0 0 120px rgba(217,70,239,0.7), 0 0 200px rgba(168,85,247,0.5); }
+  }
+  @keyframes siglaGoldenPulse {
+    0%,100% { text-shadow: 0 0 30px rgba(251,191,36,0.8), 0 0 60px rgba(251,191,36,0.4); }
+    50%     { text-shadow: 0 0 80px rgba(251,191,36,1),   0 0 150px rgba(251,191,36,0.8); }
+  }
+  @keyframes siglaLetterPop {
+    0%   { transform: scale(0) translateY(20px); opacity: 0; }
+    70%  { transform: scale(1.2) translateY(-4px); opacity: 1; }
+    100% { transform: scale(1)   translateY(0);   opacity: 1; }
+  }
+  @keyframes siglaLineGrow {
+    0%   { width: 0; opacity: 0; }
+    100% { width: 100%; opacity: 1; }
+  }
+  @keyframes siglaBgPulse {
+    0%,100% { opacity: 0.3; }
+    50%     { opacity: 0.6; }
+  }
+  @keyframes siglaFinaleGlow {
+    0%   { opacity: 0; transform: scale(0.8); }
+    30%  { opacity: 1; transform: scale(1.05); }
+    70%  { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.1); }
+  }
+`;
+
+// ── Componente sigla con testi sincronizzati ───────────────────────────────
+function SiglaOverlay({ onDismiss, pubData }) {
+  const videoRef = useRef(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [flashActive, setFlashActive] = useState(false);
+  const timerRef = useRef(null);
+
+  const nomLocale    = pubData?.pub?.name || 'DiscoJoys';
+  const nomeEvento   = pubData?.pub?.event_name || pubData?.pub?.name || 'DiscoJoys Night';
+  const nPartecipanti = pubData?.leaderboard?.length || 0;
+  const dataOggi     = new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  // Timer sincronizzato al video
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+      videoRef.current.play().catch(() => onDismiss());
+    }
+    timerRef.current = setInterval(() => {
+      if (videoRef.current) setElapsed(videoRef.current.currentTime);
+    }, 50);
+    return () => clearInterval(timerRef.current);
+  }, [onDismiss]);
+
+  // Flash bianco a 00:58
+  useEffect(() => {
+    if (elapsed >= 58 && elapsed < 58.5 && !flashActive) {
+      setFlashActive(true);
+      setTimeout(() => setFlashActive(false), 600);
+    }
+  }, [elapsed, flashActive]);
+
+  // Visibilità dei blocchi di testo
+  const show15  = elapsed >= 15  && elapsed < 28;
+  const show30  = elapsed >= 30  && elapsed < 44;
+  const show46  = elapsed >= 46  && elapsed < 56;
+  const show58  = elapsed >= 58  && elapsed < 63;
+  const show101 = elapsed >= 61  && elapsed < 68;
+
+  return (
+    <>
+      <style>{MEDIA_OVERLAY_STYLES}</style>
+
+      {/* Flash bianco al momento d'impatto 00:58 */}
+      {flashActive && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9600,
+          background: 'white',
+          animation: 'siglaWhiteFlash 0.6s ease forwards',
+          pointerEvents: 'none',
+        }}/>
+      )}
+
+      <div className="fixed inset-0 z-[9500] overflow-hidden">
+        {/* VIDEO SFONDO */}
+        <video
+          ref={videoRef}
+          src="/media/sigla.mp4"
+          className="w-full h-full object-cover"
+          playsInline
+          onEnded={onDismiss}
+          onError={onDismiss}
+        />
+
+        {/* OVERLAY SCURO LEGGERO per leggibilità testi */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.1) 50%, rgba(0,0,0,0.4) 100%)',
+          pointerEvents: 'none',
+        }}/>
+
+        {/* ── 00:15 — NOME LOCALE ── */}
+        {show15 && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            pointerEvents: 'none',
+          }}>
+            {/* Glow background */}
+            <div style={{
+              position: 'absolute',
+              width: '600px', height: '300px',
+              background: 'radial-gradient(ellipse, rgba(217,70,239,0.35) 0%, transparent 70%)',
+              animation: 'siglaBgPulse 1.2s ease infinite',
+            }}/>
+            <div style={{
+              fontFamily: "'Montserrat', sans-serif",
+              fontSize: 'clamp(3rem, 8vw, 7rem)',
+              fontWeight: 900,
+              color: '#fff',
+              textTransform: 'uppercase',
+              letterSpacing: '0.12em',
+              animation: 'siglaZoomIn 0.7s cubic-bezier(0.34,1.56,0.64,1) forwards, siglaPulse 1.5s ease infinite 0.7s',
+              textAlign: 'center',
+              lineHeight: 1.1,
+            }}>
+              {nomLocale}
+            </div>
+            {/* Linea decorativa */}
+            <div style={{
+              height: '3px',
+              background: 'linear-gradient(to right, transparent, #d946ef, #a855f7, transparent)',
+              marginTop: '16px',
+              animation: 'siglaLineGrow 0.8s ease 0.4s forwards',
+              width: 0,
+            }}/>
+          </div>
+        )}
+
+        {/* ── 00:30 — NOME SERATA + DATA ── */}
+        {show30 && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', gap: '16px',
+            pointerEvents: 'none',
+          }}>
+            <div style={{
+              fontFamily: "'Montserrat', sans-serif",
+              fontSize: 'clamp(1rem, 2.5vw, 2rem)',
+              fontWeight: 700,
+              color: '#d946ef',
+              textTransform: 'uppercase',
+              letterSpacing: '0.4em',
+              animation: 'siglaSlideLeft 0.6s cubic-bezier(0.34,1.56,0.64,1) forwards',
+            }}>
+              {dataOggi}
+            </div>
+            <div style={{
+              fontFamily: "'Montserrat', sans-serif",
+              fontSize: 'clamp(2.5rem, 6vw, 5.5rem)',
+              fontWeight: 900,
+              color: '#fff',
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              textAlign: 'center',
+              lineHeight: 1.1,
+              animation: 'siglaSlideRight 0.6s cubic-bezier(0.34,1.56,0.64,1) 0.1s both, siglaPulse 2s ease infinite 0.7s',
+            }}>
+              {nomeEvento}
+            </div>
+          </div>
+        )}
+
+        {/* ── 00:46 — PARTECIPANTI + ATTIVITÀ ── */}
+        {show46 && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', gap: '20px',
+            pointerEvents: 'none',
+          }}>
+            {nPartecipanti > 0 && (
+              <div style={{
+                fontFamily: "'Montserrat', sans-serif",
+                fontSize: 'clamp(1.2rem, 3vw, 2.5rem)',
+                fontWeight: 800,
+                color: '#a855f7',
+                textTransform: 'uppercase',
+                letterSpacing: '0.2em',
+                animation: 'siglaFadeUp 0.5s ease forwards',
+              }}>
+                {nPartecipanti} {nPartecipanti === 1 ? 'Giocatore' : 'Giocatori'} pronti a sfidarsi
+              </div>
+            )}
+            {/* Pillole attività */}
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
+              {['🎤 Karaoke', '🧠 Quiz', '⚔️ Sfide', '🕹️ Arcade'].map((item, i) => (
+                <div key={i} style={{
+                  fontFamily: "'Montserrat', sans-serif",
+                  fontSize: 'clamp(0.8rem, 1.8vw, 1.4rem)',
+                  fontWeight: 800,
+                  color: '#fff',
+                  background: 'rgba(217,70,239,0.25)',
+                  border: '2px solid rgba(217,70,239,0.6)',
+                  borderRadius: '999px',
+                  padding: '8px 20px',
+                  backdropFilter: 'blur(8px)',
+                  animation: `siglaLetterPop 0.5s cubic-bezier(0.34,1.56,0.64,1) ${0.1 + i * 0.12}s both`,
+                }}>
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── 00:58 — "1 SOLO VINCITORE" ── */}
+        {show58 && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            pointerEvents: 'none',
+          }}>
+            <div style={{
+              position: 'absolute',
+              width: '800px', height: '400px',
+              background: 'radial-gradient(ellipse, rgba(217,70,239,0.5) 0%, transparent 70%)',
+              animation: 'siglaBgPulse 0.8s ease infinite',
+            }}/>
+            <div style={{
+              fontFamily: "'Montserrat', sans-serif",
+              fontSize: 'clamp(1rem, 2.5vw, 2rem)',
+              fontWeight: 700,
+              color: 'rgba(255,255,255,0.7)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.5em',
+              marginBottom: '12px',
+              animation: 'siglaFadeUp 0.4s ease forwards',
+            }}>
+              Ma ci sarà
+            </div>
+            <div style={{
+              fontFamily: "'Montserrat', sans-serif",
+              fontSize: 'clamp(4rem, 11vw, 9rem)',
+              fontWeight: 900,
+              color: '#fff',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              lineHeight: 1,
+              textAlign: 'center',
+              animation: 'siglaFlashBoom 0.7s cubic-bezier(0.34,1.56,0.64,1) forwards, siglaPulse 1s ease infinite 0.7s',
+            }}>
+              1 SOLO<br/>VINCITORE
+            </div>
+          </div>
+        )}
+
+        {/* ── 01:01 — "CHE LA SFIDA ABBIA INIZIO!" ── */}
+        {show101 && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            pointerEvents: 'none',
+          }}>
+            <div style={{
+              fontFamily: "'Montserrat', sans-serif",
+              fontSize: 'clamp(2.5rem, 6vw, 5rem)',
+              fontWeight: 900,
+              color: '#fbbf24',
+              textTransform: 'uppercase',
+              letterSpacing: '0.1em',
+              textAlign: 'center',
+              lineHeight: 1.2,
+              animation: 'siglaFinaleGlow 7s ease forwards, siglaGoldenPulse 1.2s ease infinite',
+            }}>
+              Che la sfida<br/>abbia inizio!
+            </div>
+          </div>
+        )}
+
+        {/* PULSANTE SKIP (angolo in basso a destra, sempre visibile) */}
+        <button
+          onClick={onDismiss}
+          style={{
+            position: 'absolute', bottom: '24px', right: '24px',
+            background: 'rgba(0,0,0,0.5)',
+            border: '1px solid rgba(255,255,255,0.2)',
+            borderRadius: '8px',
+            color: 'rgba(255,255,255,0.4)',
+            fontSize: '12px',
+            padding: '6px 14px',
+            cursor: 'pointer',
+            fontFamily: "'Montserrat', sans-serif",
+            letterSpacing: '0.1em',
+            textTransform: 'uppercase',
+            zIndex: 10,
+          }}
+        >
+          SKIP ▶
+        </button>
+      </div>
+    </>
+  );
+}
+
+function MediaOverlay({ overlay, onDismiss, pubData }) {
+  const videoRef    = useRef(null);
+  const audioRef    = useRef(null);
+
+  useEffect(() => {
+    if (!overlay) return;
+    if (overlay.key === 'estrazione' || overlay.key === 'transizione') {
+      if (videoRef.current) {
+        videoRef.current.currentTime = 0;
+        videoRef.current.play().catch(() => onDismiss());
+      }
+    }
+    if (overlay.key === 'applausi') {
+      const a = new Audio('/media/applausi.mp3');
+      a.volume = 0.85;
+      a.play().catch(() => {});
+      audioRef.current = a;
+    }
+    return () => {
+      if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overlay?.key, overlay?.triggeredAt]);
+
+  if (!overlay) return null;
+
+  // ── SIGLA — gestita da SiglaOverlay dedicato ──────────────────────────────
+  if (overlay.key === 'sigla') {
+    return <SiglaOverlay onDismiss={onDismiss} pubData={pubData} />;
+  }
+
+  // ── Applausi: overlay celebrazione con coriandoli ─────────────────────────
+  if (overlay.key === 'applausi') {
+    const COLORS = ['#d946ef','#a855f7','#f59e0b','#10b981','#3b82f6','#ef4444','#fff'];
+    return (
+      <>
+        <style>{MEDIA_OVERLAY_STYLES}</style>
+        <div
+          className="fixed inset-0 z-[9000] pointer-events-none flex items-center justify-center"
+          style={{
+            background: 'radial-gradient(ellipse at center, rgba(217,70,239,0.15) 0%, transparent 70%)',
+            animation: 'celebrationFadeInOut 7s ease forwards',
+          }}
+        >
+          {/* Coriandoli */}
+          {Array.from({ length: 40 }).map((_, i) => (
+            <div
+              key={i}
+              style={{
+                position: 'absolute',
+                left: `${Math.random() * 100}%`,
+                top: '-5%',
+                width:  `${7 + Math.random() * 14}px`,
+                height: `${7 + Math.random() * 14}px`,
+                borderRadius: Math.random() > 0.5 ? '50%' : '3px',
+                background: COLORS[Math.floor(Math.random() * COLORS.length)],
+                animation: `confettiFall ${2.5 + Math.random() * 4}s ${Math.random() * 2.5}s ease-in forwards`,
+              }}
+            />
+          ))}
+
+          {/* Testo centrale */}
+          <div style={{ animation: 'celebrationPop 0.6s ease forwards', textAlign: 'center' }}>
+            <div style={{
+              fontSize: 'clamp(5rem, 14vw, 11rem)',
+              lineHeight: 1,
+              filter: 'drop-shadow(0 0 60px rgba(217,70,239,0.9))',
+            }}>
+              👏
+            </div>
+            <div style={{
+              fontFamily: "'Montserrat', sans-serif",
+              fontSize: 'clamp(1.8rem, 4.5vw, 4rem)',
+              fontWeight: 900,
+              color: '#fff',
+              textShadow: '0 0 50px rgba(217,70,239,1)',
+              letterSpacing: '0.2em',
+              textTransform: 'uppercase',
+              marginTop: '1.2rem',
+            }}>
+              Ottima esibizione!
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STILI CSS ORIGINALI
+// ─────────────────────────────────────────────────────────────────────────────
 
 const STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800;900&family=JetBrains+Mono:wght@500&display=swap');
@@ -63,9 +671,12 @@ const STYLES = `
   .dj-karaoke-player { bottom: var(--karaoke-bar-h); }
 `;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPONENTI ORIGINALI (invariati)
+// ─────────────────────────────────────────────────────────────────────────────
+
 const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => {
   const messagesString = messages && messages.length > 0 ? messages.map(m => `${m.nickname}: ${m.text}`).join('   •   ') : '';
-  
   return (
   <div className="dj-topbar absolute top-0 left-0 right-0 z-[100] flex items-center justify-between px-8 bg-gradient-to-b from-black/90 via-black/60 to-transparent">
       <div className="flex items-center gap-5">
@@ -82,7 +693,6 @@ const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => {
               </div>
           </div>
       </div>
-      
       <div className="flex-1 mx-8 h-[4.5vh] glass-panel rounded-full flex items-center px-4 overflow-hidden relative">
           {messagesString ? (
              <div className="ticker-wrap">
@@ -103,7 +713,6 @@ const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => {
              </div>
           )}
       </div>
-
       <div className="flex flex-col items-end">
           <div className="glass-panel px-4 py-2 rounded-xl flex items-center gap-3">
               <Users className="w-[2vh] h-[2vh] text-fuchsia-400"/> 
@@ -199,11 +808,7 @@ const Sidebar = ({ pubCode, queue, leaderboard }) => (
                               {i+1}
                           </div>
                           {player.avatar_url ? (
-                              <img 
-                                  src={player.avatar_url} 
-                                  alt={player.nickname} 
-                                  className="w-10 h-10 rounded-full border-2 border-yellow-500/50 object-cover shrink-0 shadow-md"
-                              />
+                              <img src={player.avatar_url} alt={player.nickname} className="w-10 h-10 rounded-full border-2 border-yellow-500/50 object-cover shrink-0 shadow-md" />
                           ) : (
                               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-fuchsia-600 to-purple-600 flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-md">
                                   {player.nickname?.charAt(0)?.toUpperCase() || '?'}
@@ -223,46 +828,44 @@ const Sidebar = ({ pubCode, queue, leaderboard }) => (
   </div>
 );
 
-const KaraokeMode = ({ perf, isMuted }) => {
-    return (
-        <div className="w-full h-full relative">
-            <div className="absolute inset-0 dj-karaoke-player bg-black">
-                <KaraokePlayer 
-                    key={perf.id} 
-                    url={perf.youtube_url}
-                    status={perf.status}
-                    volume={100}
-                    isMuted={isMuted}
-                    startedAt={perf.started_at}
-                />
-            </div>
-            <div className="dj-karaoke-bar absolute bottom-0 left-0 right-0 bg-black z-[70] flex items-center px-[2vw] gap-[1.5vw] border-t border-white/5">
-                <div className="relative shrink-0">
-                    {perf.user_avatar ? (
-                        <img src={perf.user_avatar} className="w-[7vh] h-[7vh] rounded-full border-2 border-fuchsia-500/80 object-cover bg-zinc-900 shadow-lg" alt="Singer" />
-                    ) : (
-                        <div className="w-[7vh] h-[7vh] rounded-full border-2 border-fuchsia-500/80 bg-fuchsia-600/40 flex items-center justify-center shadow-lg">
-                            <Mic2 className="w-[4vh] h-[4vh] text-white" />
-                        </div>
-                    )}
-                    <div className="absolute -bottom-1 -right-1 bg-red-600 text-white text-[1vh] font-bold px-1.5 py-0.5 rounded-full border border-white/20">LIVE</div>
-                </div>
-                <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                        <Mic2 className="w-[1.8vh] h-[1.8vh] text-fuchsia-400 shrink-0" />
-                        <span className="text-[1.8vh] font-bold text-white truncate">{perf.user_nickname}</span>
+const KaraokeMode = ({ perf, isMuted }) => (
+    <div className="w-full h-full relative">
+        <div className="absolute inset-0 dj-karaoke-player bg-black">
+            <KaraokePlayer 
+                key={perf.id} 
+                url={perf.youtube_url}
+                status={perf.status}
+                volume={100}
+                isMuted={isMuted}
+                startedAt={perf.started_at}
+            />
+        </div>
+        <div className="dj-karaoke-bar absolute bottom-0 left-0 right-0 bg-black z-[70] flex items-center px-[2vw] gap-[1.5vw] border-t border-white/5">
+            <div className="relative shrink-0">
+                {perf.user_avatar ? (
+                    <img src={perf.user_avatar} className="w-[7vh] h-[7vh] rounded-full border-2 border-fuchsia-500/80 object-cover bg-zinc-900 shadow-lg" alt="Singer" />
+                ) : (
+                    <div className="w-[7vh] h-[7vh] rounded-full border-2 border-fuchsia-500/80 bg-fuchsia-600/40 flex items-center justify-center shadow-lg">
+                        <Mic2 className="w-[4vh] h-[4vh] text-white" />
                     </div>
-                    <h1 className="text-[2.8vh] font-black text-white leading-none truncate text-glow">{perf.song_title}</h1>
-                    <p className="text-[1.4vh] text-white/50 uppercase tracking-wide mt-1 truncate">{perf.song_artist}</p>
+                )}
+                <div className="absolute -bottom-1 -right-1 bg-red-600 text-white text-[1vh] font-bold px-1.5 py-0.5 rounded-full border border-white/20">LIVE</div>
+            </div>
+            <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                    <Mic2 className="w-[1.8vh] h-[1.8vh] text-fuchsia-400 shrink-0" />
+                    <span className="text-[1.8vh] font-bold text-white truncate">{perf.user_nickname}</span>
                 </div>
-                <div className="shrink-0 text-right border-l border-white/10 pl-[1.5vw]">
-                    <div className="text-[1.2vh] text-white/30 uppercase tracking-widest mb-1">In onda</div>
-                    <div className="text-fuchsia-400 text-[1.4vh] font-bold">🎤 Karaoke Live</div>
-                </div>
+                <h1 className="text-[2.8vh] font-black text-white leading-none truncate text-glow">{perf.song_title}</h1>
+                <p className="text-[1.4vh] text-white/50 uppercase tracking-wide mt-1 truncate">{perf.song_artist}</p>
+            </div>
+            <div className="shrink-0 text-right border-l border-white/10 pl-[1.5vw]">
+                <div className="text-[1.2vh] text-white/30 uppercase tracking-widest mb-1">In onda</div>
+                <div className="text-fuchsia-400 text-[1.4vh] font-bold">🎤 Karaoke Live</div>
             </div>
         </div>
-    );
-};
+    </div>
+);
 
 const VotingMode = ({ perf }) => (
     <div className="w-full h-full flex flex-col items-center justify-center animated-bg p-8">
@@ -288,10 +891,7 @@ const ScoreMode = ({ perf }) => (
                 <div className="text-7xl font-black text-white mb-10">{perf.user_nickname}</div>
                 <div className="flex justify-center gap-6 mb-10">
                     {[1,2,3,4,5].map(star => (
-                        <Star 
-                            key={star} 
-                            className={`w-24 h-24 ${star <= Math.round(perf.average_score || 0) ? 'text-yellow-400 fill-yellow-400 drop-shadow-[0_0_30px_rgba(250,204,21,0.8)]' : 'text-white/20'}`}
-                        />
+                        <Star key={star} className={`w-24 h-24 ${star <= Math.round(perf.average_score || 0) ? 'text-yellow-400 fill-yellow-400 drop-shadow-[0_0_30px_rgba(250,204,21,0.8)]' : 'text-white/20'}`} />
                     ))}
                 </div>
                 <div className="text-[10rem] font-black text-yellow-400 font-mono drop-shadow-2xl leading-none">
@@ -306,14 +906,12 @@ const ScoreMode = ({ perf }) => (
 );
 
 const QuizMode = ({ quiz, result }) => {
-    // Helper function moved here to be used in renders
     const getYtId = (url) => {
         if (!url) return null;
         const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
         const match = url.match(regExp);
         return (match && match[2].length === 11) ? match[2] : null;
     };
-
     const getSpotifyEmbed = (url) => {
         if (!url) return null;
         const m = url.match(/(?:track\/)([a-zA-Z0-9]+)/);
@@ -342,7 +940,6 @@ const QuizMode = ({ quiz, result }) => {
 
     const isVideoQuiz = quiz.media_type === 'video' && quiz.media_url && !result;
     const isAudioQuiz = quiz.media_type === 'audio' && quiz.media_url && !result;
-    
     const spotifyEmbedUrl = isAudioQuiz ? getSpotifyEmbed(quiz.media_url) : null;
     const ytId = isVideoQuiz ? getYtId(quiz.media_url) : null;
 
@@ -355,15 +952,8 @@ const QuizMode = ({ quiz, result }) => {
                         <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
                         ASCOLTA LA CANZONE
                     </div>
-                    <iframe
-                        key={quiz.id}
-                        src={spotifyEmbedUrl}
-                        width="100%"
-                        height="80"
-                        frameBorder="0"
-                        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                        className="block"
-                    />
+                    <iframe key={quiz.id} src={spotifyEmbedUrl} width="100%" height="80" frameBorder="0"
+                        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" className="block" />
                 </div>
             </div>
             <div className="flex flex-col items-center justify-center px-8 py-4 shrink-0">
@@ -405,26 +995,16 @@ const QuizMode = ({ quiz, result }) => {
                 </div>
                 <h1 style={{fontSize: 'clamp(1rem, 2.5vw, 2.2rem)', lineHeight: 1.2}} className="font-black text-white text-center drop-shadow-2xl line-clamp-2">{quiz.question}</h1>
             </div>
-
             <div style={{height: '55%'}} className="shrink-0 px-8">
                 <div className="w-full h-full rounded-2xl overflow-hidden border border-white/10 shadow-2xl relative bg-black">
                     {ytId && (
-                        <iframe
-                            src={`https://www.youtube.com/embed/${ytId}?autoplay=1&controls=0&modestbranding=1&showinfo=0&rel=0&loop=1&playlist=${ytId}`}
-                            allow="autoplay; encrypted-media"
-                            allowFullScreen={false}
-                            style={{position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none'}}
-                        />
+                        <iframe src={`https://www.youtube.com/embed/${ytId}?autoplay=1&controls=0&modestbranding=1&showinfo=0&rel=0&loop=1&playlist=${ytId}`}
+                            allow="autoplay; encrypted-media" allowFullScreen={false}
+                            style={{position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none'}} />
                     )}
-                    {/* BANNER ANTI-SPOILER PER COPRIRE TITOLO YOUTUBE */}
-                    <div style={{
-                        position: 'absolute', top: 0, left: 0, right: 0, height: '80px',
-                        background: '#000000',
-                        zIndex: 50, pointerEvents: 'none'
-                    }} />
+                    <div style={{position: 'absolute', top: 0, left: 0, right: 0, height: '80px', background: '#000000', zIndex: 50, pointerEvents: 'none'}} />
                 </div>
             </div>
-
             <div style={{height: '33%'}} className="shrink-0 px-8 py-2 flex items-center">
                 {quiz.status === 'closed' ? (
                     <div className="w-full flex justify-center">
@@ -452,20 +1032,16 @@ const QuizMode = ({ quiz, result }) => {
     return (
     <div className="w-full h-full flex flex-col bg-[#080808] relative p-12 overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-b from-zinc-900 to-black z-0"></div>
-
         <div className="relative z-20 flex-1 flex flex-col items-center justify-center">
             <div className="bg-fuchsia-600 text-white px-10 py-4 rounded-full font-black text-xl uppercase tracking-[0.3em] mb-12 shadow-[0_0_40px_rgba(217,70,239,0.6)] transform -rotate-2 border-2 border-white/20">
                 {quiz.category || "QUIZ TIME"}
             </div>
-
             {result ? (
                 <div className="w-full max-w-6xl animate-in zoom-in duration-500 flex flex-col items-center">
-                    
                     <div className="bg-green-600/90 backdrop-blur-xl p-10 rounded-[3rem] mb-12 shadow-[0_0_100px_rgba(22,163,74,0.5)] border-4 border-green-400 text-center w-full">
                         <div className="text-white/70 uppercase font-bold tracking-widest text-sm mb-2">Risposta Corretta</div>
                         <span className="text-7xl font-black text-white leading-tight">{result.correct_option}</span>
                     </div>
-
                     <div className="w-full">
                         <div className="glass-panel p-8 rounded-3xl">
                             <h3 className="text-fuchsia-400 font-bold uppercase tracking-widest mb-6 flex items-center gap-2 text-xl">
@@ -476,8 +1052,8 @@ const QuizMode = ({ quiz, result }) => {
                                     result.winners.map((w, i) => (
                                         <div key={i} className="flex items-center gap-4 bg-white/5 p-3 rounded-2xl border border-white/5">
                                             <div className="bg-yellow-500 text-black font-black w-8 h-8 rounded-lg flex items-center justify-center text-lg">{i+1}</div>
-                                            {w.avatar && <img src={w.avatar} className="w-10 h-10 rounded-full object-cover border border-white/20" alt="avt" />}
-                                            {!w.avatar && <div className="w-10 h-10 rounded-full bg-fuchsia-600 flex items-center justify-center text-white font-bold border border-white/20">{w.nickname.charAt(0).toUpperCase()}</div>}
+                                            {w.avatar ? <img src={w.avatar} className="w-10 h-10 rounded-full object-cover border border-white/20" alt="avt" /> :
+                                                <div className="w-10 h-10 rounded-full bg-fuchsia-600 flex items-center justify-center text-white font-bold border border-white/20">{w.nickname.charAt(0).toUpperCase()}</div>}
                                             <span className="text-white font-bold text-xl truncate flex-1">{w.nickname}</span>
                                             <div className="text-green-400 font-mono font-bold text-lg">+{w.points}</div>
                                         </div>
@@ -492,7 +1068,6 @@ const QuizMode = ({ quiz, result }) => {
             ) : (
                 <div className="w-full h-full flex flex-col justify-center gap-4 px-4 overflow-hidden">
                     <h1 style={{fontSize: 'clamp(1.5rem, 4vw, 4rem)', lineHeight: 1.2}} className="font-black text-white drop-shadow-2xl text-center">{quiz.question}</h1>
-                    
                     {quiz.status === 'closed' ? (
                          <div className="bg-red-600 rounded-[2rem] animate-pulse shadow-[0_0_80px_rgba(220,38,38,0.8)] border-4 border-red-400 mx-auto px-10 py-6">
                              <h2 style={{fontSize: 'clamp(2rem, 4vw, 4rem)'}} className="font-black text-white uppercase italic">TEMPO SCADUTO!</h2>
@@ -504,7 +1079,7 @@ const QuizMode = ({ quiz, result }) => {
                                     <div style={{fontSize: 'clamp(1.2rem, 2.5vw, 2.5rem)', minWidth: '2.5em', minHeight: '2.5em'}} className="bg-black/40 rounded-xl flex items-center justify-center font-black text-white shrink-0 font-mono border border-white/10 aspect-square">
                                         {String.fromCharCode(65+i)}
                                     </div>
-                                    <div style={{fontSize: 'clamp(1rem, 2vw, 2rem)'}} className="font-bold text-white leading-tight line-clamp-3">{opt}</div>
+                                    <div style={{fontSize: 'clamp(1rem, 2vw, 2vw)'}} className="font-bold text-white leading-tight line-clamp-3">{opt}</div>
                                 </div>
                             ))}
                         </div>
@@ -534,93 +1109,60 @@ const IdleMode = ({ pub }) => (
     </div>
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPONENTE PRINCIPALE — PubDisplay
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function PubDisplay() {
     const { pubCode } = useParams();
-    const [data, setData] = useState(null);
-    const [isMuted, setIsMuted] = useState(false);
+    const [data, setData]           = useState(null);
+    const [isMuted, setIsMuted]     = useState(false);
     const [quizResult, setQuizResult] = useState(null);
     const [newReaction, setNewReaction] = useState(null);
 
-    // FIX EMOTICON: Separate channel for reactions to ensure stability
+    // ── Reazioni realtime ────────────────────────────────────────────────────
     useEffect(() => {
         const reactionChannel = supabase.channel('public:reactions')
-            .on('postgres_changes', 
-                { event: 'INSERT', schema: 'public', table: 'reactions' }, 
-                (payload) => {
-                    const reaction = payload.new;
-                    setNewReaction({
-                        emoji: reaction.emoji,
-                        nickname: reaction.nickname || '',
-                        id: reaction.id,
-                        _t: Date.now() 
-                    });
-                }
-            )
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions' }, (payload) => {
+                const reaction = payload.new;
+                setNewReaction({ emoji: reaction.emoji, nickname: reaction.nickname || '', id: reaction.id, _t: Date.now() });
+            })
             .subscribe();
-
-        return () => {
-            supabase.removeChannel(reactionChannel);
-        };
+        return () => { supabase.removeChannel(reactionChannel); };
     }, []);
 
+    // ── Caricamento dati ─────────────────────────────────────────────────────
     const load = useCallback(async () => {
         try {
             const res = await api.getDisplayData(pubCode);
-            if(res.data) {
+            if (res.data) {
                 let finalData = res.data;
                 const q = finalData.active_quiz;
 
-                if(q && q.status === 'showing_results') {
+                if (q && q.status === 'showing_results') {
                     const r = await api.getQuizResults(q.id);
                     setQuizResult(r.data);
                 } else {
                     setQuizResult(null);
                 }
 
-                if(q && q.status === 'leaderboard') {
-                    finalData = {
-                        ...finalData,
-                        active_quiz: {
-                            ...q,
-                            leaderboard: finalData.leaderboard
-                        }
-                    };
+                if (q && q.status === 'leaderboard') {
+                    finalData = { ...finalData, active_quiz: { ...q, leaderboard: finalData.leaderboard } };
                 }
 
                 const arcade = finalData.active_arcade;
-                
-                // 🏆 FIX VINCITORE DEFINITIVO: Rimosso completamente il controllo del tempo
-                // Se il gioco è finito ed esiste un vincitore, mostralo SEMPRE finché non viene chiuso.
                 if (arcade && arcade.status === 'ended' && arcade.winner_id) {
-                     const { data: winner } = await supabase
-                         .from('participants')
-                         .select('id, nickname, avatar_url')
-                         .eq('id', arcade.winner_id)
-                         .single();
-                     
-                     // Fallback se il lookup fallisce
-                     const winnerData = winner || { nickname: 'Vincitore', avatar_url: null };
-                     
-                     finalData = {
-                         ...finalData,
-                         arcade_result: { winner: winnerData }
-                     };
+                    const { data: winner } = await supabase.from('participants').select('id, nickname, avatar_url').eq('id', arcade.winner_id).single();
+                    const winnerData = winner || { nickname: 'Vincitore', avatar_url: null };
+                    finalData = { ...finalData, arcade_result: { winner: winnerData } };
                 }
-
                 if (arcade && arcade.status === 'active') {
                     const { data: allBookings } = await api.getArcadeBookings(arcade.id);
                     const pendingQueue = allBookings?.filter(b => b.status === 'pending').sort((a, b) => a.booking_order - b.booking_order) || [];
                     const recentErrors = allBookings?.filter(b => b.status === 'wrong').sort((a, b) => new Date(b.validated_at) - new Date(a.validated_at));
-                    finalData = {
-                        ...finalData,
-                        active_arcade: {
-                            ...arcade,
-                            booking_queue: pendingQueue,
-                            last_error: recentErrors?.[0] || null
-                        }
-                    };
+                    finalData = { ...finalData, active_arcade: { ...arcade, booking_queue: pendingQueue, last_error: recentErrors?.[0] || null } };
                 }
-                
+
                 setData(finalData);
             }
         } catch(e) { console.error(e); }
@@ -628,15 +1170,29 @@ export default function PubDisplay() {
 
     useEffect(() => {
         load();
-        const int = setInterval(load, 1000); 
-        
+        const int = setInterval(load, 1000);
         const ctrlChannel = supabase.channel('tv_ctrl')
-            .on('broadcast', {event: 'control'}, p => { if(p.payload.command === 'mute') setIsMuted(p.payload.value); })
+            .on('broadcast', {event: 'control'}, p => { if (p.payload.command === 'mute') setIsMuted(p.payload.value); })
             .subscribe();
-            
         return () => { clearInterval(int); supabase.removeChannel(ctrlChannel); };
     }, [pubCode, load]);
 
+    // ── 🎬 MEDIA ORCHESTRATOR ────────────────────────────────────────────────
+    const { overlay, dismissOverlay, triggerManual } = useMediaOrchestrator(data);
+
+    // Ascolta comandi regia per media manuali
+    useEffect(() => {
+        const ctrlMediaChannel = supabase.channel('tv_ctrl_media')
+            .on('broadcast', {event: 'control'}, p => {
+                if (p.payload.command === 'play_media' && triggerManual) {
+                    triggerManual(p.payload.key);
+                }
+            })
+            .subscribe();
+        return () => { supabase.removeChannel(ctrlMediaChannel); };
+    }, [triggerManual]);
+
+    // ── Schermata di caricamento ─────────────────────────────────────────────
     if (!data) return (
         <div className="w-screen h-screen bg-black flex flex-col items-center justify-center">
              <div className="w-20 h-20 border-8 border-fuchsia-600 border-t-transparent rounded-full animate-spin mb-6"></div>
@@ -646,20 +1202,17 @@ export default function PubDisplay() {
 
     const { pub, current_performance: perf, queue, active_quiz: quiz, admin_message, leaderboard, approved_messages, extraction_data } = data;
     const recentMessages = approved_messages ? approved_messages.slice(0, 10) : [];
-    const isQuiz = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
-    
-    // VISIBILITÀ ARCADE: Attivo o risultato (senza scadenza)
+    const isQuiz   = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
     const isArcade = (data.active_arcade && ['active', 'paused'].includes(data.active_arcade.status)) || !!data.arcade_result;
-    
     const isKaraoke = !isQuiz && !isArcade && perf && ['live', 'paused'].includes(perf.status);
-    const isVoting = !isQuiz && !isArcade && perf && perf.status === 'voting';
-    const isScore = !isQuiz && !isArcade && perf && perf.status === 'ended';
-    
+    const isVoting  = !isQuiz && !isArcade && perf && perf.status === 'voting';
+    const isScore   = !isQuiz && !isArcade && perf && perf.status === 'ended';
+
     let Content = null;
-    if (isQuiz) Content = <QuizMode quiz={quiz} result={quizResult} />;
-    else if (isArcade) Content = <ArcadeMode arcade={data.active_arcade || {}} result={data.arcade_result} bookingQueue={data.active_arcade?.booking_queue || []} lastError={data.active_arcade?.last_error} />;
-    else if (isVoting) Content = <VotingMode perf={perf} />;
-    else if (isScore) Content = <ScoreMode perf={perf} />;
+    if (isQuiz)    Content = <QuizMode quiz={quiz} result={quizResult} />;
+    else if (isArcade)  Content = <ArcadeMode arcade={data.active_arcade || {}} result={data.arcade_result} bookingQueue={data.active_arcade?.booking_queue || []} lastError={data.active_arcade?.last_error} />;
+    else if (isVoting)  Content = <VotingMode perf={perf} />;
+    else if (isScore)   Content = <ScoreMode perf={perf} />;
     else if (isKaraoke) Content = <KaraokeMode perf={perf} isMuted={isMuted} />;
     else Content = <IdleMode pub={pub} />;
 
@@ -667,25 +1220,34 @@ export default function PubDisplay() {
         <div className="w-screen h-screen relative bg-black overflow-hidden">
             <style>{STYLES}</style>
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10 pointer-events-none z-0"></div>
-            
-            {/* FIX EMOTICON */}
+
+            {/* REAZIONI FLOTTANTI */}
             <div className="absolute inset-0 z-[9999] pointer-events-none">
                 <FloatingReactions newReaction={newReaction} />
             </div>
 
+            {/* 🎬 MEDIA OVERLAY — sopra tutto, sotto solo le reazioni */}
+            <MediaOverlay overlay={overlay} onDismiss={dismissOverlay} pubData={data} />
+
             <TopBar pubName={pub.name} logoUrl={pub.logo_url} onlineCount={leaderboard?.length || 0} messages={recentMessages} isMuted={isMuted} />
             <AdminMessageOverlay message={admin_message} />
 
+            {/* ESTRAZIONE — parte immediatamente, ExtractionMode gestisce tutto */}
             {extraction_data && (
                 <div className="absolute inset-0 z-[300]">
-                    <ExtractionMode extractionData={extraction_data} participants={leaderboard || []} songs={extraction_data.song ? [extraction_data.song] : []} onComplete={() => api.clearExtraction(pubCode)} />
+                    <ExtractionMode
+                        extractionData={extraction_data}
+                        participants={leaderboard || []}
+                        songs={extraction_data.song ? [extraction_data.song] : []}
+                        onComplete={() => api.clearExtraction(pubCode)}
+                    />
                 </div>
             )}
-            
+
             <div className="dj-content absolute z-10">
                 {Content}
             </div>
-            
+
             <Sidebar pubCode={pubCode} queue={queue} leaderboard={leaderboard} />
         </div>
     );
