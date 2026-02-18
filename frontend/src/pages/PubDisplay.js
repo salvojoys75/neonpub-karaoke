@@ -44,7 +44,6 @@ function useMediaOrchestrator(data) {
   const isFirstDataRef  = useRef(true);
   const overlayActiveRef = useRef(false);
   const sottofondoMutedRef = useRef(false);
-  const sottofondoTimerRef = useRef(null); // debounce prima di avviare
 
   const dismiss = useCallback(() => {
     if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
@@ -131,7 +130,7 @@ function useMediaOrchestrator(data) {
       return;
     }
 
-    // 4. CAMBIO MODULO → transizione
+    // 4. CAMBIO MODULO → transizione audio
     const MODULI = ['quiz', 'arcade', 'karaoke', 'idle'];
     const moduloCambiato =
       prevMode !== null &&
@@ -141,25 +140,16 @@ function useMediaOrchestrator(data) {
       prevMode !== 'score';
     if (moduloCambiato) {
       stopSottofondo();
-      trigger('transizione');
+      trigger('transizione', 3000);
       prevDataRef.current = curr;
       prevModeRef.current = currMode;
       return;
     }
 
-    // 5. IDLE → sottofondo loop (con debounce 3s per evitare flash tra modalità)
+    // 5. IDLE → sottofondo
     if (currMode === 'idle' && !overlayActiveRef.current && !sottofondoMutedRef.current) {
-      if (!sottofondoTimerRef.current) {
-        sottofondoTimerRef.current = setTimeout(() => {
-          sottofondoTimerRef.current = null;
-          if (getActiveMode(prevDataRef.current) === 'idle' && !overlayActiveRef.current && !sottofondoMutedRef.current) {
-            startSottofondo();
-          }
-        }, 3000);
-      }
+      startSottofondo();
     } else if (currMode !== 'idle') {
-      // Attività reale → cancella timer, resetta mute, ferma sottofondo
-      if (sottofondoTimerRef.current) { clearTimeout(sottofondoTimerRef.current); sottofondoTimerRef.current = null; }
       sottofondoMutedRef.current = false;
       stopSottofondo();
     }
@@ -635,11 +625,11 @@ function MediaOverlay({ overlay, onDismiss, pubData }) {
 
   useEffect(() => {
     if (!overlay) return;
-    if (overlay.key === 'estrazione' || overlay.key === 'transizione') {
-      if (videoRef.current) {
-        videoRef.current.currentTime = 0;
-        videoRef.current.play().catch(() => onDismiss());
-      }
+    if (overlay.key === 'transizione') {
+      const a = new Audio('/media/transizione.mp3');
+      a.volume = 0.7;
+      a.play().catch(() => {});
+      audioRef.current = a;
     }
     if (overlay.key === 'applausi') {
       const a = new Audio('/media/applausi.mp3');
@@ -667,14 +657,13 @@ function MediaOverlay({ overlay, onDismiss, pubData }) {
       <>
         <style>{MEDIA_OVERLAY_STYLES}</style>
         <div
-          className="fixed inset-0 z-[9000] pointer-events-none flex items-center justify-center"
+          className="fixed inset-0 z-[50] pointer-events-none"
           style={{
-            background: 'radial-gradient(ellipse at center, rgba(217,70,239,0.15) 0%, transparent 70%)',
             animation: 'celebrationFadeInOut 7s ease forwards',
           }}
         >
-          {/* Coriandoli */}
-          {Array.from({ length: 40 }).map((_, i) => (
+          {/* Solo coriandoli — niente testo che copre il punteggio */}
+          {Array.from({ length: 60 }).map((_, i) => (
             <div
               key={i}
               style={{
@@ -689,29 +678,6 @@ function MediaOverlay({ overlay, onDismiss, pubData }) {
               }}
             />
           ))}
-
-          {/* Testo centrale */}
-          <div style={{ animation: 'celebrationPop 0.6s ease forwards', textAlign: 'center' }}>
-            <div style={{
-              fontSize: 'clamp(5rem, 14vw, 11rem)',
-              lineHeight: 1,
-              filter: 'drop-shadow(0 0 60px rgba(217,70,239,0.9))',
-            }}>
-              👏
-            </div>
-            <div style={{
-              fontFamily: "'Montserrat', sans-serif",
-              fontSize: 'clamp(1.8rem, 4.5vw, 4rem)',
-              fontWeight: 900,
-              color: '#fff',
-              textShadow: '0 0 50px rgba(217,70,239,1)',
-              letterSpacing: '0.2em',
-              textTransform: 'uppercase',
-              marginTop: '1.2rem',
-            }}>
-              Ottima esibizione!
-            </div>
-          </div>
         </div>
       </>
     );
@@ -988,7 +954,8 @@ const VotingMode = ({ perf }) => (
     </div>
 );
 
-const ScoreMode = ({ perf }) => (
+const ScoreMode = ({ perf }) => {
+    return (
     <div className="w-full h-full flex flex-col items-center justify-center animated-bg p-8">
         <div className="bg-yellow-400/10 blur-[250px] w-[900px] h-[900px] absolute rounded-full animate-pulse"></div>
         <div className="text-center relative z-10">
@@ -1009,7 +976,8 @@ const ScoreMode = ({ perf }) => (
             </div>
         </div>
     </div>
-);
+    );
+};
 
 const QuizMode = ({ quiz, result }) => {
     const getYtId = (url) => {
