@@ -824,11 +824,11 @@ const Sidebar = ({ pubCode, queue, leaderboard }) => (
           <div className="bg-gradient-to-r from-fuchsia-600 to-purple-600 px-4 py-3 flex items-center justify-between border-b border-white/10">
               <div className="flex items-center gap-2">
                   <Disc className="w-[2vh] h-[2vh] text-white animate-spin" style={{animationDuration: '3s'}} />
-                  <span className="font-black text-white text-[1.8vh] uppercase tracking-wider">Coda</span>
+                  <span className="font-black text-white text-[1.8vh] uppercase tracking-wider">Prossimo</span>
               </div>
-              <div className="bg-white/20 px-3 py-1 rounded-full">
-                  <span className="text-white font-bold text-[1.4vh]">{queue?.length || 0}</span>
-              </div>
+              {queue && queue.length > 0 && (
+                  <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              )}
           </div>
           <div className="p-3">
               {queue && queue.length > 0 ? (

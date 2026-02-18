@@ -41,7 +41,7 @@ export const getDisplayData = async (pubCode) => {
 
   const [perf, queue, lb, activeQuiz, adminMsg, approvedMsgs, activeArcade] = await Promise.all([
     supabase.from('performances').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).in('status', ['live','voting','paused','ended']).order('started_at', {ascending: false}).limit(1).maybeSingle(),
-    supabase.from('song_requests').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).eq('status', 'queued').order('position', {ascending: true}).limit(10), 
+    supabase.from('song_requests').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).eq('status', 'queued').order('position', {ascending: true}).limit(1), 
     supabase.from('participants').select('nickname, score, avatar_url').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
     supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
     supabase.from('messages').select('*').eq('event_id', event.id).is('participant_id', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle(),
@@ -766,7 +766,7 @@ export const extractRandomKaraoke = async (options = {}) => {
       if (!songs || songs.length === 0) throw new Error('Nessuna canzone nel pool.')
       song = songs[Math.floor(Math.random() * songs.length)]
     }
-    const { data: request, error: reqError } = await supabase.from('song_requests').insert({ event_id: event.id, participant_id: participant.id, title: song.title, artist: song.artist, status: 'queued' }).select('*, participants(nickname, avatar_url)').single()
+    const { data: request, error: reqError } = await supabase.from('song_requests').insert({ event_id: event.id, participant_id: participant.id, title: song.title, artist: song.artist, status: 'hidden' }).select('*, participants(nickname, avatar_url)').single()
     if (reqError) throw reqError
     const extractionData = { participant: { id: participant.id, nickname: participant.nickname, avatar_url: participant.avatar_url }, song: { id: song.id, title: song.title, artist: song.artist }, timestamp: new Date().toISOString() }
     await supabase.from('events').update({ extraction_data: extractionData }).eq('id', event.id)
@@ -775,11 +775,27 @@ export const extractRandomKaraoke = async (options = {}) => {
 }
 
 export const clearExtraction = async (pubCode) => {
+  const { data: event, error: evErr } = await supabase
+    .from('events')
+    .select('id, extraction_data')
+    .eq('code', pubCode.toUpperCase())
+    .single()
+  if (evErr) throw evErr
+
+  // Rendi visibile la canzone estratta (da hidden → queued)
+  if (event.extraction_data?.song) {
+    await supabase
+      .from('song_requests')
+      .update({ status: 'queued' })
+      .eq('event_id', event.id)
+      .eq('status', 'hidden')
+  }
+
   const { error } = await supabase
     .from('events')
     .update({ extraction_data: null })
-    .eq('code', pubCode.toUpperCase())
-  
+    .eq('id', event.id)
+
   if (error) throw error
   return { data: 'ok' }
 }
