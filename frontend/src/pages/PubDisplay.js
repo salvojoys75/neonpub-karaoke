@@ -77,6 +77,12 @@ function useMediaOrchestrator(data) {
     }, 80);
   }, []);
 
+  const stopSottofondoImmediate = useCallback(() => {
+    if (!subfontoRef.current) return;
+    subfontoRef.current.pause();
+    subfontoRef.current = null;
+  }, []);
+
   useEffect(() => {
     if (!data) return;
     const curr     = data;
@@ -150,9 +156,9 @@ function useMediaOrchestrator(data) {
 
   // triggerManual: usato dalla regia per lanciare effetti a mano
   const triggerManual = useCallback((key) => {
-    stopSottofondo();
+    stopSottofondoImmediate(); // stop immediato, niente fade
     trigger(key, key === 'applausi' ? 7000 : null);
-  }, [trigger, stopSottofondo]);
+  }, [trigger, stopSottofondoImmediate]);
 
   return { overlay, dismissOverlay: dismiss, triggerManual };
 }
