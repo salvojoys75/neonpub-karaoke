@@ -842,15 +842,112 @@ export const loadQuizModule = async (moduleId) => {
     }
     return { success: true, count: questions.length };
 }
-export const getSongCatalog = async () => ({ data: [] });
-export const getSongCatalogMoods = async () => ({ data: [] });
-export const getSongCatalogGenres = async () => ({ data: [] });
-export const addSongToCatalog = async () => {};
-export const updateSongInCatalog = async () => {};
-export const deleteSongFromCatalog = async () => {};
-export const importSongsToCatalog = async () => {};
-export const addCatalogSongToPool = async () => {};
-export const addCatalogCategoryToPool = async () => {};
+export const getSongCatalog = async ({ mood = null, genre = null } = {}) => {
+  let query = supabase.from('song_catalog').select('*').eq('is_active', true).order('title');
+  if (mood) query = query.eq('mood', mood);
+  if (genre) query = query.eq('genre', genre);
+  const { data, error } = await query;
+  if (error) throw error;
+  return { data: data || [] };
+};
+
+export const getSongCatalogMoods = async () => {
+  const { data, error } = await supabase.from('song_catalog').select('mood').eq('is_active', true).not('mood', 'is', null);
+  if (error) throw error;
+  const moods = [...new Set(data.map(r => r.mood).filter(Boolean))].sort();
+  return { data: moods };
+};
+
+export const getSongCatalogGenres = async () => {
+  const { data, error } = await supabase.from('song_catalog').select('genre').eq('is_active', true).not('genre', 'is', null);
+  if (error) throw error;
+  const genres = [...new Set(data.map(r => r.genre).filter(Boolean))].sort();
+  return { data: genres };
+};
+
+export const addSongToCatalog = async (songData) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data, error } = await supabase.from('song_catalog').insert({
+    title: songData.title, artist: songData.artist, youtube_url: songData.youtube_url,
+    genre: songData.genre || null, mood: songData.mood || null,
+    decade: songData.decade || null, difficulty: songData.difficulty || 'facile',
+    is_active: true, created_by: user.id
+  }).select().single();
+  if (error) throw error;
+  return { data };
+};
+
+export const updateSongInCatalog = async (id, songData) => {
+  const { error } = await supabase.from('song_catalog').update({
+    title: songData.title, artist: songData.artist, youtube_url: songData.youtube_url,
+    genre: songData.genre || null, mood: songData.mood || null,
+    decade: songData.decade || null, difficulty: songData.difficulty || 'facile'
+  }).eq('id', id);
+  if (error) throw error;
+  return { data: 'ok' };
+};
+
+export const deleteSongFromCatalog = async (id) => {
+  const { error } = await supabase.from('song_catalog').update({ is_active: false }).eq('id', id);
+  if (error) throw error;
+  return { data: 'ok' };
+};
+
+export const importSongsToCatalog = async (songsArray) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!Array.isArray(songsArray)) throw new Error('Formato non valido: serve un array');
+  let count = 0; let skipped = 0;
+  for (const song of songsArray) {
+    if (!song.title || !song.artist) { skipped++; continue; }
+    const { data: existing } = await supabase.from('song_catalog')
+      .select('id').eq('title', song.title).eq('artist', song.artist).maybeSingle();
+    if (existing) { skipped++; continue; }
+    const { error } = await supabase.from('song_catalog').insert({
+      title: song.title, artist: song.artist, youtube_url: song.youtube_url || null,
+      genre: song.genre || null, mood: song.mood || null,
+      decade: song.decade || null, difficulty: song.difficulty || 'facile',
+      is_active: true, created_by: user.id
+    });
+    if (!error) count++;
+  }
+  return { count, skipped };
+};
+
+export const addCatalogSongToPool = async (song) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data: existing } = await supabase.from('random_song_pool')
+    .select('id').eq('operator_id', user.id).eq('title', song.title).eq('artist', song.artist).maybeSingle();
+  if (existing) return { already_exists: true };
+  const { error } = await supabase.from('random_song_pool').insert({
+    operator_id: user.id, title: song.title, artist: song.artist,
+    youtube_url: song.youtube_url || null, genre: song.genre || null,
+    decade: song.decade || null, difficulty: song.difficulty || null, is_active: true
+  });
+  if (error) throw error;
+  return { already_exists: false };
+};
+
+export const addCatalogCategoryToPool = async ({ mood = null, genre = null }) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  let query = supabase.from('song_catalog').select('*').eq('is_active', true);
+  if (mood) query = query.eq('mood', mood);
+  if (genre) query = query.eq('genre', genre);
+  const { data: songs, error } = await query;
+  if (error) throw error;
+  let count = 0; let skipped = 0;
+  for (const song of (songs || [])) {
+    const { data: existing } = await supabase.from('random_song_pool')
+      .select('id').eq('operator_id', user.id).eq('title', song.title).eq('artist', song.artist).maybeSingle();
+    if (existing) { skipped++; continue; }
+    const { error: insErr } = await supabase.from('random_song_pool').insert({
+      operator_id: user.id, title: song.title, artist: song.artist,
+      youtube_url: song.youtube_url || null, genre: song.genre || null,
+      decade: song.decade || null, difficulty: song.difficulty || null, is_active: true
+    });
+    if (!insErr) count++;
+  }
+  return { count, skipped };
+};
 
 export default {
     getDisplayData, sendReaction, getActiveArcadeGame, createPub, updateEventSettings, uploadLogo, getPub, joinPub, uploadAvatar, adminLogin, getMe,
