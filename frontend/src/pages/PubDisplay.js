@@ -44,7 +44,8 @@ function useMediaOrchestrator(data) {
   const isFirstDataRef  = useRef(true);
   const overlayActiveRef = useRef(false);
   const manualStopRef  = useRef(false);
-  const hadRealActivityRef = useRef(false); // traccia se c'è stata attività reale
+  const hadRealActivityRef = useRef(false);
+  const manualStopTimerRef = useRef(null); // reset automatico dopo 30s
 
   const dismiss = useCallback(() => {
     if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
@@ -147,15 +148,15 @@ function useMediaOrchestrator(data) {
       return;
     }
 
-    // Traccia se c'è stata attività reale
+    // Tieni traccia dell'ultimo modo non-idle
     if (currMode !== 'idle') hadRealActivityRef.current = true;
 
     // 5. IDLE → sottofondo loop
     if (currMode === 'idle') {
-      // Se c'è stata attività reale e ora siamo in idle → reset stop manuale
-      if (hadRealActivityRef.current && manualStopRef.current) {
-        manualStopRef.current = false;
+      // Se c'era attività reale prima → reset flag manuale e riparti
+      if (hadRealActivityRef.current) {
         hadRealActivityRef.current = false;
+        manualStopRef.current = false;
       }
       if (!overlayActiveRef.current && !manualStopRef.current) startSottofondo();
     } else {
@@ -176,8 +177,13 @@ function useMediaOrchestrator(data) {
   // triggerManual: usato dalla regia per lanciare effetti a mano
   const triggerManual = useCallback((key) => {
     if (key === 'stop_sottofondo') {
-      manualStopRef.current = true; // blocca riavvio automatico
+      manualStopRef.current = true;
       stopSottofondoImmediate();
+      // Reset automatico dopo 30 minuti (fine quiz tipicamente entro allora)
+      if (manualStopTimerRef.current) clearTimeout(manualStopTimerRef.current);
+      manualStopTimerRef.current = setTimeout(() => {
+        manualStopRef.current = false;
+      }, 30 * 60 * 1000);
       return;
     }
     stopSottofondoImmediate();
