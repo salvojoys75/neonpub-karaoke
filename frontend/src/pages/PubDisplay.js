@@ -309,7 +309,6 @@ const QuizMode = ({ quiz, result }) => {
     // Helper function moved here to be used in renders
     const getYtId = (url) => {
         if (!url) return null;
-        // Regex robusta per supportare tutti i formati YouTube (shorts, share, embed, watch)
         const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
         const match = url.match(regExp);
         return (match && match[2].length === 11) ? match[2] : null;
@@ -589,24 +588,23 @@ export default function PubDisplay() {
                 }
 
                 const arcade = finalData.active_arcade;
+                
+                // 🏆 FIX VINCITORE DEFINITIVO: Rimosso completamente il controllo del tempo
+                // Se il gioco è finito ed esiste un vincitore, mostralo SEMPRE finché non viene chiuso.
                 if (arcade && arcade.status === 'ended' && arcade.winner_id) {
-                     const endedAt = new Date(arcade.ended_at);
-                     const now = new Date();
-                     // Calcolo differenza in secondi
-                     const secondsAgo = (now.getTime() - endedAt.getTime()) / 1000;
-
-                     // FIX VINCITORE: Aumentiamo timeout a 5 minuti (300s) e gestiamo clock skew
-                     if (secondsAgo < 300 && secondsAgo > -300) {
-                         const { data: winner } = await supabase
-                             .from('participants')
-                             .select('id, nickname, avatar_url')
-                             .eq('id', arcade.winner_id)
-                             .single();
-                         finalData = {
-                             ...finalData,
-                             arcade_result: { winner }
-                         };
-                     }
+                     const { data: winner } = await supabase
+                         .from('participants')
+                         .select('id, nickname, avatar_url')
+                         .eq('id', arcade.winner_id)
+                         .single();
+                     
+                     // Fallback se il lookup fallisce
+                     const winnerData = winner || { nickname: 'Vincitore', avatar_url: null };
+                     
+                     finalData = {
+                         ...finalData,
+                         arcade_result: { winner: winnerData }
+                     };
                 }
 
                 if (arcade && arcade.status === 'active') {
@@ -649,7 +647,10 @@ export default function PubDisplay() {
     const { pub, current_performance: perf, queue, active_quiz: quiz, admin_message, leaderboard, approved_messages, extraction_data } = data;
     const recentMessages = approved_messages ? approved_messages.slice(0, 10) : [];
     const isQuiz = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
+    
+    // VISIBILITÀ ARCADE: Attivo o risultato (senza scadenza)
     const isArcade = (data.active_arcade && ['active', 'paused'].includes(data.active_arcade.status)) || !!data.arcade_result;
+    
     const isKaraoke = !isQuiz && !isArcade && perf && ['live', 'paused'].includes(perf.status);
     const isVoting = !isQuiz && !isArcade && perf && perf.status === 'voting';
     const isScore = !isQuiz && !isArcade && perf && perf.status === 'ended';
