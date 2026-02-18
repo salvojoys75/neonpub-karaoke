@@ -94,12 +94,14 @@ const HiddenSpotifyPlayer = ({ trackUrl, isPlaying }) => {
   );
 };
 
-// ID dell'ultimo errore già mostrato — fuori dal componente per sopravvivere ai re-mount
-let _lastShownErrorId = null;
+// Variabile modulo: sopravvive ai re-mount ma NON ai refresh di pagina.
+// Tiene traccia dell'ultimo errore già mostrato sul display.
+let _shownErrorId = null;
 
 const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => {
   const prevBookingCountRef = useRef(0);
   const [showError, setShowError] = useState(false);
+  const [errorData, setErrorData] = useState(null); // snapshot dell'errore da mostrare
 
   // GESTIONE SUONI PRENOTAZIONE
   useEffect(() => {
@@ -113,29 +115,26 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
     }
   }, [bookingQueue]);
 
-  // GESTIONE ERRORE (SBAGLIATO) - finestra 10 secondi
+  // GESTIONE ERRORE (SBAGLIATO)
+  // Non usiamo il check temporale — troppo fragile con polling + latenza DB.
+  // Ci basta confrontare l'ID: se è nuovo, mostralo sempre.
   useEffect(() => {
-    if (!lastError || !lastError.id) return;
-    if (lastError.id === _lastShownErrorId) return;
+    if (!lastError?.id) return;
+    if (lastError.id === _shownErrorId) return; // già mostrato, ignora
 
-    // Controlla che l'errore sia recente (entro 10 secondi)
-    const errorTime = new Date(lastError.validated_at).getTime();
-    const now = Date.now();
+    _shownErrorId = lastError.id;
+    setErrorData(lastError); // snapshot per evitare che sparisca durante l'overlay
+    setShowError(true);
 
-    if (now - errorTime < 10000) {
-      _lastShownErrorId = lastError.id;
-      setShowError(true);
+    ERROR_SOUND.currentTime = 0;
+    ERROR_SOUND.play().catch(e => console.log('Error sound failed:', e));
 
-      ERROR_SOUND.currentTime = 0;
-      ERROR_SOUND.play().catch(e => console.log('Error sound failed:', e));
+    const timer = setTimeout(() => {
+      setShowError(false);
+    }, 3000);
 
-      const timer = setTimeout(() => {
-        setShowError(false);
-      }, 3000);
-
-      return () => clearTimeout(timer);
-    }
-  }, [lastError?.id]); // dipende solo dall'ID, non dall'intero oggetto
+    return () => clearTimeout(timer);
+  }, [lastError?.id]); // dipende SOLO dall'id, non dall'intero oggetto che cambia ogni poll
 
   // ✅ VINCITORE
   if (result && result.winner) {
@@ -193,13 +192,13 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
       </div>
 
       {/* OVERLAY ERRORE (Durata 3 secondi) */}
-      {showError && lastError && (
+      {showError && errorData && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-red-900/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-red-600/90 backdrop-blur-xl px-16 py-10 rounded-[3rem] border-4 border-red-400 shadow-[0_0_100px_rgba(239,68,68,0.9)] shake-animation text-center">
             <XCircle className="w-32 h-32 text-white mx-auto mb-4 pulse-red-animation" />
             <div className="text-6xl font-black text-white mb-2 uppercase drop-shadow-lg">❌ SBAGLIATO!</div>
             <div className="text-3xl text-red-100 font-bold bg-black/20 px-6 py-2 rounded-full inline-block">
-               {lastError.participants?.nickname}
+               {errorData.participants?.nickname}
             </div>
           </div>
         </div>
