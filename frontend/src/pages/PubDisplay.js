@@ -148,8 +148,11 @@ function useMediaOrchestrator(data) {
 
     // 5. IDLE → sottofondo loop (solo se nessun overlay attivo e nessuno stop manuale)
     if (currMode === 'idle' && !overlayActiveRef.current && !manualStopRef.current) startSottofondo();
-    else if (currMode !== 'idle') {
-      manualStopRef.current = false; // reset quando esce dall'idle
+    else if (currMode === 'idle' && manualStopRef.current && prevMode !== 'idle') {
+      // tornati in idle dopo un'attività reale → reset flag e riavvia
+      manualStopRef.current = false;
+      startSottofondo();
+    } else if (currMode !== 'idle') {
       stopSottofondo();
     }
 
