@@ -1373,7 +1373,6 @@ export default function PubDisplay() {
         </div>
     );
 
-    const { pub, current_performance: perf, queue, active_quiz: quiz, admin_message, leaderboard, approved_messages, extraction_data } = data;
     const recentMessages = approved_messages ? approved_messages.slice(0, 10) : [];
     const isQuiz   = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
     const isArcade = (data.active_arcade && ['active', 'paused'].includes(data.active_arcade.status)) || !!data.arcade_result;
