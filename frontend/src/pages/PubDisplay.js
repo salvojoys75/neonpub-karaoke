@@ -124,13 +124,14 @@ function useMediaOrchestrator(data) {
       return;
     }
 
-    // 3. FINE ESIBIZIONE → applausi
+    // 3. FINE ESIBIZIONE → applausi solo se c'è stato voto reale
     const prevPerf = prev?.current_performance;
     const currPerf = curr.current_performance;
     const perfFinita =
       prevPerf &&
       !['ended'].includes(prevPerf.status) &&
-      currPerf?.status === 'ended';
+      currPerf?.status === 'ended' &&
+      currPerf?.average_score > 0; // skip non ha punteggio
     if (perfFinita) {
       stopSottofondo();
       trigger('applausi', 7000);
@@ -1392,7 +1393,7 @@ export default function PubDisplay() {
     const isArcade = (data.active_arcade && ['active', 'paused'].includes(data.active_arcade.status)) || !!data.arcade_result;
     const isKaraoke = !isQuiz && !isArcade && perf && ['live', 'paused'].includes(perf.status);
     const isVoting  = !isQuiz && !isArcade && perf && perf.status === 'voting';
-    const isScore   = !isQuiz && !isArcade && perf && perf.status === 'ended';
+    const isScore   = !isQuiz && !isArcade && perf && perf.status === 'ended' && perf.average_score > 0;
 
     let Content = null;
     if (isQuiz)    Content = <QuizMode quiz={quiz} result={quizResult} />;
