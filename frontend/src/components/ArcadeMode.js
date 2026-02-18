@@ -97,7 +97,9 @@ const HiddenSpotifyPlayer = ({ trackUrl, isPlaying }) => {
 const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => {
   const prevBookingCountRef = useRef(0);
   const [showError, setShowError] = useState(false);
+  const processedErrorIdRef = useRef(null); // Per non mostrare due volte lo stesso errore
 
+  // GESTIONE SUONI PRENOTAZIONE
   useEffect(() => {
     if (bookingQueue.length > prevBookingCountRef.current) {
       prevBookingCountRef.current = bookingQueue.length;
@@ -109,17 +111,34 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
     }
   }, [bookingQueue]);
 
+  // GESTIONE ERRORE (SBAGLIATO) - FIX 3 SECONDI
   useEffect(() => {
-    if (lastError) {
-      setShowError(true);
-      ERROR_SOUND.currentTime = 0;
-      ERROR_SOUND.play().catch(e => console.log('Error sound failed:', e));
-      const timer = setTimeout(() => setShowError(false), 3000);
-      return () => clearTimeout(timer);
+    if (lastError && lastError.id !== processedErrorIdRef.current) {
+      
+      // Controllo TEMPORALE: Se l'errore è vecchio di oltre 5 secondi, ignoralo
+      // (Evita che appaia appena si ricarica la pagina)
+      const errorTime = new Date(lastError.validated_at).getTime();
+      const now = Date.now();
+      
+      // Se l'errore è avvenuto negli ultimi 5 secondi, mostralo
+      if (now - errorTime < 5000) {
+          processedErrorIdRef.current = lastError.id;
+          setShowError(true);
+          
+          ERROR_SOUND.currentTime = 0;
+          ERROR_SOUND.play().catch(e => console.log('Error sound failed:', e));
+          
+          // Nascondi tassativamente dopo 3 secondi
+          const timer = setTimeout(() => {
+              setShowError(false);
+          }, 3000);
+          
+          return () => clearTimeout(timer);
+      }
     }
   }, [lastError]);
 
-  // ✅ FIX: VINCITORE - Controlla result.winner
+  // ✅ VINCITORE
   if (result && result.winner) {
     return (
       <div className="w-full h-full flex flex-col bg-gradient-to-br from-green-900 via-black to-black relative overflow-hidden">
@@ -174,15 +193,14 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
         <div className="absolute bottom-1/4 right-1/4 w-[500px] h-[500px] bg-purple-600/15 rounded-full blur-[180px] animate-pulse" style={{animationDelay:'1s'}}></div>
       </div>
 
+      {/* OVERLAY ERRORE (Durata 3 secondi) */}
       {showError && lastError && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-red-900/40 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-red-600/90 backdrop-blur-xl px-16 py-8 rounded-[3rem] border-4 border-red-400 shadow-[0_0_100px_rgba(239,68,68,0.8)] shake-animation">
-            <div className="flex items-center gap-6">
-              <XCircle className="w-24 h-24 text-white pulse-red-animation" />
-              <div>
-                <div className="text-4xl font-black text-white mb-2">❌ SBAGLIATO!</div>
-                <div className="text-2xl text-red-100">{lastError.participants?.nickname}</div>
-              </div>
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-red-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-red-600/90 backdrop-blur-xl px-16 py-10 rounded-[3rem] border-4 border-red-400 shadow-[0_0_100px_rgba(239,68,68,0.9)] shake-animation text-center">
+            <XCircle className="w-32 h-32 text-white mx-auto mb-4 pulse-red-animation" />
+            <div className="text-6xl font-black text-white mb-2 uppercase drop-shadow-lg">❌ SBAGLIATO!</div>
+            <div className="text-3xl text-red-100 font-bold bg-black/20 px-6 py-2 rounded-full inline-block">
+               {lastError.participants?.nickname}
             </div>
           </div>
         </div>
