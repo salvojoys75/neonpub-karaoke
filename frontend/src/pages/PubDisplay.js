@@ -43,7 +43,8 @@ function useMediaOrchestrator(data) {
   const dismissTimerRef = useRef(null);
   const isFirstDataRef  = useRef(true);
   const overlayActiveRef = useRef(false);
-  const sottofondoMutedRef = useRef(false); // mute manuale, si resetta quando esce dall'idle
+  const sottofondoMutedRef = useRef(false);
+  const sottofondoTimerRef = useRef(null); // debounce prima di avviare
 
   const dismiss = useCallback(() => {
     if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
@@ -146,11 +147,20 @@ function useMediaOrchestrator(data) {
       return;
     }
 
-    // 5. IDLE → sottofondo loop
+    // 5. IDLE → sottofondo loop (con debounce 3s per evitare flash tra modalità)
     if (currMode === 'idle' && !overlayActiveRef.current && !sottofondoMutedRef.current) {
-      startSottofondo();
+      if (!sottofondoTimerRef.current) {
+        sottofondoTimerRef.current = setTimeout(() => {
+          sottofondoTimerRef.current = null;
+          if (getActiveMode(prevDataRef.current) === 'idle' && !overlayActiveRef.current && !sottofondoMutedRef.current) {
+            startSottofondo();
+          }
+        }, 3000);
+      }
     } else if (currMode !== 'idle') {
-      sottofondoMutedRef.current = false; // reset mute quando parte un'attività reale
+      // Attività reale → cancella timer, resetta mute, ferma sottofondo
+      if (sottofondoTimerRef.current) { clearTimeout(sottofondoTimerRef.current); sottofondoTimerRef.current = null; }
+      sottofondoMutedRef.current = false;
       stopSottofondo();
     }
 
