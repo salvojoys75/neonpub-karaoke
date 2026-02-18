@@ -1954,13 +1954,17 @@ export default function AdminDashboard() {
                                className="w-full bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 font-bold h-11"
                                onClick={async () => {
                                    try {
-                                       await supabase.channel('tv_ctrl').send({
+                                       console.log('🎬 Invio comando sigla su tv_ctrl...');
+                                       const ch = supabase.channel('tv_ctrl');
+                                       await ch.send({
                                            type: 'broadcast',
                                            event: 'control',
                                            payload: { command: 'play_media', key: 'sigla' }
                                        });
+                                       console.log('✅ Comando sigla inviato');
                                        toast.success('🎬 Sigla lanciata sul display!');
                                    } catch(e) {
+                                       console.error('❌ Errore:', e);
                                        toast.error('Errore invio comando');
                                    }
                                }}

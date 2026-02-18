@@ -1238,30 +1238,29 @@ export default function PubDisplay() {
         } catch(e) { console.error(e); }
     }, [pubCode]);
 
+    // ── 🎬 MEDIA ORCHESTRATOR ────────────────────────────────────────────────
+    const { overlay, dismissOverlay, triggerManual } = useMediaOrchestrator(data);
+    const triggerManualRef = useRef(triggerManual);
+    useEffect(() => { triggerManualRef.current = triggerManual; }, [triggerManual]);
+
     useEffect(() => {
         load();
         const int = setInterval(load, 1000);
         const ctrlChannel = supabase.channel('tv_ctrl')
-            .on('broadcast', {event: 'control'}, p => { if (p.payload.command === 'mute') setIsMuted(p.payload.value); })
-            .subscribe();
-        return () => { clearInterval(int); supabase.removeChannel(ctrlChannel); };
-    }, [pubCode, load]);
-
-    // ── 🎬 MEDIA ORCHESTRATOR ────────────────────────────────────────────────
-    const { overlay, dismissOverlay, triggerManual } = useMediaOrchestrator(data);
-
-    // Ascolta comandi regia per media manuali
-    useEffect(() => {
-        const ctrlMediaChannel = supabase.channel('tv_ctrl_media')
             .on('broadcast', {event: 'control'}, p => {
-                if (p.payload.command === 'play_media' && triggerManual) {
-                    setStandby(false); // esci dallo standby quando arriva un comando regia
-                    triggerManual(p.payload.key);
+                console.log('📡 tv_ctrl ricevuto:', p.payload);
+                if (p.payload.command === 'mute') setIsMuted(p.payload.value);
+                if (p.payload.command === 'play_media') {
+                    console.log('🎬 play_media:', p.payload.key);
+                    setStandby(false);
+                    triggerManualRef.current?.(p.payload.key);
                 }
             })
-            .subscribe();
-        return () => { supabase.removeChannel(ctrlMediaChannel); };
-    }, [triggerManual]);
+            .subscribe((status) => {
+                console.log('📡 tv_ctrl status:', status);
+            });
+        return () => { clearInterval(int); supabase.removeChannel(ctrlChannel); };
+    }, [pubCode, load]);
 
     // Esci dallo standby automaticamente quando parte un'attività reale
     useEffect(() => {
