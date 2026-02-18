@@ -105,11 +105,20 @@ function useMediaOrchestrator(data) {
       return;
     }
 
-    // 2. ESTRAZIONE — ExtractionMode gestisce tutto da solo, nessun video necessario
-    // (il componente ha già countdown, drumroll, reveal e celebration integrati)
+    // 2. ESTRAZIONE — ExtractionMode gestisce tutto da solo
     const extractionAppeared = !prev?.extraction_data && curr.extraction_data;
     if (extractionAppeared) {
-      stopSottofondo(); // ferma musica di sottofondo durante l'estrazione
+      stopSottofondo();
+      prevDataRef.current = curr;
+      prevModeRef.current = currMode;
+      return;
+    }
+
+    // 2b. VINCITORE ARCADE → applausi
+    const arcadeWinnerAppeared = !prev?.arcade_result && curr.arcade_result;
+    if (arcadeWinnerAppeared) {
+      stopSottofondo();
+      trigger('applausi', 7000);
       prevDataRef.current = curr;
       prevModeRef.current = currMode;
       return;
@@ -616,6 +625,15 @@ function MediaOverlay({ overlay, onDismiss, pubData }) {
       a.volume = 0.85;
       a.play().catch(() => {});
       audioRef.current = a;
+      // Fade out negli ultimi 2 secondi (applausi dura 7s)
+      setTimeout(() => {
+        if (!audioRef.current) return;
+        const fadeOut = setInterval(() => {
+          if (!audioRef.current) { clearInterval(fadeOut); return; }
+          audioRef.current.volume = Math.max(0, audioRef.current.volume - 0.07);
+          if (audioRef.current.volume <= 0) { clearInterval(fadeOut); }
+        }, 100);
+      }, 5000);
     }
     return () => {
       if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
@@ -842,7 +860,7 @@ const Sidebar = ({ pubCode, queue, leaderboard }) => (
                   <span className="font-black text-white text-xl uppercase tracking-wider">Classifica</span>
               </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-thin scrollbar-thumb-yellow-500 scrollbar-track-transparent">
+          <div className="p-4 space-y-2">
               {leaderboard && leaderboard.length > 0 ? (
                   leaderboard.slice(0, 10).map((player, i) => (
                       <div key={player.id || i} className={`flex items-center gap-3 p-3 rounded-xl ${
