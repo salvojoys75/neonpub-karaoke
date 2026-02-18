@@ -762,7 +762,7 @@ export const extractRandomKaraoke = async (options = {}) => {
       if (!songs || songs.length === 0) throw new Error('Nessuna canzone nel pool.')
       song = songs[Math.floor(Math.random() * songs.length)]
     }
-    const { data: request, error: reqError } = await supabase.from('song_requests').insert({ event_id: event.id, participant_id: participant.id, title: song.title, artist: song.artist, status: 'hidden' }).select('*, participants(nickname, avatar_url)').single()
+    const { data: request, error: reqError } = await supabase.from('song_requests').insert({ event_id: event.id, participant_id: participant.id, title: song.title, artist: song.artist, status: 'approved' }).select('*, participants(nickname, avatar_url)').single()
     if (reqError) throw reqError
     const extractionData = { participant: { id: participant.id, nickname: participant.nickname, avatar_url: participant.avatar_url }, song: { id: song.id, title: song.title, artist: song.artist }, timestamp: new Date().toISOString() }
     await supabase.from('events').update({ extraction_data: extractionData }).eq('id', event.id)
@@ -778,13 +778,13 @@ export const clearExtraction = async (pubCode) => {
     .single()
   if (evErr) throw evErr
 
-  // Rendi visibile la canzone estratta (da hidden → queued)
+  // Rendi visibile la canzone estratta (da approved → queued)
   if (event.extraction_data?.song) {
     await supabase
       .from('song_requests')
       .update({ status: 'queued' })
       .eq('event_id', event.id)
-      .eq('status', 'hidden')
+      .eq('status', 'approved')
   }
 
   const { error } = await supabase
