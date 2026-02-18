@@ -16,7 +16,8 @@ import * as api from '@/lib/api';
 
 export default function ArcadePanel({
   quizCatalog = [],
-  onRefresh
+  onRefresh,
+  onArcadeEnd
 }) {
   const [activeGame, setActiveGame] = useState(null);
   const [bookings, setBookings] = useState([]);
@@ -191,24 +192,24 @@ export default function ArcadePanel({
     try {
       await api.endArcadeGame(activeGame.id);
       toast.info('🛑 Gioco terminato');
-      
       setActiveGame(null); 
       setBookings([]);
       setCurrentBooking(null);
       setIsPlayerVisible(true);
       setNewBookingAlert(false);
       prevBookingIdRef.current = null;
+      if (onArcadeEnd) onArcadeEnd();
     } catch (error) { toast.error('Errore: ' + error.message); }
   };
 
   // ✅ FIX DEFINITIVO: Archivia il gioco nel DB per nasconderlo dal Display
   const handleCloseEndedGame = async () => {
       if (activeGame?.id) {
-          // 1. Ignoralo subito localmente per feedback istantaneo
           ignoredGamesRef.current.add(activeGame.id);
           setActiveGame(null);
           setBookings([]);
           setCurrentBooking(null);
+          if (onArcadeEnd) onArcadeEnd();
 
           try {
               // 2. Aggiorna il DB: status 'archived' fa sparire il gioco dal Display
@@ -417,7 +418,10 @@ export default function ArcadePanel({
                   filteredTracks.map((track) => (
                     <button
                       key={track.id}
-                      onClick={() => setSelectedTrack(track)}
+                      onClick={() => {
+                        setSelectedTrack(track);
+                        supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'stop_sottofondo' } }).catch(() => {});
+                      }}
                       className={`w-full text-left p-2 rounded text-sm transition-all ${
                         selectedTrack?.id === track.id
                           ? 'bg-fuchsia-900/30 border-2 border-fuchsia-600'
