@@ -43,7 +43,8 @@ function useMediaOrchestrator(data) {
   const dismissTimerRef = useRef(null);
   const isFirstDataRef  = useRef(true);
   const overlayActiveRef = useRef(false);
-  const manualStopRef  = useRef(false); // impedisce riavvio sottofondo dopo stop manuale
+  const manualStopRef  = useRef(false);
+  const hadRealActivityRef = useRef(false); // traccia se c'è stata attività reale
 
   const dismiss = useCallback(() => {
     if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
@@ -146,13 +147,18 @@ function useMediaOrchestrator(data) {
       return;
     }
 
-    // 5. IDLE → sottofondo loop (solo se nessun overlay attivo e nessuno stop manuale)
-    if (currMode === 'idle' && !overlayActiveRef.current && !manualStopRef.current) startSottofondo();
-    else if (currMode === 'idle' && manualStopRef.current && prevMode !== 'idle') {
-      // tornati in idle dopo un'attività reale → reset flag e riavvia
-      manualStopRef.current = false;
-      startSottofondo();
-    } else if (currMode !== 'idle') {
+    // Traccia se c'è stata attività reale
+    if (currMode !== 'idle') hadRealActivityRef.current = true;
+
+    // 5. IDLE → sottofondo loop
+    if (currMode === 'idle') {
+      // Se c'è stata attività reale e ora siamo in idle → reset stop manuale
+      if (hadRealActivityRef.current && manualStopRef.current) {
+        manualStopRef.current = false;
+        hadRealActivityRef.current = false;
+      }
+      if (!overlayActiveRef.current && !manualStopRef.current) startSottofondo();
+    } else {
       stopSottofondo();
     }
 
