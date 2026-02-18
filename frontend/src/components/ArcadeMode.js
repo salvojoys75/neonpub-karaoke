@@ -94,10 +94,12 @@ const HiddenSpotifyPlayer = ({ trackUrl, isPlaying }) => {
   );
 };
 
+// ID dell'ultimo errore già mostrato — fuori dal componente per sopravvivere ai re-mount
+let _lastShownErrorId = null;
+
 const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => {
   const prevBookingCountRef = useRef(0);
   const [showError, setShowError] = useState(false);
-  const processedErrorIdRef = useRef(null); // Per non mostrare due volte lo stesso errore
 
   // GESTIONE SUONI PRENOTAZIONE
   useEffect(() => {
@@ -111,32 +113,29 @@ const ArcadeMode = ({ arcade, result, bookingQueue = [], lastError = null }) => 
     }
   }, [bookingQueue]);
 
-  // GESTIONE ERRORE (SBAGLIATO) - FIX 3 SECONDI
+  // GESTIONE ERRORE (SBAGLIATO) - finestra 10 secondi
   useEffect(() => {
-    if (lastError && lastError.id !== processedErrorIdRef.current) {
-      
-      // Controllo TEMPORALE: Se l'errore è vecchio di oltre 5 secondi, ignoralo
-      // (Evita che appaia appena si ricarica la pagina)
-      const errorTime = new Date(lastError.validated_at).getTime();
-      const now = Date.now();
-      
-      // Se l'errore è avvenuto negli ultimi 5 secondi, mostralo
-      if (now - errorTime < 5000) {
-          processedErrorIdRef.current = lastError.id;
-          setShowError(true);
-          
-          ERROR_SOUND.currentTime = 0;
-          ERROR_SOUND.play().catch(e => console.log('Error sound failed:', e));
-          
-          // Nascondi tassativamente dopo 3 secondi
-          const timer = setTimeout(() => {
-              setShowError(false);
-          }, 3000);
-          
-          return () => clearTimeout(timer);
-      }
+    if (!lastError || !lastError.id) return;
+    if (lastError.id === _lastShownErrorId) return;
+
+    // Controlla che l'errore sia recente (entro 10 secondi)
+    const errorTime = new Date(lastError.validated_at).getTime();
+    const now = Date.now();
+
+    if (now - errorTime < 10000) {
+      _lastShownErrorId = lastError.id;
+      setShowError(true);
+
+      ERROR_SOUND.currentTime = 0;
+      ERROR_SOUND.play().catch(e => console.log('Error sound failed:', e));
+
+      const timer = setTimeout(() => {
+        setShowError(false);
+      }, 3000);
+
+      return () => clearTimeout(timer);
     }
-  }, [lastError]);
+  }, [lastError?.id]); // dipende solo dall'ID, non dall'intero oggetto
 
   // ✅ VINCITORE
   if (result && result.winner) {
