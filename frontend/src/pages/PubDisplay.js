@@ -42,17 +42,23 @@ function useMediaOrchestrator(data) {
   const subfontoRef    = useRef(null);
   const dismissTimerRef = useRef(null);
   const isFirstDataRef  = useRef(true);
+  const overlayActiveRef = useRef(false); // blocca sottofondo durante overlay
 
   const dismiss = useCallback(() => {
     if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
+    overlayActiveRef.current = false;
     setOverlay(null);
   }, []);
 
   const trigger = useCallback((key, autoDismissMs = null) => {
     if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
+    overlayActiveRef.current = true;
     setOverlay({ key, triggeredAt: Date.now() });
     if (autoDismissMs) {
-      dismissTimerRef.current = setTimeout(() => setOverlay(null), autoDismissMs);
+      dismissTimerRef.current = setTimeout(() => {
+        overlayActiveRef.current = false;
+        setOverlay(null);
+      }, autoDismissMs);
     }
   }, []);
 
@@ -139,8 +145,8 @@ function useMediaOrchestrator(data) {
       return;
     }
 
-    // 5. IDLE → sottofondo loop
-    if (currMode === 'idle') startSottofondo();
+    // 5. IDLE → sottofondo loop (solo se nessun overlay attivo)
+    if (currMode === 'idle' && !overlayActiveRef.current) startSottofondo();
     else stopSottofondo();
 
     prevDataRef.current = curr;
