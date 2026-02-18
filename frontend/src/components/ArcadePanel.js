@@ -11,6 +11,7 @@ import {
   Users, Zap, AlertCircle, Pause, Volume2, VolumeX, RotateCcw
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase'; // ✅ IMPORTANTE: Importiamo supabase per archiviare
 import * as api from '@/lib/api';
 
 export default function ArcadePanel({
@@ -27,7 +28,7 @@ export default function ArcadePanel({
   const [newBookingAlert, setNewBookingAlert] = useState(false);
   const prevBookingIdRef = useRef(null);
   
-  // FIX LOOP: Lista di ID giochi da ignorare perché chiusi manualmente
+  // Lista di ID giochi da ignorare localmente mentre il DB si aggiorna
   const ignoredGamesRef = useRef(new Set());
 
   // Setup nuovo gioco
@@ -50,8 +51,8 @@ export default function ArcadePanel({
     try {
       const { data: game } = await api.getActiveArcadeGame();
       
-      // FIX LOOP: Se il gioco è nella lista ignorati, facciamo finta che non esista
-      if (game && ignoredGamesRef.current.has(game.id)) {
+      // Se il gioco è nella lista ignorati o è archiviato, resettiamo la vista locale
+      if (game && (ignoredGamesRef.current.has(game.id) || game.status === 'archived')) {
           setActiveGame(null);
           setBookings([]);
           setCurrentBooking(null);
@@ -80,7 +81,7 @@ export default function ArcadePanel({
 
         setCurrentBooking(current);
       } else {
-        // Se è ended (ma non ignorato) o null
+        // Se è ended
         setBookings([]);
         setCurrentBooking(null);
         prevBookingIdRef.current = null;
@@ -191,11 +192,6 @@ export default function ArcadePanel({
       await api.endArcadeGame(activeGame.id);
       toast.info('🛑 Gioco terminato');
       
-      // Aggiungi ai giochi ignorati così non ricompare
-      if (activeGame?.id) {
-          ignoredGamesRef.current.add(activeGame.id);
-      }
-      
       setActiveGame(null); 
       setBookings([]);
       setCurrentBooking(null);
@@ -205,32 +201,45 @@ export default function ArcadePanel({
     } catch (error) { toast.error('Errore: ' + error.message); }
   };
 
-  // FIX LOOP: Quando chiudi manualmente il pannello rosso
-  const handleCloseEndedGame = () => {
+  // ✅ FIX DEFINITIVO: Archivia il gioco nel DB per nasconderlo dal Display
+  const handleCloseEndedGame = async () => {
       if (activeGame?.id) {
+          // 1. Ignoralo subito localmente per feedback istantaneo
           ignoredGamesRef.current.add(activeGame.id);
+          setActiveGame(null);
+          setBookings([]);
+          setCurrentBooking(null);
+
+          try {
+              // 2. Aggiorna il DB: status 'archived' fa sparire il gioco dal Display
+              const { error } = await supabase
+                  .from('arcade_games')
+                  .update({ status: 'archived' })
+                  .eq('id', activeGame.id);
+              
+              if (error) throw error;
+              toast.success("Schermata vincitore chiusa!");
+          } catch (e) {
+              console.error("Errore archiviazione:", e);
+              // Fallback se 'archived' non è un enum valido: usiamo un flag o delete
+              toast.error("Errore chiusura remota, riprova.");
+          }
       }
-      setActiveGame(null);
-      setBookings([]);
-      setCurrentBooking(null);
   };
 
   // ============================================================
-  // VALIDAZIONE RISPOSTA E VITTORIA
+  // VALIDAZIONE RISPOSTA
   // ============================================================
 
   const handleValidate = async (isCorrect) => {
     if (!currentBooking) return;
     try {
-      // Questa chiamata API in api.js si occupa di settare il vincitore e chiudere il gioco
       await api.validateArcadeAnswer(currentBooking.id, isCorrect, null);
 
       if (isCorrect) {
         toast.success(`🎉 ${currentBooking.participants?.nickname} ha vinto!`);
         setIsPlayerVisible(false);
         setNewBookingAlert(false);
-        // NON chiudiamo subito qui, lasciamo che il poll carichi lo stato "ended"
-        // così vediamo il messaggio di vittoria nel pannello per un po'
       } else {
         toast.error('❌ Risposta sbagliata');
         setNewBookingAlert(false);
