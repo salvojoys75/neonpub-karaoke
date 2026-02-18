@@ -130,21 +130,7 @@ function useMediaOrchestrator(data) {
       return;
     }
 
-    // 4. CAMBIO MODULO → transizione audio
-    const MODULI = ['quiz', 'arcade', 'karaoke', 'idle'];
-    const moduloCambiato =
-      prevMode !== null &&
-      prevMode !== currMode &&
-      MODULI.includes(prevMode) &&
-      MODULI.includes(currMode) &&
-      prevMode !== 'score';
-    if (moduloCambiato) {
-      stopSottofondo();
-      trigger('transizione', 3000);
-      prevDataRef.current = curr;
-      prevModeRef.current = currMode;
-      return;
-    }
+    // 4. CAMBIO MODULO — transizione disabilitata per ora
 
     // 5. IDLE → sottofondo
     if (currMode === 'idle' && !overlayActiveRef.current && !sottofondoMutedRef.current) {
@@ -625,12 +611,6 @@ function MediaOverlay({ overlay, onDismiss, pubData }) {
 
   useEffect(() => {
     if (!overlay) return;
-    if (overlay.key === 'transizione') {
-      const a = new Audio('/media/transizione.mp3');
-      a.volume = 0.7;
-      a.play().catch(() => {});
-      audioRef.current = a;
-    }
     if (overlay.key === 'applausi') {
       const a = new Audio('/media/applausi.mp3');
       a.volume = 0.85;
