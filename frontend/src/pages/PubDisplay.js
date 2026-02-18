@@ -952,7 +952,13 @@ const VotingMode = ({ perf }) => (
     </div>
 );
 
-const ScoreMode = ({ perf }) => {
+const ScoreMode = ({ perf, pubCode }) => {
+    useEffect(() => {
+        const t = setTimeout(async () => {
+            try { await api.stopAndNext(perf.id); } catch {}
+        }, 7000);
+        return () => clearTimeout(t);
+    }, [perf?.id]);
     return (
     <div className="w-full h-full flex flex-col items-center justify-center animated-bg p-8">
         <div className="bg-yellow-400/10 blur-[250px] w-[900px] h-[900px] absolute rounded-full animate-pulse"></div>
@@ -992,17 +998,17 @@ const QuizMode = ({ quiz, result }) => {
 
     if (quiz.status === 'leaderboard' && quiz.leaderboard) {
         return (
-             <div className="w-full h-full flex flex-col bg-[#080808] relative p-12 overflow-hidden items-center justify-center">
+             <div className="w-full h-full flex flex-col bg-[#080808] relative px-12 py-6 overflow-hidden items-center justify-center">
                 <div className="bg-yellow-500/10 blur-[200px] w-full h-full absolute"></div>
-                <h1 className="text-8xl font-black text-yellow-400 uppercase tracking-[0.2em] mb-12 drop-shadow-2xl flex items-center gap-6 z-10">
-                    <Trophy className="w-32 h-32" /> Classifica
+                <h1 className="text-6xl font-black text-yellow-400 uppercase tracking-[0.2em] mb-6 drop-shadow-2xl flex items-center gap-4 z-10">
+                    <Trophy className="w-16 h-16" /> Classifica
                 </h1>
-                <div className="glass-panel p-8 rounded-[3rem] w-full max-w-4xl border-4 border-yellow-500/30 z-10 flex flex-col gap-4 max-h-[80vh] overflow-y-auto custom-scrollbar">
+                <div className="glass-panel px-6 py-4 rounded-[2rem] w-full max-w-4xl border-4 border-yellow-500/30 z-10 flex flex-col gap-2">
                      {quiz.leaderboard.slice(0, 10).map((p, i) => (
-                         <div key={i} className={`flex items-center gap-6 p-6 rounded-3xl ${i===0 ? 'bg-yellow-500/20 border-2 border-yellow-500' : 'bg-white/5'}`}>
-                             <div className={`text-4xl font-black w-16 h-16 rounded-xl flex items-center justify-center ${i===0 ? 'bg-yellow-500 text-black' : 'bg-white/10 text-white'}`}>{i+1}</div>
-                             <div className="text-4xl font-bold text-white flex-1">{p.nickname}</div>
-                             <div className="text-5xl font-mono text-yellow-400 font-black">{p.score}</div>
+                         <div key={i} className={`flex items-center gap-4 px-4 py-2 rounded-2xl ${i===0 ? 'bg-yellow-500/20 border-2 border-yellow-500' : 'bg-white/5'}`}>
+                             <div className={`text-xl font-black w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${i===0 ? 'bg-yellow-500 text-black' : 'bg-white/10 text-white'}`}>{i+1}</div>
+                             <div className="text-2xl font-bold text-white flex-1">{p.nickname}</div>
+                             <div className="text-2xl font-mono text-yellow-400 font-black">{p.score}</div>
                          </div>
                      ))}
                 </div>
@@ -1392,7 +1398,7 @@ export default function PubDisplay() {
     if (isQuiz)    Content = <QuizMode quiz={quiz} result={quizResult} />;
     else if (isArcade)  Content = <ArcadeMode arcade={data.active_arcade || {}} result={data.arcade_result} bookingQueue={data.active_arcade?.booking_queue || []} lastError={data.active_arcade?.last_error} />;
     else if (isVoting)  Content = <VotingMode perf={perf} />;
-    else if (isScore)   Content = <ScoreMode perf={perf} />;
+    else if (isScore)   Content = <ScoreMode perf={perf} pubCode={pubCode} />;
     else if (isKaraoke) Content = <KaraokeMode perf={perf} isMuted={isMuted} />;
     else Content = <IdleMode pub={pub} />;
 
