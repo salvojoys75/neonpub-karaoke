@@ -43,9 +43,7 @@ function useMediaOrchestrator(data) {
   const dismissTimerRef = useRef(null);
   const isFirstDataRef  = useRef(true);
   const overlayActiveRef = useRef(false);
-  const manualStopRef  = useRef(false);
-  const hadRealActivityRef = useRef(false);
-  const manualStopTimerRef = useRef(null); // reset automatico dopo 30s
+  const sottofondoMutedRef = useRef(false); // mute manuale, si resetta quando esce dall'idle
 
   const dismiss = useCallback(() => {
     if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
@@ -148,18 +146,11 @@ function useMediaOrchestrator(data) {
       return;
     }
 
-    // Tieni traccia dell'ultimo modo non-idle
-    if (currMode !== 'idle') hadRealActivityRef.current = true;
-
     // 5. IDLE → sottofondo loop
-    if (currMode === 'idle') {
-      // Se c'era attività reale prima → reset flag manuale e riparti
-      if (hadRealActivityRef.current) {
-        hadRealActivityRef.current = false;
-        manualStopRef.current = false;
-      }
-      if (!overlayActiveRef.current && !manualStopRef.current) startSottofondo();
-    } else {
+    if (currMode === 'idle' && !overlayActiveRef.current && !sottofondoMutedRef.current) {
+      startSottofondo();
+    } else if (currMode !== 'idle') {
+      sottofondoMutedRef.current = false; // reset mute quando parte un'attività reale
       stopSottofondo();
     }
 
@@ -177,18 +168,18 @@ function useMediaOrchestrator(data) {
   // triggerManual: usato dalla regia per lanciare effetti a mano
   const triggerManual = useCallback((key) => {
     if (key === 'stop_sottofondo') {
-      manualStopRef.current = true;
+      sottofondoMutedRef.current = true;
       stopSottofondoImmediate();
-      // Reset automatico dopo 30 minuti (fine quiz tipicamente entro allora)
-      if (manualStopTimerRef.current) clearTimeout(manualStopTimerRef.current);
-      manualStopTimerRef.current = setTimeout(() => {
-        manualStopRef.current = false;
-      }, 30 * 60 * 1000);
+      return;
+    }
+    if (key === 'start_sottofondo') {
+      sottofondoMutedRef.current = false;
+      startSottofondo();
       return;
     }
     stopSottofondoImmediate();
     trigger(key, key === 'applausi' ? 7000 : null);
-  }, [trigger, stopSottofondoImmediate]);
+  }, [trigger, stopSottofondoImmediate, startSottofondo]);
 
   return { overlay, dismissOverlay: dismiss, triggerManual };
 }
@@ -1288,6 +1279,9 @@ export default function PubDisplay() {
                 if (p.payload.command === 'mute') setIsMuted(p.payload.value);
                 if (p.payload.command === 'stop_sottofondo') {
                     triggerManualRef.current?.('stop_sottofondo');
+                }
+                if (p.payload.command === 'start_sottofondo') {
+                    triggerManualRef.current?.('start_sottofondo');
                 }
                 if (p.payload.command === 'play_media') {
                     console.log('🎬 play_media:', p.payload.key);

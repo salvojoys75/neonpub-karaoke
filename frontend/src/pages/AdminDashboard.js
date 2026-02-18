@@ -928,9 +928,10 @@ export default function AdminDashboard() {
           if(action==='end') {
               await api.endQuiz(activeQuizId);
               await api.setEventModule('karaoke');
-              // ✅ Stop audio: chiudi il pannello preview (smonta iframe Spotify)
               setQuizPreviewItem(null);
               setQuizPreviewLaunched(false);
+              // Riavvia sottofondo sul display
+              supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'start_sottofondo' } }).catch(() => {});
               toast.info("Tornati al Karaoke");
           }
           loadData();
@@ -1602,6 +1603,7 @@ export default function AdminDashboard() {
                                                     await api.setEventModule('karaoke');
                                                     setQuizPreviewItem(null);
                                                     setQuizPreviewLaunched(false);
+                                                    supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'start_sottofondo' } }).catch(() => {});
                                                     toast.info("Tornato al Karaoke");
                                                     loadData();
                                                 } catch(e) {
@@ -1627,7 +1629,11 @@ export default function AdminDashboard() {
                                         {quizPreviewLaunched ? '🔴 IN ONDA — audio attivo' : '▶ Ascolta poi lancia'}
                                     </span>
                                     <button
-                                        onClick={() => { setQuizPreviewItem(null); setQuizPreviewLaunched(false); }}
+                                        onClick={() => { 
+                                            setQuizPreviewItem(null); 
+                                            setQuizPreviewLaunched(false);
+                                            supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'start_sottofondo' } }).catch(() => {});
+                                        }}
                                         className="text-zinc-500 hover:text-white text-sm"
                                     >✕</button>
                                 </div>
@@ -1657,10 +1663,20 @@ export default function AdminDashboard() {
                                     ))}
                                 </div>
                                 {!quizPreviewLaunched ? (
-                                    <Button size="sm" className="w-full bg-fuchsia-600 hover:bg-fuchsia-500 font-bold h-8"
-                                        onClick={() => doLaunchQuiz(quizPreviewItem)}>
-                                        <Play className="w-3 h-3 mr-1"/> LANCIA IN DISPLAY
-                                    </Button>
+                                    <div className="flex gap-2">
+                                        <Button size="sm" className="flex-1 bg-fuchsia-600 hover:bg-fuchsia-500 font-bold h-8"
+                                            onClick={() => doLaunchQuiz(quizPreviewItem)}>
+                                            <Play className="w-3 h-3 mr-1"/> LANCIA IN DISPLAY
+                                        </Button>
+                                        <Button size="sm" variant="outline" className="h-8 px-3 border-zinc-600 text-zinc-400 hover:text-white hover:border-zinc-400"
+                                            title="Mute sottofondo display"
+                                            onClick={() => {
+                                                supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'stop_sottofondo' } }).catch(() => {});
+                                                toast.success('🔇 Sottofondo muto');
+                                            }}>
+                                            <VolumeX className="w-3 h-3"/>
+                                        </Button>
+                                    </div>
                                 ) : (
                                     <div className="text-center text-xs text-green-400 font-medium py-0.5">
                                         ✅ Lanciato — player attivo qui per te
@@ -1801,6 +1817,9 @@ export default function AdminDashboard() {
   <ArcadePanel 
     quizCatalog={quizCatalog}
     onRefresh={loadData}
+    onArcadeEnd={() => {
+      supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'start_sottofondo' } }).catch(() => {});
+    }}
   />
 )}
 {libraryTab === 'extraction' && (
