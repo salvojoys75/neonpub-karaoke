@@ -860,6 +860,12 @@ export default function AdminDashboard() {
           if (!quizPreviewItem || quizPreviewItem.id !== item.id) {
               setQuizPreviewItem(item);
               setQuizPreviewLaunched(false);
+              // Ferma il sottofondo sul display
+              supabase.channel('tv_ctrl').send({
+                  type: 'broadcast',
+                  event: 'control',
+                  payload: { command: 'stop_sottofondo' }
+              }).catch(() => {});
           }
           return;
       }

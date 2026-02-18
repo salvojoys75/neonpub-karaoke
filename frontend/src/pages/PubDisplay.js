@@ -162,7 +162,11 @@ function useMediaOrchestrator(data) {
 
   // triggerManual: usato dalla regia per lanciare effetti a mano
   const triggerManual = useCallback((key) => {
-    stopSottofondoImmediate(); // stop immediato, niente fade
+    if (key === 'stop_sottofondo') {
+      stopSottofondoImmediate();
+      return;
+    }
+    stopSottofondoImmediate();
     trigger(key, key === 'applausi' ? 7000 : null);
   }, [trigger, stopSottofondoImmediate]);
 
@@ -1262,6 +1266,9 @@ export default function PubDisplay() {
             .on('broadcast', {event: 'control'}, p => {
                 console.log('📡 tv_ctrl ricevuto:', p.payload);
                 if (p.payload.command === 'mute') setIsMuted(p.payload.value);
+                if (p.payload.command === 'stop_sottofondo') {
+                    triggerManualRef.current?.('stop_sottofondo');
+                }
                 if (p.payload.command === 'play_media') {
                     console.log('🎬 play_media:', p.payload.key);
                     setStandby(false);
