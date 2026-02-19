@@ -66,6 +66,7 @@ export default function AdminDashboard() {
   const [queue, setQueue] = useState([]);
   const [currentPerformance, setCurrentPerformance] = useState(null);
   const [pendingMessages, setPendingMessages] = useState([]);
+  const [pendingSelfies, setPendingSelfies] = useState([]); // { id, url, nickname, timestamp }
   const [approvedMessages, setApprovedMessages] = useState([]);
   const [isMuted, setIsMuted] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState(null);
@@ -389,7 +390,16 @@ export default function AdminDashboard() {
     if (appState === 'dashboard') {
       loadData();
       pollIntervalRef.current = setInterval(loadData, 3000);
-      return () => clearInterval(pollIntervalRef.current);
+      // Ascolta selfie in arrivo
+      const ch = supabase.channel('tv_ctrl_admin_selfie')
+        .on('broadcast', { event: 'control' }, p => {
+          if (p.payload.command === 'selfie_request') {
+            setPendingSelfies(prev => [...prev, {
+              id: Date.now(), url: p.payload.url, nickname: p.payload.nickname
+            }]);
+          }
+        }).subscribe();
+      return () => { clearInterval(pollIntervalRef.current); supabase.removeChannel(ch); };
     }
   }, [appState, loadData]);
 
@@ -1434,7 +1444,7 @@ export default function AdminDashboard() {
                      </TabsTrigger>
                      <TabsTrigger value="messages" className="text-xs px-1 relative data-[state=active]:bg-green-900/30" title="Messaggi">
                         <MessageSquare className="w-5 h-5 text-green-400" />
-                        {pendingMessages.length > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>}
+                        {(pendingMessages.length > 0 || pendingSelfies.length > 0) && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>}
                      </TabsTrigger>
                      <TabsTrigger value="settings" className="text-xs px-1 data-[state=active]:bg-zinc-700/30" title="Impostazioni">
                         <Settings className="w-5 h-5 text-zinc-400" />
@@ -1779,6 +1789,35 @@ export default function AdminDashboard() {
                {libraryTab === 'messages' && (
                    <div className="space-y-4 pt-2">
                        <Button className="w-full bg-cyan-600 hover:bg-cyan-500 mb-4" onClick={()=>setShowMessageModal(true)}><MessageSquare className="w-4 h-4 mr-2"/> Scrivi Messaggio Regia</Button>
+
+                       {/* SELFIE IN ATTESA */}
+                       {pendingSelfies.length > 0 && (
+                           <div className="space-y-2">
+                               <h3 className="text-xs font-bold text-pink-400 uppercase">📸 Selfie in Attesa ({pendingSelfies.length})</h3>
+                               {pendingSelfies.map(s => (
+                                   <div key={s.id} className="bg-zinc-800 p-3 rounded border-l-2 border-pink-500">
+                                       <div className="flex items-center gap-2 mb-2">
+                                           <span className="font-bold text-sm text-white">{s.nickname}</span>
+                                       </div>
+                                       <img src={s.url} alt="selfie" className="w-full rounded-lg object-cover max-h-40 mb-2" />
+                                       <div className="flex gap-2">
+                                           <Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-900/20 h-7 flex-1"
+                                               onClick={() => setPendingSelfies(prev => prev.filter(x => x.id !== s.id))}>
+                                               ❌ Rifiuta
+                                           </Button>
+                                           <Button size="sm" className="bg-green-600 h-7 flex-1 hover:bg-green-500"
+                                               onClick={async () => {
+                                                   await supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'selfie', url: s.url, nickname: s.nickname }});
+                                                   setPendingSelfies(prev => prev.filter(x => x.id !== s.id));
+                                                   toast.success('📸 Selfie mandato in onda!');
+                                               }}>
+                                               ✅ Manda in Onda
+                                           </Button>
+                                       </div>
+                                   </div>
+                               ))}
+                           </div>
+                       )}
                        
                        <h3 className="text-xs font-bold text-zinc-500 uppercase">In Attesa ({pendingMessages.length})</h3>
                        {pendingMessages.map(msg => (

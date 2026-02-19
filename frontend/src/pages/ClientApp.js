@@ -145,11 +145,11 @@ export default function ClientApp() {
     if (!selfiePreview) return;
     setSelfieSending(true);
     try {
-      await supabase.channel('tv_ctrl').send({
+      await supabase.channel('tv_ctrl_admin_selfie').send({
         type: 'broadcast', event: 'control',
-        payload: { command: 'selfie', url: selfiePreview, nickname: user?.nickname || 'Anonimo' }
+        payload: { command: 'selfie_request', url: selfiePreview, nickname: user?.nickname || 'Anonimo' }
       });
-      toast.success("📸 Selfie inviato al display!");
+      toast.success("📸 Selfie inviato alla regia per approvazione!");
       setShowSelfieModal(false);
       setSelfiePreview(null);
     } catch(e) { toast.error("Errore invio selfie"); }
@@ -248,7 +248,7 @@ export default function ClientApp() {
         <DialogContent className="bg-zinc-900 border-pink-500/30 max-w-sm w-[90%] rounded-2xl">
           <DialogHeader><DialogTitle className="text-center text-xl font-bold text-pink-400">📸 Il tuo Selfie</DialogTitle></DialogHeader>
           {selfiePreview && <img src={selfiePreview} alt="selfie" className="w-full rounded-xl object-cover max-h-64" />}
-          <p className="text-zinc-400 text-xs text-center">Apparirà sul display del locale per 12 secondi</p>
+          <p className="text-zinc-400 text-xs text-center">La regia la vedrà e deciderà se mandarla sul display 😄</p>
           <div className="flex gap-2">
             <Button onClick={() => { setShowSelfieModal(false); setSelfiePreview(null); }} variant="outline" className="flex-1 border-zinc-700">Annulla</Button>
             <Button onClick={handleSelfieSend} disabled={selfieSending} className="flex-1 bg-pink-600 hover:bg-pink-500 font-bold">
