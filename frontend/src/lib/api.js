@@ -39,15 +39,15 @@ export const getDisplayData = async (pubCode) => {
       return { data: null };
   }
 
-  const [perf, queue, lb, activeQuiz, adminMsg, approvedMsgs, activeArcade] = await Promise.all([
+  const [perf, queue, lb, activeQuiz, adminMsg, approvedMsgs, activeArcade, activeMill] = await Promise.all([
     supabase.from('performances').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).in('status', ['live','voting','paused','ended']).order('started_at', {ascending: false}).limit(1).maybeSingle(),
     supabase.from('song_requests').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).eq('status', 'queued').order('position', {ascending: true}).limit(1), 
     supabase.from('participants').select('nickname, score, avatar_url').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
     supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
     supabase.from('messages').select('*').eq('event_id', event.id).is('participant_id', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle(),
     supabase.from('messages').select('*, participants(nickname)').eq('event_id', event.id).not('participant_id', 'is', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(10),
-    // FIX ARCADE: Include 'ended' per permettere al display di mostrare il vincitore
-    supabase.from('arcade_games').select('*').eq('event_id', event.id).in('status', ['setup', 'waiting', 'active', 'paused', 'ended']).order('created_at', {ascending: false}).limit(1).maybeSingle()
+    supabase.from('arcade_games').select('*').eq('event_id', event.id).in('status', ['setup', 'waiting', 'active', 'paused', 'ended']).order('created_at', {ascending: false}).limit(1).maybeSingle(),
+    supabase.from('millionaire_games').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).in('status', ['setup','active','lifeline_audience','won','lost','retired']).order('created_at', {ascending: false}).limit(1).maybeSingle(),
   ])
 
   let currentPerformance = perf.data ? {...perf.data, user_nickname: perf.data.participants?.nickname, user_avatar: perf.data.participants?.avatar_url} : null;
@@ -74,6 +74,7 @@ export const getDisplayData = async (pubCode) => {
       admin_message: adminMsg.data,
       extraction_data: event.extraction_data,
       active_arcade: activeArcade.data,
+      active_millionaire: activeMill.data || null,
       approved_messages: approvedMsgs.data?.filter(m => m.participants?.nickname).map(m => ({text: m.text, nickname: m.participants?.nickname})) || []
     }
   }

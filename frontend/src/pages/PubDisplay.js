@@ -124,6 +124,28 @@ function useMediaOrchestrator(data) {
   const isFirstDataRef  = useRef(true);
   const overlayActiveRef = useRef(false);
   const sottofondoMutedRef = useRef(false);
+  const millionaireAudioRef = useRef(null);
+
+  const startMillionaireBg = useCallback(() => {
+    if (millionaireAudioRef.current) return;
+    const audio = new Audio('/media/millionaire.mp3');
+    audio.loop = true;
+    audio.volume = 0.35;
+    audio.play().catch(() => {});
+    millionaireAudioRef.current = audio;
+  }, []);
+
+  const stopMillionaireBg = useCallback(() => {
+    if (!millionaireAudioRef.current) return;
+    const audio = millionaireAudioRef.current;
+    millionaireAudioRef.current = null;
+    let vol = audio.volume;
+    const fade = setInterval(() => {
+      vol = Math.max(0, vol - 0.04);
+      audio.volume = vol;
+      if (vol <= 0) { clearInterval(fade); audio.pause(); }
+    }, 80);
+  }, []);
 
   const dismiss = useCallback(() => {
     if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
@@ -225,18 +247,24 @@ function useMediaOrchestrator(data) {
     // 5. IDLE → sottofondo
     if (currMode === 'idle' && !overlayActiveRef.current && !sottofondoMutedRef.current) {
       startSottofondo();
+      stopMillionaireBg();
+    } else if (currMode === 'millionaire') {
+      stopSottofondo();
+      startMillionaireBg();
     } else if (currMode !== 'idle') {
       sottofondoMutedRef.current = false;
       stopSottofondo();
+      stopMillionaireBg();
     }
 
     prevDataRef.current = curr;
     prevModeRef.current = currMode;
-  }, [data, trigger, startSottofondo, stopSottofondo]);
+  }, [data, trigger, startSottofondo, stopSottofondo, startMillionaireBg, stopMillionaireBg]);
 
   useEffect(() => {
     return () => {
       stopSottofondo();
+      stopMillionaireBg();
       if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
     };
   }, [stopSottofondo]);
@@ -1619,12 +1647,6 @@ export default function PubDisplay() {
                     const pendingQueue = allBookings?.filter(b => b.status === 'pending').sort((a, b) => a.booking_order - b.booking_order) || [];
                     const recentErrors = allBookings?.filter(b => b.status === 'wrong').sort((a, b) => new Date(b.validated_at) - new Date(a.validated_at));
                     finalData = { ...finalData, active_arcade: { ...arcade, booking_queue: pendingQueue, last_error: recentErrors?.[0] || null } };
-                }
-
-                // Millionaire
-                const { data: millionaire } = await api.getActiveMillionaireGame(finalData.pub.id);
-                if (millionaire) {
-                    finalData = { ...finalData, active_millionaire: millionaire };
                 }
 
                 setData(finalData);

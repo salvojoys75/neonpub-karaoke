@@ -28,16 +28,20 @@ export default function MillionaireMode({ game, onVote, participantId }) {
     // Ricevi comandi broadcast (solo display)
     useEffect(() => {
         if (!isDisplay) return;
-        const ch = supabase.channel('tv_ctrl_millionaire')
+        const ch = supabase.channel('tv_ctrl')
             .on('broadcast', { event: 'control' }, p => {
                 if (p.payload.command === 'millionaire_5050') setRemoved5050(p.payload.removed || []);
-                if (p.payload.command === 'millionaire_audience') setAudienceOpen(true);
-                if (p.payload.command === 'millionaire_update') setRemoved5050([]);
                 if (p.payload.command === 'millionaire_correct') setRemoved5050([]);
+                if (p.payload.command === 'millionaire_update') setRemoved5050([]);
             })
             .subscribe();
         return () => supabase.removeChannel(ch);
     }, [isDisplay]);
+
+    // Reset 50/50 quando cambia domanda
+    useEffect(() => {
+        setRemoved5050([]);
+    }, [game?.current_question_index]);
 
     // Sync audience state
     useEffect(() => {
