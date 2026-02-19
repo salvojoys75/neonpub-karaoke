@@ -1615,7 +1615,7 @@ export default function PubDisplay() {
     const [newReaction, setNewReaction] = useState(null);
     const [standby, setStandby]     = useState(true); // schermata di attesa iniziale
     const [lobbyState, setLobbyState] = useState(null); // { type: 'karaoke'|'quiz', data: {} }
-    const [activeSelfie, setActiveSelfie] = useState(null); // { url, nickname }
+    const [activeSelfie, setActiveSelfie] = useState(null); // { url, nickname } - selfie display
 
     // Reset lobby quando parte attività reale
     useEffect(() => {
