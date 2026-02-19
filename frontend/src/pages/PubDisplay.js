@@ -1049,6 +1049,7 @@ const QuizLobbyMode = ({ lobbyData }) => (
 );
 
 
+const ArcadeLobbyMode = ({ arcade, pubCode }) => {
     const bookings = arcade?.booking_queue || [];
     return (
     <div className="w-full h-full flex flex-col items-center justify-center relative overflow-hidden"
