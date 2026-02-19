@@ -1616,6 +1616,26 @@ export default function PubDisplay() {
     const [standby, setStandby]     = useState(true); // schermata di attesa iniziale
     const [lobbyState, setLobbyState] = useState(null); // { type: 'karaoke'|'quiz', data: {} }
     const [activeSelfie, setActiveSelfie] = useState(null); // { url, nickname } - selfie display
+    const shownSelfieIds = useRef(new Set());
+
+    // Polling selfie approvati dal DB
+    useEffect(() => {
+        if (!pubCode) return;
+        const pollSelfies = async () => {
+            const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
+            if (!event) return;
+            const { data } = await supabase.from('pending_selfies')
+                .select('*').eq('event_id', event.id).eq('status', 'approved')
+                .order('created_at', { ascending: false }).limit(1).maybeSingle();
+            if (data && !shownSelfieIds.current.has(data.id)) {
+                shownSelfieIds.current.add(data.id);
+                setActiveSelfie({ url: data.image_data, nickname: data.nickname });
+                setTimeout(() => setActiveSelfie(null), 12000);
+            }
+        };
+        const interval = setInterval(pollSelfies, 2000);
+        return () => clearInterval(interval);
+    }, [pubCode]);
 
     // Reset lobby quando parte attività reale
     useEffect(() => {

@@ -75,6 +75,7 @@ export const getDisplayData = async (pubCode) => {
       extraction_data: event.extraction_data,
       active_arcade: activeArcade.data,
       active_millionaire: activeMill.data || null,
+      active_selfie: null, // verrà popolato dal polling separato
       approved_messages: approvedMsgs.data?.filter(m => m.participants?.nickname).map(m => ({text: m.text, nickname: m.participants?.nickname})) || []
     }
   }
