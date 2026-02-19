@@ -22,7 +22,7 @@ export default function ClientApp() {
   const [currentPerformance, setCurrentPerformance] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
   const [activeQuiz, setActiveQuiz] = useState(null);
-  const [activeArcade, setActiveArcade] = useState(null); // ✅ NUOVO stato arcade
+  const [activeArcade, setActiveArcade] = useState(null);
   const [quizResult, setQuizResult] = useState(null);
   const [showQuizModal, setShowQuizModal] = useState(false);
   const [quizAnswer, setQuizAnswer] = useState(null);
@@ -38,6 +38,10 @@ export default function ClientApp() {
   const [hasVoted, setHasVoted] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
   const [messageText, setMessageText] = useState("");
+  const [activeMillionaire, setActiveMillionaire] = useState(null);
+  const [showMillionaireModal, setShowMillionaireModal] = useState(false);
+  const [millionaireVoted, setMillionaireVoted] = useState(false);
+  const [millionaireVoteSelected, setMillionaireVoteSelected] = useState(null);
   const pollIntervalRef = useRef(null);
 
   useEffect(() => { if (!isAuthenticated) navigate("/"); }, [isAuthenticated, navigate]);
@@ -46,13 +50,14 @@ export default function ClientApp() {
     // Senza token non ha senso chiamare le API
     if (!localStorage.getItem('discojoys_token')) return;
     try {
-      const [queueRes, myRes, perfRes, lbRes, quizRes, arcadeRes] = await Promise.all([
+      const [queueRes, myRes, perfRes, lbRes, quizRes, arcadeRes, millionaireRes] = await Promise.all([
         api.getSongQueue(), 
         api.getMyRequests(), 
         api.getCurrentPerformance(), 
         api.getLeaderboard(), 
         api.getActiveQuiz(),
-        api.getActiveArcadeGame(), // ✅ Carica arcade
+        api.getActiveArcadeGame(),
+        api.getActiveMillionaireGame(),
       ]);
       setQueue(queueRes.data || []);
       setMyRequests(myRes.data || []);
@@ -80,20 +85,48 @@ export default function ClientApp() {
       // ✅ GESTIONE ARCADE - Cambio automatico tab
       const serverArcade = arcadeRes.data;
       if (serverArcade && serverArcade.status === 'active') {
-        // Nuovo gioco arcade o primo caricamento
         if (!activeArcade || activeArcade.id !== serverArcade.id) {
-          setActiveTab('arcade'); // ✅ Cambio automatico alla tab arcade
+          setActiveTab('arcade');
           toast.success("🎮 Nuovo Gioco Arcade! Indovina la canzone!");
         }
         setActiveArcade(serverArcade);
       } else {
         setActiveArcade(null);
       }
-      // ✅ FIX: Non caricare mai extraction_data nel telefono - è solo per il display TV
+
+      // ✅ GESTIONE MILIONARIO
+      const serverMill = millionaireRes?.data;
+      if (serverMill && ['active','lifeline_audience'].includes(serverMill.status)) {
+        if (!activeMillionaire || activeMillionaire.id !== serverMill.id) {
+          setMillionaireVoted(false);
+          setMillionaireVoteSelected(null);
+        }
+        setActiveMillionaire(serverMill);
+        if (serverMill.status === 'lifeline_audience' && !showMillionaireModal) {
+          setShowMillionaireModal(true);
+          toast.success("🎰 Aiuto del pubblico! Vota ora!");
+        }
+        if (serverMill.status === 'active' && showMillionaireModal) {
+          setShowMillionaireModal(false);
+        }
+      } else {
+        setActiveMillionaire(null);
+        setShowMillionaireModal(false);
+      }
     } catch (error) { console.error("Errore caricamento:", error); }
-  }, [activeQuiz, showQuizModal, user, hasVoted, quizAnswer, quizResult, activeArcade]);
+  }, [activeQuiz, showQuizModal, user, hasVoted, quizAnswer, quizResult, activeArcade, activeMillionaire, showMillionaireModal]);
 
   useEffect(() => { loadData(); pollIntervalRef.current = setInterval(loadData, 3000); return () => clearInterval(pollIntervalRef.current); }, [loadData]);
+
+  const handleMillionaireVote = async (letter) => {
+    if (millionaireVoted || !activeMillionaire) return;
+    setMillionaireVoteSelected(letter);
+    setMillionaireVoted(true);
+    try {
+      await api.submitAudienceVote(activeMillionaire.id, user?.id, letter);
+      toast.success("Voto registrato!");
+    } catch(e) { toast.error("Errore voto"); }
+  };
 
   const addFloatingReaction = (emoji) => { const id = Date.now() + Math.random(); const left = Math.random() * 80 + 10; setFloatingReactions(prev => [...prev, { id, emoji, left }]); setTimeout(() => setFloatingReactions(prev => prev.filter(r => r.id !== id)), 2000); };
 
@@ -178,6 +211,32 @@ export default function ClientApp() {
       <Dialog open={showRequestModal} onOpenChange={setShowRequestModal}><DialogContent className="bg-zinc-900 border-zinc-800"><DialogHeader><DialogTitle>Richiedi Canzone</DialogTitle></DialogHeader><form onSubmit={handleRequestSong} className="space-y-4 mt-4"><Input value={songTitle} onChange={(e) => setSongTitle(e.target.value)} placeholder="Titolo" className="bg-zinc-800 border-zinc-700"/><Input value={songArtist} onChange={(e) => setSongArtist(e.target.value)} placeholder="Artista" className="bg-zinc-800 border-zinc-700"/><Input value={songYoutubeUrl} onChange={(e) => setSongYoutubeUrl(e.target.value)} placeholder="Link YouTube (facoltativo)" className="bg-zinc-800 border-zinc-700"/><Button type="submit" className="w-full bg-fuchsia-600 hover:bg-fuchsia-700">Invia</Button></form></DialogContent></Dialog>
       <Dialog open={showVoteModal} onOpenChange={setShowVoteModal}><DialogContent className="bg-zinc-900 border-zinc-800 text-center"><DialogHeader><DialogTitle>Vota l'Esibizione!</DialogTitle></DialogHeader><div className="flex justify-center gap-2 py-4">{[1, 2, 3, 4, 5].map(star => (<button key={star} onClick={() => setSelectedStars(star)}><Star className={`w-10 h-10 ${selectedStars >= star ? 'text-yellow-500 fill-yellow-500' : 'text-zinc-600'}`} /></button>))}</div><Button onClick={handleVote} disabled={selectedStars === 0} className="w-full bg-yellow-500 text-black">Conferma Voto</Button></DialogContent></Dialog>
       <Dialog open={showMessageModal} onOpenChange={setShowMessageModal}><DialogContent className="bg-zinc-900 border-zinc-800"><DialogHeader><DialogTitle>Messaggio al Pub</DialogTitle></DialogHeader><Input value={messageText} onChange={(e) => setMessageText(e.target.value)} placeholder="Scrivi messaggio..." className="bg-zinc-800 border-zinc-700"/><Button onClick={handleSendMessage} className="w-full mt-4 bg-cyan-600 hover:bg-cyan-700">Invia</Button></DialogContent></Dialog>
+      {/* MILIONARIO — Aiuto del Pubblico */}
+      <Dialog open={showMillionaireModal} onOpenChange={setShowMillionaireModal}>
+        <DialogContent className="bg-zinc-900 border-yellow-500/30 max-w-md w-[90%] rounded-2xl">
+          <DialogHeader><DialogTitle className="text-center text-xl font-bold text-yellow-400">🎰 Aiuto del Pubblico!</DialogTitle></DialogHeader>
+          <div className="py-2">
+            <p className="text-white text-center font-medium mb-1">{activeMillionaire?.questions?.[activeMillionaire?.current_question_index]?.question}</p>
+            <p className="text-zinc-500 text-xs text-center mb-4">Vota la risposta che ritieni corretta</p>
+            <div className="space-y-2">
+              {activeMillionaire?.questions?.[activeMillionaire?.current_question_index]?.options?.map((opt, i) => {
+                const letter = ['A','B','C','D'][i];
+                const isSelected = millionaireVoteSelected === letter;
+                return (
+                  <button key={i} onClick={() => handleMillionaireVote(letter)} disabled={millionaireVoted}
+                    className={`w-full p-3 rounded-xl border text-left transition-all active:scale-95 flex items-center gap-3 ${isSelected ? 'bg-yellow-500/20 border-yellow-500 text-white' : 'border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200'} ${millionaireVoted && !isSelected ? 'opacity-40' : ''}`}>
+                    <span className={`font-bold w-7 h-7 flex items-center justify-center rounded-lg text-sm shrink-0 ${isSelected ? 'bg-yellow-500 text-black' : 'bg-zinc-700 text-white'}`}>{letter}</span>
+                    <span className="flex-1 text-sm">{opt}</span>
+                    {isSelected && <Check className="w-4 h-4 text-yellow-400 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+            {millionaireVoted && <p className="text-center text-green-400 font-bold mt-4 text-sm">✅ Voto registrato!</p>}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={showQuizModal} onOpenChange={setShowQuizModal}>
         <DialogContent className="bg-zinc-900 border-fuchsia-500/30 max-w-md w-[90%] rounded-2xl">
           <DialogHeader><DialogTitle className="text-center text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-400 to-purple-600">{activeQuiz?.status === 'closed' ? "STOP AL VOTO!" : activeQuiz?.status === 'leaderboard' ? "CLASSIFICA LIVE" : quizResult ? "Risultato" : "Quiz Time!"}</DialogTitle></DialogHeader>

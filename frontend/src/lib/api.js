@@ -1052,13 +1052,27 @@ export const closeAudienceVote = async (gameId) => {
 };
 
 export const getActiveMillionaireGame = async (eventId) => {
-    const { data, error } = await supabase.from('millionaire_games')
-        .select('*, participants(nickname, avatar_url)')
-        .eq('event_id', eventId)
-        .in('status', ['setup','active','lifeline_audience','won','lost','retired'])
-        .order('created_at', { ascending: false }).limit(1).maybeSingle();
-    if (error) throw error;
-    return { data };
+    try {
+        let eid = eventId;
+        if (!eid) {
+            const pubCode = localStorage.getItem('discojoys_pub_code');
+            if (pubCode) {
+                const { data } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
+                if (data) eid = data.id;
+            } else {
+                const token = localStorage.getItem('discojoys_token');
+                if (token) { const p = JSON.parse(atob(token)); eid = p.event_id; }
+            }
+        }
+        if (!eid) return { data: null };
+        const { data, error } = await supabase.from('millionaire_games')
+            .select('*, participants(nickname, avatar_url)')
+            .eq('event_id', eid)
+            .in('status', ['setup','active','lifeline_audience','won','lost','retired'])
+            .order('created_at', { ascending: false }).limit(1).maybeSingle();
+        if (error) throw error;
+        return { data };
+    } catch(e) { return { data: null }; }
 };
 
 export const endMillionaireGame = async (gameId) => {
