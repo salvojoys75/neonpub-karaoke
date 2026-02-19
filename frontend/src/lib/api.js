@@ -1070,6 +1070,7 @@ export const endMillionaireGame = async (gameId) => {
 };
 
 
+export default {
     getDisplayData, sendReaction, getActiveArcadeGame, createPub, updateEventSettings, uploadLogo, getPub, joinPub, uploadAvatar, adminLogin, getMe,
     getAllProfiles, updateProfileCredits, createOperatorProfile, toggleUserStatus,
     getEventState, setEventModule, getQuizCatalog, getChallengeCatalog, importQuizCatalog,
