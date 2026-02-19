@@ -9,7 +9,7 @@ import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase"; 
 import api from "@/lib/api";
 import ArcadeSection from '@/components/ArcadeSection';
-const EMOJIS = ["❤️", "🔥", "👏", "🎤", "⭐", "🎉"];
+const EMOJIS = ["❤️", "🔥", "👏", "💩", "🙈", "😂"];
 const REACTION_LIMIT = 5;
 
 export default function ClientApp() {
@@ -42,6 +42,10 @@ export default function ClientApp() {
   const [showMillionaireModal, setShowMillionaireModal] = useState(false);
   const [millionaireVoted, setMillionaireVoted] = useState(false);
   const [millionaireVoteSelected, setMillionaireVoteSelected] = useState(null);
+  const [showSelfieModal, setShowSelfieModal] = useState(false);
+  const [selfiePreview, setSelfiePreview] = useState(null);
+  const [selfieSending, setSelfieSending] = useState(false);
+  const selfieInputRef = useRef(null);
   const pollIntervalRef = useRef(null);
 
   useEffect(() => { if (!isAuthenticated) navigate("/"); }, [isAuthenticated, navigate]);
@@ -128,6 +132,30 @@ export default function ClientApp() {
     } catch(e) { toast.error("Errore voto"); }
   };
 
+  const handleSelfieCapture = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setSelfiePreview(ev.target.result);
+    reader.readAsDataURL(file);
+    setShowSelfieModal(true);
+  };
+
+  const handleSelfieSend = async () => {
+    if (!selfiePreview) return;
+    setSelfieSending(true);
+    try {
+      await supabase.channel('tv_ctrl').send({
+        type: 'broadcast', event: 'control',
+        payload: { command: 'selfie', url: selfiePreview, nickname: user?.nickname || 'Anonimo' }
+      });
+      toast.success("📸 Selfie inviato al display!");
+      setShowSelfieModal(false);
+      setSelfiePreview(null);
+    } catch(e) { toast.error("Errore invio selfie"); }
+    finally { setSelfieSending(false); }
+  };
+
   const addFloatingReaction = (emoji) => { const id = Date.now() + Math.random(); const left = Math.random() * 80 + 10; setFloatingReactions(prev => [...prev, { id, emoji, left }]); setTimeout(() => setFloatingReactions(prev => prev.filter(r => r.id !== id)), 2000); };
 
   const handleRequestSong = async (e) => {
@@ -192,6 +220,10 @@ export default function ClientApp() {
               </div>
             ) : (<div className="glass rounded-2xl p-8 text-center border-dashed border-2 border-zinc-800"><Music className="w-12 h-12 mx-auto text-zinc-600 mb-2" /><p className="text-zinc-500">Il palco è vuoto</p></div>)}
             <Button onClick={() => setShowMessageModal(true)} variant="outline" className="w-full border-zinc-700 hover:bg-zinc-800"><MessageSquare className="w-4 h-4 mr-2" /> Invia Messaggio</Button>
+            <Button onClick={() => selfieInputRef.current?.click()} variant="outline" className="w-full border-pink-700 hover:bg-pink-900/20 text-pink-400">
+              📸 Fai un Selfie sul Display
+            </Button>
+            <input ref={selfieInputRef} type="file" accept="image/*" capture="user" className="hidden" onChange={handleSelfieCapture} />
             <Button onClick={() => setShowRequestModal(true)} className="w-full rounded-full bg-gradient-to-r from-fuchsia-600 to-purple-600 py-6 text-lg shadow-lg font-bold"><Music className="w-5 h-5 mr-2" /> Richiedi Canzone</Button>
             <div className="space-y-3"><h3 className="font-bold text-lg flex items-center gap-2"><Music className="w-5 h-5 text-fuchsia-400" /> Prossimi</h3>{queue.filter(s => s.status === "queued").sort((a, b) => (a.position || 0) - (b.position || 0)).slice(0, 5).map((song, index) => (<div key={song.id} className="glass rounded-xl p-4 flex items-center gap-4"><span className="mono text-2xl text-fuchsia-400 font-bold w-8">{index + 1}</span><div className="flex-1 min-w-0"><p className="font-medium truncate">{song.title}</p><p className="text-sm text-zinc-500 truncate">{song.artist}</p></div><span className="text-xs text-cyan-400">{song.user_nickname}</span></div>))}</div>
           </div>
@@ -211,6 +243,21 @@ export default function ClientApp() {
       <Dialog open={showRequestModal} onOpenChange={setShowRequestModal}><DialogContent className="bg-zinc-900 border-zinc-800"><DialogHeader><DialogTitle>Richiedi Canzone</DialogTitle></DialogHeader><form onSubmit={handleRequestSong} className="space-y-4 mt-4"><Input value={songTitle} onChange={(e) => setSongTitle(e.target.value)} placeholder="Titolo" className="bg-zinc-800 border-zinc-700"/><Input value={songArtist} onChange={(e) => setSongArtist(e.target.value)} placeholder="Artista" className="bg-zinc-800 border-zinc-700"/><Input value={songYoutubeUrl} onChange={(e) => setSongYoutubeUrl(e.target.value)} placeholder="Link YouTube (facoltativo)" className="bg-zinc-800 border-zinc-700"/><Button type="submit" className="w-full bg-fuchsia-600 hover:bg-fuchsia-700">Invia</Button></form></DialogContent></Dialog>
       <Dialog open={showVoteModal} onOpenChange={setShowVoteModal}><DialogContent className="bg-zinc-900 border-zinc-800 text-center"><DialogHeader><DialogTitle>Vota l'Esibizione!</DialogTitle></DialogHeader><div className="flex justify-center gap-2 py-4">{[1, 2, 3, 4, 5].map(star => (<button key={star} onClick={() => setSelectedStars(star)}><Star className={`w-10 h-10 ${selectedStars >= star ? 'text-yellow-500 fill-yellow-500' : 'text-zinc-600'}`} /></button>))}</div><Button onClick={handleVote} disabled={selectedStars === 0} className="w-full bg-yellow-500 text-black">Conferma Voto</Button></DialogContent></Dialog>
       <Dialog open={showMessageModal} onOpenChange={setShowMessageModal}><DialogContent className="bg-zinc-900 border-zinc-800"><DialogHeader><DialogTitle>Messaggio al Pub</DialogTitle></DialogHeader><Input value={messageText} onChange={(e) => setMessageText(e.target.value)} placeholder="Scrivi messaggio..." className="bg-zinc-800 border-zinc-700"/><Button onClick={handleSendMessage} className="w-full mt-4 bg-cyan-600 hover:bg-cyan-700">Invia</Button></DialogContent></Dialog>
+      {/* SELFIE MODAL */}
+      <Dialog open={showSelfieModal} onOpenChange={(o) => { setShowSelfieModal(o); if (!o) setSelfiePreview(null); }}>
+        <DialogContent className="bg-zinc-900 border-pink-500/30 max-w-sm w-[90%] rounded-2xl">
+          <DialogHeader><DialogTitle className="text-center text-xl font-bold text-pink-400">📸 Il tuo Selfie</DialogTitle></DialogHeader>
+          {selfiePreview && <img src={selfiePreview} alt="selfie" className="w-full rounded-xl object-cover max-h-64" />}
+          <p className="text-zinc-400 text-xs text-center">Apparirà sul display del locale per 12 secondi</p>
+          <div className="flex gap-2">
+            <Button onClick={() => { setShowSelfieModal(false); setSelfiePreview(null); }} variant="outline" className="flex-1 border-zinc-700">Annulla</Button>
+            <Button onClick={handleSelfieSend} disabled={selfieSending} className="flex-1 bg-pink-600 hover:bg-pink-500 font-bold">
+              {selfieSending ? '...' : '🚀 Manda!'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* MILIONARIO — Aiuto del Pubblico */}
       <Dialog open={showMillionaireModal} onOpenChange={setShowMillionaireModal}>
         <DialogContent className="bg-zinc-900 border-yellow-500/30 max-w-md w-[90%] rounded-2xl">

@@ -916,7 +916,7 @@ const AdminMessageOverlay = ({ message }) => {
     );
 };
 
-const Sidebar = ({ pubCode, queue, leaderboard }) => (
+const Sidebar = ({ pubCode, queue, leaderboard, selfie }) => (
   <div className="dj-sidebar absolute z-[90] flex flex-col gap-[1.5vh]">
       <div className="glass-panel px-4 py-3 rounded-2xl flex items-center gap-4 relative overflow-hidden shrink-0">
           <div className="absolute inset-0 bg-fuchsia-600/5 blur-xl"></div>
@@ -962,47 +962,65 @@ const Sidebar = ({ pubCode, queue, leaderboard }) => (
           </div>
       </div>
 
+      {/* CLASSIFICA o SELFIE */}
       <div className="glass-panel rounded-3xl flex flex-col overflow-hidden relative flex-1">
-          <div className="bg-gradient-to-r from-yellow-500 to-orange-500 px-6 py-4 flex items-center justify-between border-b border-white/10 shrink-0">
-              <div className="flex items-center gap-3">
-                  <Trophy className="w-6 h-6 text-white" />
-                  <span className="font-black text-white text-xl uppercase tracking-wider">Classifica</span>
+          {selfie ? (
+              /* ── SELFIE MODE ── */
+              <div className="flex flex-col h-full">
+                  <div className="bg-gradient-to-r from-pink-500 to-fuchsia-600 px-4 py-3 flex items-center gap-2 border-b border-white/10 shrink-0">
+                      <span className="text-[2vh]">📸</span>
+                      <span className="font-black text-white text-[1.8vh] uppercase tracking-wider truncate">{selfie.nickname}</span>
+                  </div>
+                  <div className="flex-1 relative overflow-hidden">
+                      <img src={selfie.url} alt="selfie" className="w-full h-full object-cover" style={{animation: 'fadeIn 0.5s ease'}} />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                  </div>
               </div>
-          </div>
-          <div className="p-4 space-y-2">
-              {leaderboard && leaderboard.length > 0 ? (
-                  leaderboard.slice(0, 10).map((player, i) => (
-                      <div key={player.id || i} className={`flex items-center gap-3 p-3 rounded-xl ${
-                          i === 0 ? 'bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/30' :
-                          i === 1 ? 'bg-white/5 border border-gray-400/20' :
-                          i === 2 ? 'bg-white/5 border border-amber-600/20' :
-                          'bg-white/5'
-                      }`}>
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm shrink-0 ${
-                              i === 0 ? 'bg-yellow-500 text-black' :
-                              i === 1 ? 'bg-gray-400 text-black' :
-                              i === 2 ? 'bg-amber-700 text-white' :
-                              'bg-white/10 text-white'
-                          }`}>
-                              {i+1}
-                          </div>
-                          {player.avatar_url ? (
-                              <img src={player.avatar_url} alt={player.nickname} className="w-10 h-10 rounded-full border-2 border-yellow-500/50 object-cover shrink-0 shadow-md" />
-                          ) : (
-                              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-fuchsia-600 to-purple-600 flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-md">
-                                  {player.nickname?.charAt(0)?.toUpperCase() || '?'}
-                              </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                              <div className="text-white font-bold text-sm truncate">{player.nickname}</div>
-                          </div>
-                          <div className="font-mono text-cyan-400 font-bold text-sm">{player.score || 0}</div>
+          ) : (
+              /* ── CLASSIFICA MODE ── */
+              <>
+                  <div className="bg-gradient-to-r from-yellow-500 to-orange-500 px-6 py-4 flex items-center justify-between border-b border-white/10 shrink-0">
+                      <div className="flex items-center gap-3">
+                          <Trophy className="w-6 h-6 text-white" />
+                          <span className="font-black text-white text-xl uppercase tracking-wider">Classifica</span>
                       </div>
-                  ))
+                  </div>
+                  <div className="p-4 space-y-2 overflow-hidden">
+                      {leaderboard && leaderboard.length > 0 ? (
+                          leaderboard.slice(0, 10).map((player, i) => (
+                              <div key={player.id || i} className={`flex items-center gap-3 p-3 rounded-xl ${
+                                  i === 0 ? 'bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/30' :
+                                  i === 1 ? 'bg-white/5 border border-gray-400/20' :
+                                  i === 2 ? 'bg-white/5 border border-amber-600/20' :
+                                  'bg-white/5'
+                              }`}>
+                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm shrink-0 ${
+                                      i === 0 ? 'bg-yellow-500 text-black' :
+                                      i === 1 ? 'bg-gray-400 text-black' :
+                                      i === 2 ? 'bg-amber-700 text-white' :
+                                      'bg-white/10 text-white'
+                                  }`}>
+                                      {i+1}
+                                  </div>
+                                  {player.avatar_url ? (
+                                      <img src={player.avatar_url} alt={player.nickname} className="w-10 h-10 rounded-full border-2 border-yellow-500/50 object-cover shrink-0 shadow-md" />
+                                  ) : (
+                                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-fuchsia-600 to-purple-600 flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-md">
+                                          {player.nickname?.charAt(0)?.toUpperCase() || '?'}
+                                      </div>
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                      <div className="text-white font-bold text-sm truncate">{player.nickname}</div>
+                                  </div>
+                                  <div className="font-mono text-cyan-400 font-bold text-sm">{player.score || 0}</div>
+                              </div>
+                          ))
               ) : (
                   <div className="text-white/30 text-center py-8 italic text-sm">Classifica vuota</div>
               )}
           </div>
+              </>
+          )}
       </div>
   </div>
 );
@@ -1597,6 +1615,7 @@ export default function PubDisplay() {
     const [newReaction, setNewReaction] = useState(null);
     const [standby, setStandby]     = useState(true); // schermata di attesa iniziale
     const [lobbyState, setLobbyState] = useState(null); // { type: 'karaoke'|'quiz', data: {} }
+    const [activeSelfie, setActiveSelfie] = useState(null); // { url, nickname }
 
     // Reset lobby quando parte attività reale
     useEffect(() => {
@@ -1688,6 +1707,10 @@ export default function PubDisplay() {
                 }
                 if (p.payload.command === 'clear_millionaire') {
                     setData(prev => prev ? { ...prev, active_millionaire: null } : prev);
+                }
+                if (p.payload.command === 'selfie') {
+                    setActiveSelfie({ url: p.payload.url, nickname: p.payload.nickname });
+                    setTimeout(() => setActiveSelfie(null), 12000);
                 }
                 if (p.payload.command === 'prepare_millionaire') {
                     // Forza reload immediato senza aspettare polling
@@ -1873,7 +1896,7 @@ export default function PubDisplay() {
                 {Content}
             </div>
 
-            <Sidebar pubCode={pubCode} queue={queue} leaderboard={leaderboard} />
+            <Sidebar pubCode={pubCode} queue={queue} leaderboard={leaderboard} selfie={activeSelfie} />
         </div>
     );
 }
