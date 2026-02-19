@@ -1815,7 +1815,6 @@ export default function AdminDashboard() {
                                            <Button size="sm" className="bg-green-600 h-7 flex-1 hover:bg-green-500"
                                                onClick={async () => {
                                                    await supabase.from('pending_selfies').update({ status: 'approved' }).eq('id', s.id);
-                                                   await supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'selfie', url: s.url, nickname: s.nickname }});
                                                    setPendingSelfies(prev => prev.filter(x => x.id !== s.id));
                                                    toast.success('📸 Selfie mandato in onda!');
                                                }}>
