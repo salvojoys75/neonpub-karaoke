@@ -1760,7 +1760,7 @@ export default function AdminDashboard() {
                    <div className="space-y-3">
                        <MillionairePanel
                            eventId={eventId}
-                           participants={leaderboard || []}
+                           participants={onlineParticipants || []}
                            quizCatalog={quizCatalog || []}
                            onGameChange={loadData}
                        />
