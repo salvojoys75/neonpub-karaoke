@@ -955,11 +955,6 @@ const KaraokeLobbyMode = ({ lobbyData }) => (
             ))}
         </div>
 
-        {/* Microfono decorativo */}
-        <div style={{ position: 'relative', zIndex: 1, marginBottom: '28px', fontSize: '5rem',
-            filter: 'drop-shadow(0 0 40px rgba(217,70,239,0.6))',
-            animation: 'pulse 2s ease-in-out infinite' }}>🎤</div>
-
         <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', marginBottom: '32px' }}>
             <div style={{
                 fontFamily: "'Montserrat', sans-serif", fontSize: 'clamp(0.9rem, 2vw, 1.2rem)',
@@ -1511,6 +1506,14 @@ export default function PubDisplay() {
     const [standby, setStandby]     = useState(true); // schermata di attesa iniziale
     const [lobbyState, setLobbyState] = useState(null); // { type: 'karaoke'|'quiz', data: {} }
 
+    // Reset lobby quando parte attività reale
+    useEffect(() => {
+        if (!data) return;
+        const { current_performance: perf, active_quiz: quiz } = data;
+        if (perf && ['live', 'paused', 'voting'].includes(perf.status)) setLobbyState(null);
+        if (quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status)) setLobbyState(null);
+    }, [data]);
+
     // ── Reazioni realtime ────────────────────────────────────────────────────
     useEffect(() => {
         const reactionChannel = supabase.channel('public:reactions')
@@ -1718,7 +1721,6 @@ export default function PubDisplay() {
     const isVoting      = !isQuiz && !isArcade && !isArcadeLobby && perf && perf.status === 'voting';
     const isScore       = !isQuiz && !isArcade && !isArcadeLobby && perf && perf.status === 'ended' && perf.average_score > 0;
 
-    // Reset lobby quando parte attività reale
     const hasRealActivity = isQuiz || isArcade || isKaraoke || isVoting || isScore;
     const isLobbyKaraoke = !hasRealActivity && !isArcadeLobby && lobbyState?.type === 'karaoke';
     const isLobbyQuiz    = !hasRealActivity && !isArcadeLobby && !isLobbyKaraoke && lobbyState?.type === 'quiz';
