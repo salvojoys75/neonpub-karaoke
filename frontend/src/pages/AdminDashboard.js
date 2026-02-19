@@ -704,7 +704,7 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    if (appState === 'dashboard' && libraryTab === 'extraction') {
+    if (appState === 'dashboard' && (libraryTab === 'extraction' || libraryTab === 'challenges')) {
       loadSongPool();
       loadOnlineParticipants();
     }
