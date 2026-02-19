@@ -938,7 +938,117 @@ const KaraokeMode = ({ perf, isMuted }) => (
     </div>
 );
 
-const ArcadeLobbyMode = ({ arcade, pubCode }) => {
+const KaraokeLobbyMode = ({ lobbyData }) => (
+    <div className="w-full h-full flex flex-col items-center justify-center relative overflow-hidden"
+         style={{ background: 'linear-gradient(135deg, #0a0010 0%, #1a0030 50%, #0a0010 100%)' }}>
+        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+            {[...Array(5)].map((_, i) => (
+                <div key={i} style={{
+                    position: 'absolute', borderRadius: '50%',
+                    background: i % 2 === 0
+                        ? 'radial-gradient(circle, rgba(217,70,239,0.12) 0%, transparent 70%)'
+                        : 'radial-gradient(circle, rgba(99,102,241,0.1) 0%, transparent 70%)',
+                    width: `${350 + i * 80}px`, height: `${350 + i * 80}px`,
+                    left: `${8 + i * 18}%`, top: `${5 + i * 10}%`,
+                    animation: `pulse ${3 + i * 0.8}s ease-in-out infinite`, animationDelay: `${i * 0.4}s`,
+                }} />
+            ))}
+        </div>
+
+        {/* Microfono decorativo */}
+        <div style={{ position: 'relative', zIndex: 1, marginBottom: '28px', fontSize: '5rem',
+            filter: 'drop-shadow(0 0 40px rgba(217,70,239,0.6))',
+            animation: 'pulse 2s ease-in-out infinite' }}>🎤</div>
+
+        <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', marginBottom: '32px' }}>
+            <div style={{
+                fontFamily: "'Montserrat', sans-serif", fontSize: 'clamp(0.9rem, 2vw, 1.2rem)',
+                fontWeight: 800, color: 'rgba(217,70,239,0.8)', letterSpacing: '0.4em',
+                textTransform: 'uppercase', marginBottom: '12px',
+            }}>Prossimo sul palco</div>
+            <h1 style={{
+                fontFamily: "'Montserrat', sans-serif", fontSize: 'clamp(2.5rem, 7vw, 6rem)',
+                fontWeight: 900, lineHeight: 1.05, letterSpacing: '-0.02em',
+                color: '#fff', textShadow: '0 0 60px rgba(217,70,239,0.5)',
+            }}>{lobbyData?.nickname || '—'}</h1>
+            {lobbyData?.title && (
+                <div style={{
+                    fontFamily: "'Montserrat', sans-serif",
+                    fontSize: 'clamp(1.2rem, 3vw, 2.2rem)',
+                    fontWeight: 700, marginTop: '12px',
+                    background: 'linear-gradient(135deg, #d946ef, #818cf8)',
+                    WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
+                }}>canta {lobbyData.title}{lobbyData.artist ? ` — ${lobbyData.artist}` : ''}</div>
+            )}
+        </div>
+    </div>
+);
+
+const QuizLobbyMode = ({ lobbyData }) => (
+    <div className="w-full h-full flex flex-col items-center justify-center relative overflow-hidden"
+         style={{ background: 'linear-gradient(135deg, #000a1a 0%, #001530 50%, #000a1a 100%)' }}>
+        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+            {[...Array(5)].map((_, i) => (
+                <div key={i} style={{
+                    position: 'absolute', borderRadius: '50%',
+                    background: i % 2 === 0
+                        ? 'radial-gradient(circle, rgba(59,130,246,0.12) 0%, transparent 70%)'
+                        : 'radial-gradient(circle, rgba(139,92,246,0.1) 0%, transparent 70%)',
+                    width: `${350 + i * 80}px`, height: `${350 + i * 80}px`,
+                    left: `${8 + i * 18}%`, top: `${5 + i * 10}%`,
+                    animation: `pulse ${3 + i * 0.8}s ease-in-out infinite`, animationDelay: `${i * 0.4}s`,
+                }} />
+            ))}
+        </div>
+
+        {/* Equalizzatore decorativo */}
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-end', height: '55px', marginBottom: '28px', position: 'relative', zIndex: 1 }}>
+            {[40,65,30,80,55,70,35,90,50,75,40,60].map((h, i) => (
+                <div key={i} style={{
+                    width: '8px', height: `${h}%`, borderRadius: '4px',
+                    background: 'linear-gradient(to top, #3b82f6, #8b5cf6)',
+                    animation: `v2bounce ${0.6 + (i % 4) * 0.15}s ease-in-out infinite alternate`,
+                    animationDelay: `${i * 0.08}s`, opacity: 0.8,
+                }} />
+            ))}
+        </div>
+
+        <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', marginBottom: '32px' }}>
+            <div style={{
+                fontFamily: "'Montserrat', sans-serif", fontSize: 'clamp(0.9rem, 2vw, 1.2rem)',
+                fontWeight: 800, color: 'rgba(99,102,241,0.8)', letterSpacing: '0.4em',
+                textTransform: 'uppercase', marginBottom: '12px',
+            }}>Nuovo Gioco</div>
+            <h1 style={{
+                fontFamily: "'Montserrat', sans-serif", fontSize: 'clamp(3rem, 8vw, 7rem)',
+                fontWeight: 900, lineHeight: 1, textTransform: 'uppercase', letterSpacing: '-0.02em',
+                background: 'linear-gradient(135deg, #3b82f6, #8b5cf6, #06b6d4)',
+                WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
+                filter: 'drop-shadow(0 0 40px rgba(99,102,241,0.5))',
+            }}>Music<br/>Quiz</h1>
+        </div>
+
+        <div style={{
+            position: 'relative', zIndex: 1, display: 'flex', gap: '20px',
+            flexWrap: 'wrap', justifyContent: 'center', maxWidth: '860px',
+        }}>
+            {['Leggi la domanda', 'Rispondi dal telefono'].map((testo, i) => (
+                <div key={i} style={{
+                    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(99,102,241,0.25)',
+                    borderRadius: '16px', padding: '18px 32px', backdropFilter: 'blur(10px)',
+                }}>
+                    <span style={{
+                        fontFamily: "'Montserrat', sans-serif", fontWeight: 700,
+                        fontSize: 'clamp(1rem, 2vw, 1.3rem)', color: 'rgba(255,255,255,0.85)',
+                        letterSpacing: '0.02em',
+                    }}>{testo}</span>
+                </div>
+            ))}
+        </div>
+    </div>
+);
+
+
     const bookings = arcade?.booking_queue || [];
     return (
     <div className="w-full h-full flex flex-col items-center justify-center relative overflow-hidden"
@@ -1010,31 +1120,24 @@ const ArcadeLobbyMode = ({ arcade, pubCode }) => {
         <div style={{
             position: 'relative', zIndex: 1,
             display: 'flex', gap: '20px', marginBottom: '40px',
-            flexWrap: 'wrap', justifyContent: 'center', maxWidth: '800px',
+            flexWrap: 'wrap', justifyContent: 'center', maxWidth: '860px',
         }}>
             {[
-                { n: '1', testo: 'Prenota il tuo posto dal telefono' },
-                { n: '2', testo: 'Ascolta la canzone misteriosa' },
-                { n: '3', testo: 'Scrivi il titolo più veloce di tutti' },
-            ].map(({ n, testo }) => (
-                <div key={n} style={{
+                { testo: 'Ascolta la canzone' },
+                { testo: 'Prenota subito dal telefono' },
+            ].map(({ testo }, i) => (
+                <div key={i} style={{
                     display: 'flex', alignItems: 'center', gap: '12px',
                     background: 'rgba(255,255,255,0.05)',
                     border: '1px solid rgba(167,139,250,0.2)',
-                    borderRadius: '16px', padding: '14px 20px',
+                    borderRadius: '16px', padding: '18px 32px',
                     backdropFilter: 'blur(10px)',
                 }}>
-                    <div style={{
-                        width: '36px', height: '36px', borderRadius: '50%', flexShrink: 0,
-                        background: 'linear-gradient(135deg, #7c3aed, #ec4899)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontFamily: "'Montserrat', sans-serif",
-                        fontWeight: 900, fontSize: '18px', color: '#fff',
-                    }}>{n}</div>
                     <span style={{
                         fontFamily: "'Montserrat', sans-serif",
-                        fontWeight: 600, fontSize: 'clamp(0.85rem, 1.8vw, 1.1rem)',
+                        fontWeight: 700, fontSize: 'clamp(1rem, 2vw, 1.3rem)',
                         color: 'rgba(255,255,255,0.85)',
+                        letterSpacing: '0.02em',
                     }}>{testo}</span>
                 </div>
             ))}
@@ -1405,6 +1508,7 @@ export default function PubDisplay() {
     const [quizResult, setQuizResult] = useState(null);
     const [newReaction, setNewReaction] = useState(null);
     const [standby, setStandby]     = useState(true); // schermata di attesa iniziale
+    const [lobbyState, setLobbyState] = useState(null); // { type: 'karaoke'|'quiz', data: {} }
 
     // ── Reazioni realtime ────────────────────────────────────────────────────
     useEffect(() => {
@@ -1471,6 +1575,17 @@ export default function PubDisplay() {
                 }
                 if (p.payload.command === 'start_sottofondo') {
                     triggerManualRef.current?.('start_sottofondo');
+                }
+                if (p.payload.command === 'prepare_karaoke') {
+                    setStandby(false);
+                    setLobbyState({ type: 'karaoke', data: p.payload });
+                }
+                if (p.payload.command === 'prepare_quiz') {
+                    setStandby(false);
+                    setLobbyState({ type: 'quiz', data: p.payload });
+                }
+                if (p.payload.command === 'clear_lobby') {
+                    setLobbyState(null);
                 }
                 if (p.payload.command === 'play_media') {
                     console.log('🎬 play_media:', p.payload.key);
@@ -1602,13 +1717,20 @@ export default function PubDisplay() {
     const isVoting      = !isQuiz && !isArcade && !isArcadeLobby && perf && perf.status === 'voting';
     const isScore       = !isQuiz && !isArcade && !isArcadeLobby && perf && perf.status === 'ended' && perf.average_score > 0;
 
+    // Reset lobby quando parte attività reale
+    const hasRealActivity = isQuiz || isArcade || isKaraoke || isVoting || isScore;
+    const isLobbyKaraoke = !hasRealActivity && !isArcadeLobby && lobbyState?.type === 'karaoke';
+    const isLobbyQuiz    = !hasRealActivity && !isArcadeLobby && !isLobbyKaraoke && lobbyState?.type === 'quiz';
+
     let Content = null;
-    if (isQuiz)         Content = <QuizMode quiz={quiz} result={quizResult} />;
-    else if (isArcadeLobby) Content = <ArcadeLobbyMode arcade={data.active_arcade} pubCode={pubCode} />;
-    else if (isArcade)  Content = <ArcadeMode arcade={data.active_arcade || {}} result={data.arcade_result} bookingQueue={data.active_arcade?.booking_queue || []} lastError={data.active_arcade?.last_error} />;
-    else if (isVoting)  Content = <VotingMode perf={perf} />;
-    else if (isScore)   Content = <ScoreMode perf={perf} pubCode={pubCode} />;
-    else if (isKaraoke) Content = <KaraokeMode perf={perf} isMuted={isMuted} />;
+    if (isQuiz)           Content = <QuizMode quiz={quiz} result={quizResult} />;
+    else if (isArcadeLobby)  Content = <ArcadeLobbyMode arcade={data.active_arcade} pubCode={pubCode} />;
+    else if (isArcade)    Content = <ArcadeMode arcade={data.active_arcade || {}} result={data.arcade_result} bookingQueue={data.active_arcade?.booking_queue || []} lastError={data.active_arcade?.last_error} />;
+    else if (isLobbyKaraoke) Content = <KaraokeLobbyMode lobbyData={lobbyState.data} />;
+    else if (isLobbyQuiz)    Content = <QuizLobbyMode lobbyData={lobbyState.data} />;
+    else if (isVoting)    Content = <VotingMode perf={perf} />;
+    else if (isScore)     Content = <ScoreMode perf={perf} pubCode={pubCode} />;
+    else if (isKaraoke)   Content = <KaraokeMode perf={perf} isMuted={isMuted} />;
     else Content = <IdleMode pub={pub} />;
 
     return (

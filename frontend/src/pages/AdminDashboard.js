@@ -1488,6 +1488,13 @@ export default function AdminDashboard() {
                                   <Button size="sm" className="bg-fuchsia-600 h-7" onClick={() => { 
                                       setSelectedRequest(req); setYoutubeSearchResults([]); setYoutubeUrl(req.youtube_url || ""); setShowYoutubeModal(true);
                                       if(!req.youtube_url) setTimeout(() => searchYouTube(`${req.title} ${req.artist} karaoke`), 100);
+                                      // Prepara display con schermata lobby
+                                      supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: {
+                                          command: 'prepare_karaoke',
+                                          nickname: req.user_nickname,
+                                          title: req.title,
+                                          artist: req.artist,
+                                      }}).catch(() => {});
                                   }}><Play className="w-3 h-3 mr-1" /> LIVE</Button>
                               </div>
                            </div>
@@ -1663,19 +1670,28 @@ export default function AdminDashboard() {
                                     ))}
                                 </div>
                                 {!quizPreviewLaunched ? (
-                                    <div className="flex gap-2">
-                                        <Button size="sm" className="flex-1 bg-fuchsia-600 hover:bg-fuchsia-500 font-bold h-8"
-                                            onClick={() => doLaunchQuiz(quizPreviewItem)}>
-                                            <Play className="w-3 h-3 mr-1"/> LANCIA IN DISPLAY
-                                        </Button>
-                                        <Button size="sm" variant="outline" className="h-8 px-3 border-zinc-600 text-zinc-400 hover:text-white hover:border-zinc-400"
-                                            title="Mute sottofondo display"
+                                    <div className="flex flex-col gap-2">
+                                        <Button size="sm" className="w-full bg-zinc-700 hover:bg-zinc-600 font-bold h-8"
                                             onClick={() => {
-                                                supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'stop_sottofondo' } }).catch(() => {});
-                                                toast.success('🔇 Sottofondo muto');
+                                                supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'prepare_quiz' }}).catch(() => {});
+                                                toast.success('📺 Display preparato');
                                             }}>
-                                            <VolumeX className="w-3 h-3"/>
+                                            📺 Prepara Display
                                         </Button>
+                                        <div className="flex gap-2">
+                                            <Button size="sm" className="flex-1 bg-fuchsia-600 hover:bg-fuchsia-500 font-bold h-8"
+                                                onClick={() => doLaunchQuiz(quizPreviewItem)}>
+                                                <Play className="w-3 h-3 mr-1"/> LANCIA DOMANDA
+                                            </Button>
+                                            <Button size="sm" variant="outline" className="h-8 px-3 border-zinc-600 text-zinc-400 hover:text-white hover:border-zinc-400"
+                                                title="Mute sottofondo display"
+                                                onClick={() => {
+                                                    supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'stop_sottofondo' } }).catch(() => {});
+                                                    toast.success('🔇 Sottofondo muto');
+                                                }}>
+                                                <VolumeX className="w-3 h-3"/>
+                                            </Button>
+                                        </div>
                                     </div>
                                 ) : (
                                     <div className="text-center text-xs text-green-400 font-medium py-0.5">
