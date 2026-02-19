@@ -11,6 +11,82 @@ import FloatingReactions from '@/components/FloatingReactions';
 import ExtractionMode from '@/components/ExtractionMode';
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SOUNDS — Web Audio API, nessun file esterno
+// ─────────────────────────────────────────────────────────────────────────────
+const playSound = (type) => {
+    try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const t = ctx.currentTime;
+
+        if (type === 'quiz_suspense') {
+            // Battito cuore stile Chi vuol essere milionario — pulsante, ipnotico
+            const pulse = (start, vol) => {
+                const o = ctx.createOscillator(); const g = ctx.createGain();
+                o.connect(g); g.connect(ctx.destination);
+                o.type = 'sine'; o.frequency.setValueAtTime(60, t + start);
+                g.gain.setValueAtTime(0, t + start);
+                g.gain.linearRampToValueAtTime(vol, t + start + 0.04);
+                g.gain.exponentialRampToValueAtTime(0.001, t + start + 0.25);
+                o.start(t + start); o.stop(t + start + 0.3);
+                // click
+                const o2 = ctx.createOscillator(); const g2 = ctx.createGain();
+                o2.connect(g2); g2.connect(ctx.destination);
+                o2.type = 'square'; o2.frequency.value = 200;
+                g2.gain.setValueAtTime(0.08, t + start); g2.gain.exponentialRampToValueAtTime(0.001, t + start + 0.06);
+                o2.start(t + start); o2.stop(t + start + 0.07);
+            };
+            // Accelerazione graduale — si ripete ogni 0.9s poi 0.7s poi 0.5s poi 0.4s
+            const times = [0, 0.9, 1.8, 2.5, 3.2, 3.9, 4.5, 5.0, 5.5, 5.9, 6.3, 6.6, 6.9, 7.1, 7.3];
+            times.forEach((s, i) => pulse(s, 0.25 + i * 0.02));
+        }
+
+        if (type === 'timeout') {
+            // Bzzzt — tempo scaduto
+            const o = ctx.createOscillator(); const g = ctx.createGain();
+            o.connect(g); g.connect(ctx.destination);
+            o.type = 'sawtooth';
+            o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(60, t + 0.6);
+            g.gain.setValueAtTime(0.3, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+            o.start(t); o.stop(t + 0.7);
+        }
+
+        if (type === 'correct') {
+            // Fanfara breve — risposta esatta
+            const notes = [523, 659, 784, 1047];
+            notes.forEach((freq, i) => {
+                const o = ctx.createOscillator(); const g = ctx.createGain();
+                o.connect(g); g.connect(ctx.destination);
+                o.type = 'triangle'; o.frequency.value = freq;
+                g.gain.setValueAtTime(0, t + i * 0.12);
+                g.gain.linearRampToValueAtTime(0.25, t + i * 0.12 + 0.04);
+                g.gain.exponentialRampToValueAtTime(0.001, t + i * 0.12 + 0.35);
+                o.start(t + i * 0.12); o.stop(t + i * 0.12 + 0.4);
+            });
+        }
+
+        if (type === 'leaderboard') {
+            // Drumroll + fanfara classifica
+            for (let i = 0; i < 12; i++) {
+                const o = ctx.createOscillator(); const g = ctx.createGain();
+                o.connect(g); g.connect(ctx.destination);
+                o.type = 'square'; o.frequency.value = i % 2 === 0 ? 200 : 250;
+                const s = i * 0.08;
+                g.gain.setValueAtTime(0.06, t + s); g.gain.exponentialRampToValueAtTime(0.001, t + s + 0.07);
+                o.start(t + s); o.stop(t + s + 0.08);
+            }
+            [523, 659, 784, 1047, 1319].forEach((freq, i) => {
+                const o = ctx.createOscillator(); const g = ctx.createGain();
+                o.connect(g); g.connect(ctx.destination);
+                o.type = 'triangle'; o.frequency.value = freq;
+                const s = 1.1 + i * 0.13;
+                g.gain.setValueAtTime(0.3, t + s); g.gain.exponentialRampToValueAtTime(0.001, t + s + 0.4);
+                o.start(t + s); o.stop(t + s + 0.5);
+            });
+        }
+    } catch(e) {}
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MEDIA ORCHESTRATOR
 // Gestisce sigla, applausi, estrazione, transizioni e sottofondo
 // FILE ATTESI in /public/media/ :
@@ -1290,6 +1366,24 @@ const ScoreMode = ({ perf, pubCode }) => {
 };
 
 const QuizMode = ({ quiz, result }) => {
+    const prevStatusRef = useRef(null);
+
+    useEffect(() => {
+        const prev = prevStatusRef.current;
+        const curr = quiz?.status;
+        // Suono suspense quando parte la domanda testuale
+        if (curr === 'active' && prev !== 'active') {
+            if (!quiz.media_url || quiz.media_type === 'text') playSound('quiz_suspense');
+        }
+        // Suono tempo scaduto
+        if (curr === 'closed' && prev === 'active') playSound('timeout');
+        // Suono risposta esatta
+        if (curr === 'showing_results' && prev === 'closed') playSound('correct');
+        // Suono classifica
+        if (curr === 'leaderboard' && prev !== 'leaderboard') playSound('leaderboard');
+        prevStatusRef.current = curr;
+    }, [quiz?.status]);
+
     const getYtId = (url) => {
         if (!url) return null;
         const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;

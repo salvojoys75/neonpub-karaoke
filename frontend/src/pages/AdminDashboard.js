@@ -1005,24 +1005,18 @@ export default function AdminDashboard() {
   }, [showModulesModal]);
 
   const MUSIC_CATEGORIES = [
-    { id: 'all', label: 'Tutti' },
-    { id: 'intro', label: 'Intro' },
-    { id: 'lyrics', label: 'Testi' },
-    { id: 'video', label: 'Videoclip' },
-    { id: 'cover', label: 'Cover' },
-    { id: 'anno', label: 'Anno' },
-    { id: 'artista', label: 'Artista' },
+    { id: 'all',   label: 'Tutti' },
+    { id: 'text',  label: 'Testo' },
+    { id: 'audio', label: 'Audio' },
+    { id: 'video', label: 'Video' },
   ];
 
   const filteredCatalog = quizCatalog.filter(item => {
       if (quizCategoryFilter === 'all') return true;
-      const cat = (item.category || '').toLowerCase();
-      if (quizCategoryFilter === 'intro' && (cat.includes('intro') || cat.includes('indovina') || item.media_type === 'audio')) return true;
-      if (quizCategoryFilter === 'video' && (cat.includes('video') || cat.includes('clip') || cat.includes('cinema') || item.media_type === 'video')) return true;
-      if (quizCategoryFilter === 'lyrics' && (cat.includes('testo') || cat.includes('lyrics') || cat.includes('parole'))) return true;
-      if (quizCategoryFilter === 'cover' && (cat.includes('cover') || cat.includes('originale'))) return true;
-      if (quizCategoryFilter === 'anno' && (cat.includes('anno') || cat.includes('decade') || cat.includes('epoca'))) return true;
-      if (quizCategoryFilter === 'artista' && (cat.includes('artista') || cat.includes('cantante') || cat.includes('band') || cat.includes('chi'))) return true;
+      const mt = (item.media_type || 'text').toLowerCase();
+      if (quizCategoryFilter === 'text'  && (!mt || mt === 'text' || mt === 'testo')) return true;
+      if (quizCategoryFilter === 'audio' && (mt === 'audio' || mt === 'spotify' || mt === 'intro')) return true;
+      if (quizCategoryFilter === 'video' && (mt === 'video' || mt === 'youtube' || mt === 'videoclip')) return true;
       return false;
   });
 
