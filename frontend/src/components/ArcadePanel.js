@@ -119,6 +119,39 @@ export default function ArcadePanel({
   // CREA GIOCO
   // ============================================================
 
+  const handlePrepareGame = async () => {
+    if (!selectedTrack) { toast.error('Seleziona una traccia!'); return; }
+    setLoading(true);
+    try {
+      const correctAnswer = selectedTrack.options[selectedTrack.correct_index];
+      const { data } = await api.createArcadeGame({
+        gameType: 'song_guess',
+        trackId: selectedTrack.media_url,
+        trackTitle: correctAnswer,
+        trackArtist: '',
+        trackUrl: selectedTrack.media_url,
+        correctAnswer: correctAnswer.toLowerCase().trim(),
+        pointsReward: selectedTrack.points || 100,
+        maxAttempts: 5,
+        penaltySeconds: 10,
+        mediaType: selectedTrack.media_type === 'spotify' ? 'spotify' : 'youtube',
+        category: selectedTrack.category || 'Generale',
+        question: selectedTrack.question || 'Indovina la canzone!',
+        options: selectedTrack.options || []
+      });
+      setActiveGame(data);
+      setShowSetup(false);
+      setSelectedTrack(null);
+      setSearchQuery('');
+      setIsPlayerVisible(true);
+      toast.success('📺 Schermata preparata! I giocatori possono prenotarsi.');
+    } catch (error) {
+      toast.error('Errore: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleCreateGame = async () => {
     if (!selectedTrack) { toast.error('Seleziona una traccia!'); return; }
     setLoading(true);
@@ -447,7 +480,7 @@ export default function ArcadePanel({
                 <div className="text-xs text-zinc-500 mt-1">{selectedTrack.category} • {selectedTrack.points || 100} punti</div>
                 <div className="mt-2 pt-2 border-t border-fuchsia-800">
                   <p className="text-xs text-fuchsia-300">
-                    💡 Fai PLAY sul player Spotify sopra prima di cliccare "Crea & Avvia"
+                    💡 Fai PLAY sul player Spotify sopra prima di preparare il display
                   </p>
                 </div>
               </div>
@@ -464,11 +497,11 @@ export default function ArcadePanel({
               </Button>
               <Button
                 size="sm"
-                onClick={handleCreateGame}
+                onClick={handlePrepareGame}
                 disabled={!selectedTrack || loading}
-                className="flex-1 bg-green-600 hover:bg-green-500"
+                className="flex-1 bg-fuchsia-700 hover:bg-fuchsia-600"
               >
-                {loading ? 'Creazione...' : 'Crea & Avvia'}
+                {loading ? 'Preparazione...' : '📺 Prepara Display'}
               </Button>
             </div>
           </div>
@@ -500,11 +533,13 @@ export default function ArcadePanel({
             <div className={`w-3 h-3 rounded-full animate-pulse ${
               activeGame.status === 'active' ? 'bg-green-500' :
               activeGame.status === 'paused' ? 'bg-yellow-500' :
+              activeGame.status === 'setup' ? 'bg-fuchsia-500' :
               'bg-zinc-600'
             }`} />
             <span className="text-xs uppercase font-bold text-zinc-400">
               {activeGame.status === 'active' ? '🔴 IN ONDA' :
-               activeGame.status === 'paused' ? '⏸️ IN PAUSA' : '⏳'}
+               activeGame.status === 'paused' ? '⏸️ IN PAUSA' :
+               activeGame.status === 'setup' ? '📺 DISPLAY PRONTO' : '⏳'}
             </span>
           </div>
           <div className="flex items-center gap-2 text-xs text-zinc-500">
@@ -517,6 +552,16 @@ export default function ArcadePanel({
           Risposta: {activeGame.correct_answer}
         </div>
       </div>
+
+      {/* TASTO LANCIA se in setup */}
+      {activeGame.status === 'setup' && (
+        <Button
+          className="w-full bg-green-600 hover:bg-green-500 font-bold text-lg h-14"
+          onClick={() => handleStartGame(activeGame.id)}
+        >
+          <Play className="w-5 h-5 mr-2" /> Lancia il Gioco!
+        </Button>
+      )}
 
       {/* PLAYER */}
       {renderPlayer(activeGame)}
