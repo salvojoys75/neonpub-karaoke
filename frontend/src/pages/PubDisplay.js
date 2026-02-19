@@ -9,6 +9,7 @@ import ArcadeMode from '@/components/ArcadeMode';
 import KaraokePlayer from '@/components/KaraokePlayer';
 import FloatingReactions from '@/components/FloatingReactions';
 import ExtractionMode from '@/components/ExtractionMode';
+import MillionaireMode from '@/components/MillionaireMode';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SOUNDS — Web Audio API, nessun file esterno
@@ -97,14 +98,17 @@ function getActiveMode(data) {
   if (!data) return 'loading';
   const { current_performance: perf, active_quiz: quiz, extraction_data } = data;
   const arcade = data.active_arcade;
+  const millionaire = data.active_millionaire;
   if (extraction_data) return 'extraction';
   const isQuiz   = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
   const isArcade = (arcade && ['active', 'paused', 'setup', 'waiting'].includes(arcade.status)) || !!data.arcade_result;
-  const isKaraoke = !isQuiz && !isArcade && perf && ['live', 'paused'].includes(perf.status);
-  const isVoting  = !isQuiz && !isArcade && perf && perf.status === 'voting';
-  const isScore   = !isQuiz && !isArcade && perf && perf.status === 'ended';
-  if (isQuiz)   return 'quiz';
-  if (isArcade) return 'arcade';
+  const isMillionaire = millionaire && ['active', 'lifeline_audience', 'won', 'lost', 'retired'].includes(millionaire.status);
+  const isKaraoke = !isQuiz && !isArcade && !isMillionaire && perf && ['live', 'paused'].includes(perf.status);
+  const isVoting  = !isQuiz && !isArcade && !isMillionaire && perf && perf.status === 'voting';
+  const isScore   = !isQuiz && !isArcade && !isMillionaire && perf && perf.status === 'ended';
+  if (isQuiz)        return 'quiz';
+  if (isArcade)      return 'arcade';
+  if (isMillionaire) return 'millionaire';
   if (isKaraoke || isVoting) return 'karaoke';
   if (isScore)  return 'score';
   return 'idle';
@@ -1617,6 +1621,12 @@ export default function PubDisplay() {
                     finalData = { ...finalData, active_arcade: { ...arcade, booking_queue: pendingQueue, last_error: recentErrors?.[0] || null } };
                 }
 
+                // Millionaire
+                const { data: millionaire } = await api.getActiveMillionaireGame(finalData.pub.id);
+                if (millionaire) {
+                    finalData = { ...finalData, active_millionaire: millionaire };
+                }
+
                 setData(finalData);
             }
         } catch(e) { console.error(e); }
@@ -1653,6 +1663,9 @@ export default function PubDisplay() {
                 }
                 if (p.payload.command === 'clear_arcade') {
                     setData(prev => prev ? { ...prev, arcade_result: null, active_arcade: null } : prev);
+                }
+                if (p.payload.command === 'clear_millionaire') {
+                    setData(prev => prev ? { ...prev, active_millionaire: null } : prev);
                 }
                 if (p.payload.command === 'play_media') {
                     console.log('🎬 play_media:', p.payload.key);
@@ -1777,19 +1790,22 @@ export default function PubDisplay() {
     );
 
     const recentMessages = approved_messages ? approved_messages.slice(0, 10) : [];
-    const isQuiz        = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
-    const isArcadeLobby = !isQuiz && data.active_arcade && ['setup', 'waiting'].includes(data.active_arcade.status);
-    const isArcade      = !isQuiz && !isArcadeLobby && ((data.active_arcade && ['active', 'paused'].includes(data.active_arcade.status)) || !!data.arcade_result);
-    const isKaraoke     = !isQuiz && !isArcade && !isArcadeLobby && perf && ['live', 'paused'].includes(perf.status);
-    const isVoting      = !isQuiz && !isArcade && !isArcadeLobby && perf && perf.status === 'voting';
-    const isScore       = !isQuiz && !isArcade && !isArcadeLobby && perf && perf.status === 'ended' && perf.average_score > 0;
+    const millionaire = data.active_millionaire;
+    const isMillionaire = millionaire && ['active','lifeline_audience','won','lost','retired'].includes(millionaire.status);
+    const isQuiz        = !isMillionaire && quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
+    const isArcadeLobby = !isQuiz && !isMillionaire && data.active_arcade && ['setup', 'waiting'].includes(data.active_arcade.status);
+    const isArcade      = !isQuiz && !isArcadeLobby && !isMillionaire && ((data.active_arcade && ['active', 'paused'].includes(data.active_arcade.status)) || !!data.arcade_result);
+    const isKaraoke     = !isQuiz && !isArcade && !isArcadeLobby && !isMillionaire && perf && ['live', 'paused'].includes(perf.status);
+    const isVoting      = !isQuiz && !isArcade && !isArcadeLobby && !isMillionaire && perf && perf.status === 'voting';
+    const isScore       = !isQuiz && !isArcade && !isArcadeLobby && !isMillionaire && perf && perf.status === 'ended' && perf.average_score > 0;
 
-    const hasRealActivity = isQuiz || isArcade || isKaraoke || isVoting || isScore;
+    const hasRealActivity = isQuiz || isArcade || isKaraoke || isVoting || isScore || isMillionaire;
     const isLobbyKaraoke = !hasRealActivity && !isArcadeLobby && lobbyState?.type === 'karaoke';
     const isLobbyQuiz    = !hasRealActivity && !isArcadeLobby && !isLobbyKaraoke && lobbyState?.type === 'quiz';
 
     let Content = null;
-    if (isQuiz)           Content = <QuizMode quiz={quiz} result={quizResult} />;
+    if (isMillionaire)    Content = <MillionaireMode game={millionaire} />;
+    else if (isQuiz)           Content = <QuizMode quiz={quiz} result={quizResult} />;
     else if (isArcadeLobby)  Content = <ArcadeLobbyMode arcade={data.active_arcade} pubCode={pubCode} />;
     else if (isArcade)    Content = <ArcadeMode arcade={data.active_arcade || {}} result={data.arcade_result} bookingQueue={data.active_arcade?.booking_queue || []} lastError={data.active_arcade?.last_error} />;
     else if (isLobbyKaraoke) Content = <KaraokeLobbyMode lobbyData={lobbyState.data} />;

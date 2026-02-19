@@ -961,7 +961,115 @@ export const addCatalogCategoryToPool = async ({ mood = null, genre = null }) =>
   return { count, skipped };
 };
 
-export default {
+export const createMillionaireGame = async (eventId, participantId, questions) => {
+    const { data, error } = await supabase.from('millionaire_games').insert({
+        event_id: eventId, participant_id: participantId,
+        status: 'setup', questions, current_question_index: 0,
+        prize_ladder: [100,200,500,1000,2000,5000,10000,50000,100000,1000000],
+        current_prize: 0,
+    }).select().single();
+    if (error) throw error;
+    return { data };
+};
+
+export const startMillionaireGame = async (gameId) => {
+    const { data, error } = await supabase.from('millionaire_games').update({ status: 'active' }).eq('id', gameId).select().single();
+    if (error) throw error;
+    return { data };
+};
+
+export const answerMillionaire = async (gameId, correct, nextIndex, currentPrize) => {
+    if (!correct) {
+        const { data, error } = await supabase.from('millionaire_games').update({ status: 'lost', ended_at: new Date().toISOString() }).eq('id', gameId).select().single();
+        if (error) throw error;
+        return { data };
+    }
+    const prize_ladder = [100,200,500,1000,2000,5000,10000,50000,100000,1000000];
+    const won = nextIndex >= prize_ladder.length;
+    const { data, error } = await supabase.from('millionaire_games').update({
+        status: won ? 'won' : 'active',
+        current_question_index: nextIndex,
+        current_prize: currentPrize,
+        ended_at: won ? new Date().toISOString() : null,
+    }).eq('id', gameId).select().single();
+    if (error) throw error;
+    return { data };
+};
+
+export const retireMillionaire = async (gameId, currentPrize, participantId) => {
+    const { data, error } = await supabase.from('millionaire_games').update({
+        status: 'retired', current_prize: currentPrize, ended_at: new Date().toISOString()
+    }).eq('id', gameId).select().single();
+    if (error) throw error;
+    // Assegna punti
+    if (participantId && currentPrize > 0) {
+        const { data: p } = await supabase.from('participants').select('score').eq('id', participantId).single();
+        if (p) await supabase.from('participants').update({ score: (p.score || 0) + currentPrize }).eq('id', participantId);
+    }
+    return { data };
+};
+
+export const useLifeline5050 = async (gameId) => {
+    const { data, error } = await supabase.from('millionaire_games').update({ lifeline_5050_used: true }).eq('id', gameId).select().single();
+    if (error) throw error;
+    return { data };
+};
+
+export const useLifelinePass = async (gameId, nextIndex) => {
+    const { data, error } = await supabase.from('millionaire_games').update({
+        lifeline_pass_used: true, current_question_index: nextIndex
+    }).eq('id', gameId).select().single();
+    if (error) throw error;
+    return { data };
+};
+
+export const startAudienceVote = async (gameId) => {
+    await supabase.from('millionaire_votes').delete().eq('game_id', gameId);
+    const { data, error } = await supabase.from('millionaire_games').update({
+        status: 'lifeline_audience', lifeline_audience_used: true, audience_votes: {}
+    }).eq('id', gameId).select().single();
+    if (error) throw error;
+    return { data };
+};
+
+export const submitAudienceVote = async (gameId, participantId, vote) => {
+    const { data, error } = await supabase.from('millionaire_votes').upsert({
+        game_id: gameId, participant_id: participantId, vote
+    }, { onConflict: 'game_id,participant_id' }).select().single();
+    if (error) throw error;
+    return { data };
+};
+
+export const closeAudienceVote = async (gameId) => {
+    const { data: votes } = await supabase.from('millionaire_votes').select('vote').eq('game_id', gameId);
+    const counts = {};
+    (votes || []).forEach(v => { counts[v.vote] = (counts[v.vote] || 0) + 1; });
+    const { data, error } = await supabase.from('millionaire_games').update({
+        status: 'active', audience_votes: counts
+    }).eq('id', gameId).select().single();
+    if (error) throw error;
+    return { data };
+};
+
+export const getActiveMillionaireGame = async (eventId) => {
+    const { data, error } = await supabase.from('millionaire_games')
+        .select('*, participants(nickname, avatar_url)')
+        .eq('event_id', eventId)
+        .in('status', ['setup','active','lifeline_audience','won','lost','retired'])
+        .order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (error) throw error;
+    return { data };
+};
+
+export const endMillionaireGame = async (gameId) => {
+    const { data, error } = await supabase.from('millionaire_games').update({
+        status: 'lost', ended_at: new Date().toISOString()
+    }).eq('id', gameId).select().single();
+    if (error) throw error;
+    return { data };
+};
+
+
     getDisplayData, sendReaction, getActiveArcadeGame, createPub, updateEventSettings, uploadLogo, getPub, joinPub, uploadAvatar, adminLogin, getMe,
     getAllProfiles, updateProfileCredits, createOperatorProfile, toggleUserStatus,
     getEventState, setEventModule, getQuizCatalog, getChallengeCatalog, importQuizCatalog,
@@ -975,5 +1083,6 @@ export default {
     getActiveEventsForUser, deleteQuizQuestion, getQuizModules, loadQuizModule,
     getMyVenues, createVenue, updateVenue, deleteVenue, trackQuizUsage, resetQuizUsageForVenue,
     getRandomSongPool, addSongToPool, updateSongInPool, deleteSongFromPool, importSongsToPool, extractRandomKaraoke, clearExtraction,
-    getSongCatalog, getSongCatalogMoods, getSongCatalogGenres, addSongToCatalog, updateSongInCatalog, deleteSongFromCatalog, importSongsToCatalog, addCatalogSongToPool, addCatalogCategoryToPool
+    getSongCatalog, getSongCatalogMoods, getSongCatalogGenres, addSongToCatalog, updateSongInCatalog, deleteSongFromCatalog, importSongsToCatalog, addCatalogSongToPool, addCatalogCategoryToPool,
+    createMillionaireGame, startMillionaireGame, answerMillionaire, retireMillionaire, useLifeline5050, useLifelinePass, startAudienceVote, submitAudienceVote, closeAudienceVote, getActiveMillionaireGame, endMillionaireGame
 }

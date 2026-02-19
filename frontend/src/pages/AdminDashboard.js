@@ -21,6 +21,7 @@ import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import api, { createPub, updateEventSettings, uploadLogo } from "@/lib/api";
 import ArcadePanel from '@/components/ArcadePanel';
+import MillionairePanel from '@/components/MillionairePanel';
 import TermsModal from '@/components/TermsModal';
 
 // Componente bottone elimina domanda con doppio step — evita cancellazioni accidentali
@@ -1755,13 +1756,12 @@ export default function AdminDashboard() {
 
                {libraryTab === 'challenges' && (
                    <div className="space-y-3">
-                       <h3 className="text-xs font-bold text-zinc-500 uppercase">Catalogo Sfide</h3>
-                       {challenges.length === 0 ? <p className="text-xs text-zinc-600">Nessuna sfida.</p> : challenges.map(c => (
-                           <div key={c.id} className="p-3 bg-zinc-800 rounded flex flex-col gap-1 hover:bg-zinc-700 cursor-pointer border-l-2 border-red-500" onClick={() => toast.info(`Sfida "${c.title}" lanciata! (In arrivo)`)}>
-                               <div className="flex justify-between"><span className="font-bold text-sm text-white">{c.title}</span><Swords className="w-3 h-3 text-red-500" /></div>
-                               <p className="text-xs text-zinc-400">{c.description}</p>
-                           </div>
-                       ))}
+                       <MillionairePanel
+                           eventId={currentEvent?.id}
+                           participants={leaderboard || []}
+                           quizCatalog={quizCatalog || []}
+                           onGameChange={loadData}
+                       />
                    </div>
                )}
 
