@@ -38,6 +38,7 @@ export default function MillionaireMode({ game, onVote, participantId }) {
                 if (p.payload.command === 'millionaire_correct') {
                     setShowCorrect(true);
                     setRemoved5050([]);
+                    setTimeout(() => setShowCorrect(false), 3000);
                 }
                 if (p.payload.command === 'millionaire_wrong') {
                     setShowCorrect(false);

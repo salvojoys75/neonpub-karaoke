@@ -46,7 +46,8 @@ export default function MillionairePanel({ eventId, participants, quizCatalog, o
     // ── SETUP ──────────────────────────────────────────────────
     const handleStartSetup = () => {
         // Auto-seleziona 10 domande casuali dal catalogo
-        const shuffled = [...quizCatalog].sort(() => Math.random() - 0.5).slice(0, 10);
+        const textOnly = quizCatalog.filter(q => !q.media_type || q.media_type === 'text' || q.media_type === 'testo');
+        const shuffled = [...textOnly].sort(() => Math.random() - 0.5).slice(0, 10);
         setSelectedQuestions(shuffled);
         setShowSetup(true);
     };

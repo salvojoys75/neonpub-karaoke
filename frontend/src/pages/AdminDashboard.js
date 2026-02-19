@@ -1591,6 +1591,12 @@ export default function AdminDashboard() {
                                                         <ListOrdered className="w-4 h-4 mr-2"/> MOSTRA CLASSIFICA
                                                     </Button>
                                                 )}
+                                                {quizStatus === 'leaderboard' && (
+                                                    <Button className="bg-zinc-600 hover:bg-zinc-500 font-bold"
+                                                        onClick={() => ctrlQuiz('end')}>
+                                                        <X className="w-4 h-4 mr-2"/> CHIUDI CLASSIFICA
+                                                    </Button>
+                                                )}
                                                 <Button variant="destructive" onClick={() => ctrlQuiz('end')}>
                                                     <MonitorPlay className="w-4 h-4 mr-2"/> CHIUDI E TORNA AL KARAOKE
                                                 </Button>
