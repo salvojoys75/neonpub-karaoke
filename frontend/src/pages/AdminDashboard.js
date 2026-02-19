@@ -165,6 +165,8 @@ export default function AdminDashboard() {
   const [poolFormData, setPoolFormData] = useState({ title: '', artist: '', youtube_url: '', genre: '', decade: '', difficulty: 'facile' });
   const [showImportPoolModal, setShowImportPoolModal] = useState(false);
   const [importPoolText, setImportPoolText] = useState("");
+  const [showQuizCatalogImportModal, setShowQuizCatalogImportModal] = useState(false);
+  const [quizCatalogImportText, setQuizCatalogImportText] = useState("");
   const [extractionMode, setExtractionMode] = useState({ participant: 'random', song: 'random' });
   const [selectedParticipantId, setSelectedParticipantId] = useState(null);
   const [selectedSongId, setSelectedSongId] = useState(null);
@@ -567,6 +569,33 @@ export default function AdminDashboard() {
       loadSongPool();
     } catch (e) {
       toast.error("Errore eliminazione: " + e.message);
+    }
+  };
+
+  const handleImportQuizCatalog = async () => {
+    try {
+      const parsed = JSON.parse(quizCatalogImportText);
+      if (!Array.isArray(parsed)) throw new Error("Formato non valido");
+      let count = 0;
+      for (const q of parsed) {
+        if (!q.question || !q.options || q.correct_index === undefined) continue;
+        await supabase.from('quiz_catalog').insert({
+          category: q.category || 'Music Milionario',
+          question: q.question,
+          options: q.options,
+          correct_index: q.correct_index,
+          points: q.points || 10,
+          media_type: q.media_type || 'text',
+          media_url: q.media_url || null,
+          is_active: true,
+        });
+        count++;
+      }
+      toast.success(`${count} domande aggiunte al catalogo quiz!`);
+      setShowQuizCatalogImportModal(false);
+      setQuizCatalogImportText("");
+    } catch (e) {
+      toast.error("Errore import: " + e.message);
     }
   };
 
@@ -1524,7 +1553,7 @@ export default function AdminDashboard() {
                                 <Dices className="w-3 h-3 mr-1"/> Carica Modulo
                             </Button>
                         </div>
-                        <Button className="w-full bg-zinc-700 hover:bg-zinc-600 border border-white/10 text-xs mb-4" onClick={()=>setShowAdminCatalogImportModal(true)}>
+                        <Button className="w-full bg-zinc-700 hover:bg-zinc-600 border border-white/10 text-xs mb-4" onClick={()=>setShowQuizCatalogImportModal(true)}>
                             <FileJson className="w-3 h-3 mr-1"/> Importa JSON in Catalogo
                         </Button>
 
@@ -2534,9 +2563,27 @@ export default function AdminDashboard() {
       </Dialog>
 
       {/* MODALE IMPORT POOL JSON */}
-      <Dialog open={showImportPoolModal} onOpenChange={setShowImportPoolModal}>
+      {/* MODAL IMPORT DOMANDE QUIZ CATALOGO */}
+      <Dialog open={showQuizCatalogImportModal} onOpenChange={setShowQuizCatalogImportModal}>
           <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
-              <DialogHeader><DialogTitle>Importa Canzoni Pool (JSON)</DialogTitle></DialogHeader>
+              <DialogHeader><DialogTitle>🎯 Importa Domande Quiz nel Catalogo</DialogTitle></DialogHeader>
+              <div className="space-y-4 pt-4">
+                  <p className="text-xs text-zinc-500">Le domande verranno aggiunte al catalogo globale con categoria <span className="text-yellow-400 font-bold">Music Milionario</span> (o quella specificata nel JSON).</p>
+                  <p className="text-[10px] text-zinc-600 font-mono bg-zinc-950 p-2 rounded">{`[ { "question": "...", "options": ["A","B","C","D"], "correct_index": 0, "category": "Music Milionario", "points": 10 } ]`}</p>
+                  <Textarea
+                      value={quizCatalogImportText}
+                      onChange={e => setQuizCatalogImportText(e.target.value)}
+                      placeholder="Incolla JSON domande qui..."
+                      className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"
+                  />
+                  <Button className="w-full bg-yellow-600 hover:bg-yellow-500 font-bold text-black" onClick={handleImportQuizCatalog}>
+                      <FileJson className="w-4 h-4 mr-2"/> IMPORTA DOMANDE NEL CATALOGO
+                  </Button>
+              </div>
+          </DialogContent>
+      </Dialog>
+
+      <Dialog open={showImportPoolModal} onOpenChange={setShowImportPoolModal}>
               <div className="space-y-4 pt-4">
                   <p className="text-xs text-zinc-500">Formato: {`[ { "title": "...", "artist": "...", "youtube_url": "https://...", "genre": "Pop", "decade": "1980", "difficulty": "facile" } ]`}</p>
                   <Textarea 

@@ -1630,6 +1630,8 @@ export default function PubDisplay() {
             if (data && !shownSelfieIds.current.has(data.id)) {
                 shownSelfieIds.current.add(data.id);
                 setActiveSelfie({ url: data.image_data, nickname: data.nickname });
+                // Cancella dal DB dopo la visualizzazione
+                await supabase.from('pending_selfies').delete().eq('id', data.id);
                 setTimeout(() => setActiveSelfie(null), 12000);
             }
         };
