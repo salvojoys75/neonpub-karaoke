@@ -938,7 +938,168 @@ const KaraokeMode = ({ perf, isMuted }) => (
     </div>
 );
 
-const VotingMode = ({ perf }) => {
+const ArcadeLobbyMode = ({ arcade, pubCode }) => {
+    const bookings = arcade?.booking_queue || [];
+    return (
+    <div className="w-full h-full flex flex-col items-center justify-center relative overflow-hidden"
+         style={{ background: 'linear-gradient(135deg, #0a0a1a 0%, #0d0020 50%, #0a0a1a 100%)' }}>
+
+        {/* Sfondo animato */}
+        <div style={{
+            position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none'
+        }}>
+            {[...Array(6)].map((_, i) => (
+                <div key={i} style={{
+                    position: 'absolute',
+                    borderRadius: '50%',
+                    background: i % 2 === 0
+                        ? 'radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 70%)'
+                        : 'radial-gradient(circle, rgba(236,72,153,0.1) 0%, transparent 70%)',
+                    width: `${300 + i * 80}px`,
+                    height: `${300 + i * 80}px`,
+                    left: `${10 + i * 15}%`,
+                    top: `${5 + i * 12}%`,
+                    animation: `pulse ${3 + i * 0.7}s ease-in-out infinite`,
+                    animationDelay: `${i * 0.5}s`,
+                }} />
+            ))}
+        </div>
+
+        {/* Equalizzatore decorativo in cima */}
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-end', height: '60px', marginBottom: '32px', position: 'relative', zIndex: 1 }}>
+            {[40,65,30,80,55,70,35,90,50,75,40,60].map((h, i) => (
+                <div key={i} style={{
+                    width: '8px',
+                    height: `${h}%`,
+                    borderRadius: '4px',
+                    background: `linear-gradient(to top, #7c3aed, #ec4899)`,
+                    animation: `v2bounce ${0.6 + (i % 4) * 0.15}s ease-in-out infinite alternate`,
+                    animationDelay: `${i * 0.08}s`,
+                    opacity: 0.7,
+                }} />
+            ))}
+        </div>
+
+        {/* Titolo */}
+        <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', marginBottom: '24px' }}>
+            <div style={{
+                fontFamily: "'Montserrat', sans-serif",
+                fontSize: 'clamp(1rem, 2.5vw, 1.4rem)',
+                fontWeight: 800,
+                color: 'rgba(167,139,250,0.8)',
+                letterSpacing: '0.4em',
+                textTransform: 'uppercase',
+                marginBottom: '8px',
+            }}>Nuovo Gioco</div>
+            <h1 style={{
+                fontFamily: "'Montserrat', sans-serif",
+                fontSize: 'clamp(3rem, 8vw, 7rem)',
+                fontWeight: 900,
+                lineHeight: 1,
+                textTransform: 'uppercase',
+                letterSpacing: '-0.02em',
+                background: 'linear-gradient(135deg, #a78bfa, #ec4899, #f59e0b)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text',
+                filter: 'drop-shadow(0 0 40px rgba(167,139,250,0.5))',
+            }}>Indovina<br/>la Hit</h1>
+        </div>
+
+        {/* Spiegazione */}
+        <div style={{
+            position: 'relative', zIndex: 1,
+            display: 'flex', gap: '20px', marginBottom: '40px',
+            flexWrap: 'wrap', justifyContent: 'center', maxWidth: '800px',
+        }}>
+            {[
+                { n: '1', testo: 'Prenota il tuo posto dal telefono' },
+                { n: '2', testo: 'Ascolta la canzone misteriosa' },
+                { n: '3', testo: 'Scrivi il titolo più veloce di tutti' },
+            ].map(({ n, testo }) => (
+                <div key={n} style={{
+                    display: 'flex', alignItems: 'center', gap: '12px',
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(167,139,250,0.2)',
+                    borderRadius: '16px', padding: '14px 20px',
+                    backdropFilter: 'blur(10px)',
+                }}>
+                    <div style={{
+                        width: '36px', height: '36px', borderRadius: '50%', flexShrink: 0,
+                        background: 'linear-gradient(135deg, #7c3aed, #ec4899)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontFamily: "'Montserrat', sans-serif",
+                        fontWeight: 900, fontSize: '18px', color: '#fff',
+                    }}>{n}</div>
+                    <span style={{
+                        fontFamily: "'Montserrat', sans-serif",
+                        fontWeight: 600, fontSize: 'clamp(0.85rem, 1.8vw, 1.1rem)',
+                        color: 'rgba(255,255,255,0.85)',
+                    }}>{testo}</span>
+                </div>
+            ))}
+        </div>
+
+        {/* Prenotati */}
+        <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: '700px', padding: '0 20px' }}>
+            <div style={{
+                background: 'rgba(255,255,255,0.04)',
+                border: '1px solid rgba(167,139,250,0.25)',
+                borderRadius: '20px', padding: '20px 24px',
+                backdropFilter: 'blur(10px)',
+            }}>
+                <div style={{
+                    fontFamily: "'Montserrat', sans-serif",
+                    fontSize: '0.75rem', fontWeight: 700,
+                    color: 'rgba(167,139,250,0.7)',
+                    letterSpacing: '0.3em', textTransform: 'uppercase',
+                    marginBottom: '16px',
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4ade80', display: 'inline-block', boxShadow: '0 0 8px #4ade80', animation: 'pulse 1.5s ease-in-out infinite' }} />
+                    {bookings.length > 0 ? `${bookings.length} prenotati` : 'In attesa di prenotazioni...'}
+                </div>
+                {bookings.length > 0 ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                        {bookings.slice(0, 12).map((b, i) => (
+                            <div key={b.id || i} style={{
+                                display: 'flex', alignItems: 'center', gap: '8px',
+                                background: 'rgba(124,58,237,0.2)',
+                                border: '1px solid rgba(124,58,237,0.4)',
+                                borderRadius: '100px', padding: '6px 14px',
+                                animation: 'celebrationPop 0.3s ease forwards',
+                            }}>
+                                <div style={{
+                                    width: '24px', height: '24px', borderRadius: '50%', flexShrink: 0,
+                                    background: 'linear-gradient(135deg, #7c3aed, #ec4899)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: '11px', fontWeight: 900, color: '#fff',
+                                    fontFamily: "'Montserrat', sans-serif",
+                                }}>
+                                    {b.participants?.nickname?.charAt(0)?.toUpperCase() || '?'}
+                                </div>
+                                <span style={{
+                                    fontFamily: "'Montserrat', sans-serif",
+                                    fontSize: '0.9rem', fontWeight: 700, color: '#fff',
+                                }}>{b.participants?.nickname || 'Giocatore'}</span>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div style={{
+                        fontFamily: "'Montserrat', sans-serif",
+                        fontSize: '1rem', color: 'rgba(255,255,255,0.3)',
+                        textAlign: 'center', padding: '8px 0', fontStyle: 'italic',
+                    }}>Scansiona il QR e prenota il tuo posto!</div>
+                )}
+            </div>
+        </div>
+
+    </div>
+    );
+};
+
+
     useEffect(() => {
         // Suono suspense via Web Audio API — nessun file necessario
         try {
@@ -1280,7 +1441,7 @@ export default function PubDisplay() {
                     const winnerData = winner || { nickname: 'Vincitore', avatar_url: null };
                     finalData = { ...finalData, arcade_result: { winner: winnerData } };
                 }
-                if (arcade && arcade.status === 'active') {
+                if (arcade && ['active', 'setup', 'waiting'].includes(arcade.status)) {
                     const { data: allBookings } = await api.getArcadeBookings(arcade.id);
                     const pendingQueue = allBookings?.filter(b => b.status === 'pending').sort((a, b) => a.booking_order - b.booking_order) || [];
                     const recentErrors = allBookings?.filter(b => b.status === 'wrong').sort((a, b) => new Date(b.validated_at) - new Date(a.validated_at));
@@ -1433,14 +1594,16 @@ export default function PubDisplay() {
     );
 
     const recentMessages = approved_messages ? approved_messages.slice(0, 10) : [];
-    const isQuiz   = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
-    const isArcade = (data.active_arcade && ['active', 'paused'].includes(data.active_arcade.status)) || !!data.arcade_result;
-    const isKaraoke = !isQuiz && !isArcade && perf && ['live', 'paused'].includes(perf.status);
-    const isVoting  = !isQuiz && !isArcade && perf && perf.status === 'voting';
-    const isScore   = !isQuiz && !isArcade && perf && perf.status === 'ended' && perf.average_score > 0;
+    const isQuiz        = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
+    const isArcadeLobby = !isQuiz && data.active_arcade && ['setup', 'waiting'].includes(data.active_arcade.status);
+    const isArcade      = !isQuiz && !isArcadeLobby && ((data.active_arcade && ['active', 'paused'].includes(data.active_arcade.status)) || !!data.arcade_result);
+    const isKaraoke     = !isQuiz && !isArcade && !isArcadeLobby && perf && ['live', 'paused'].includes(perf.status);
+    const isVoting      = !isQuiz && !isArcade && !isArcadeLobby && perf && perf.status === 'voting';
+    const isScore       = !isQuiz && !isArcade && !isArcadeLobby && perf && perf.status === 'ended' && perf.average_score > 0;
 
     let Content = null;
-    if (isQuiz)    Content = <QuizMode quiz={quiz} result={quizResult} />;
+    if (isQuiz)         Content = <QuizMode quiz={quiz} result={quizResult} />;
+    else if (isArcadeLobby) Content = <ArcadeLobbyMode arcade={data.active_arcade} pubCode={pubCode} />;
     else if (isArcade)  Content = <ArcadeMode arcade={data.active_arcade || {}} result={data.arcade_result} bookingQueue={data.active_arcade?.booking_queue || []} lastError={data.active_arcade?.last_error} />;
     else if (isVoting)  Content = <VotingMode perf={perf} />;
     else if (isScore)   Content = <ScoreMode perf={perf} pubCode={pubCode} />;
