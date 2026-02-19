@@ -145,14 +145,19 @@ export default function ClientApp() {
     if (!selfiePreview) return;
     setSelfieSending(true);
     try {
-      await supabase.channel('tv_ctrl_admin_selfie').send({
-        type: 'broadcast', event: 'control',
-        payload: { command: 'selfie_request', url: selfiePreview, nickname: user?.nickname || 'Anonimo' }
+      const token = localStorage.getItem('discojoys_token');
+      const p = token ? JSON.parse(atob(token)) : null;
+      if (!p?.event_id) throw new Error('Evento non trovato');
+      await supabase.from('pending_selfies').insert({
+        event_id: p.event_id,
+        nickname: user?.nickname || 'Anonimo',
+        image_data: selfiePreview,
+        status: 'pending'
       });
-      toast.success("📸 Selfie inviato alla regia per approvazione!");
+      toast.success("📸 Selfie inviato alla regia!");
       setShowSelfieModal(false);
       setSelfiePreview(null);
-    } catch(e) { toast.error("Errore invio selfie"); }
+    } catch(e) { toast.error("Errore: " + e.message); }
     finally { setSelfieSending(false); }
   };
 

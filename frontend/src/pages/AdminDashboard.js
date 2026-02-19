@@ -390,16 +390,20 @@ export default function AdminDashboard() {
     if (appState === 'dashboard') {
       loadData();
       pollIntervalRef.current = setInterval(loadData, 3000);
-      // Ascolta selfie in arrivo
-      const ch = supabase.channel('tv_ctrl_admin_selfie')
-        .on('broadcast', { event: 'control' }, p => {
-          if (p.payload.command === 'selfie_request') {
-            setPendingSelfies(prev => [...prev, {
-              id: Date.now(), url: p.payload.url, nickname: p.payload.nickname
-            }]);
-          }
-        }).subscribe();
-      return () => { clearInterval(pollIntervalRef.current); supabase.removeChannel(ch); };
+      // Ascolta selfie in arrivo via polling DB
+      const loadSelfies = async () => {
+        const pubCode = localStorage.getItem('discojoys_pub_code');
+        if (!pubCode) return;
+        const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
+        if (!event) return;
+        const { data } = await supabase.from('pending_selfies')
+          .select('*').eq('event_id', event.id).eq('status', 'pending')
+          .order('created_at', { ascending: true });
+        if (data) setPendingSelfies(data.map(s => ({ id: s.id, url: s.image_data, nickname: s.nickname })));
+      };
+      loadSelfies();
+      const selfieInterval = setInterval(loadSelfies, 3000);
+      return () => { clearInterval(pollIntervalRef.current); clearInterval(selfieInterval); };
     }
   }, [appState, loadData]);
 
@@ -1802,11 +1806,15 @@ export default function AdminDashboard() {
                                        <img src={s.url} alt="selfie" className="w-full rounded-lg object-cover max-h-40 mb-2" />
                                        <div className="flex gap-2">
                                            <Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-900/20 h-7 flex-1"
-                                               onClick={() => setPendingSelfies(prev => prev.filter(x => x.id !== s.id))}>
+                                               onClick={async () => {
+                                                   await supabase.from('pending_selfies').update({ status: 'rejected' }).eq('id', s.id);
+                                                   setPendingSelfies(prev => prev.filter(x => x.id !== s.id));
+                                               }}>
                                                ❌ Rifiuta
                                            </Button>
                                            <Button size="sm" className="bg-green-600 h-7 flex-1 hover:bg-green-500"
                                                onClick={async () => {
+                                                   await supabase.from('pending_selfies').update({ status: 'approved' }).eq('id', s.id);
                                                    await supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'selfie', url: s.url, nickname: s.nickname }});
                                                    setPendingSelfies(prev => prev.filter(x => x.id !== s.id));
                                                    toast.success('📸 Selfie mandato in onda!');
