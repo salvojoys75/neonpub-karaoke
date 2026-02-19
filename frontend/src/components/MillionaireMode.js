@@ -16,13 +16,17 @@ export default function MillionaireMode({ game, onVote, participantId }) {
     const [audienceOpen, setAudienceOpen] = useState(false);
     const [voted, setVoted] = useState(false);
     const [selectedVote, setSelectedVote] = useState(null);
+    const [liveVotes, setLiveVotes] = useState({});
+    const [showCorrect, setShowCorrect] = useState(false);
 
-    const isDisplay = !participantId; // display vs telefono
+    const isDisplay = !participantId;
 
     const q = game?.questions?.[game.current_question_index];
     const prize = PRIZE_LADDER[game?.current_question_index] || 0;
     const earnedPrize = game?.current_question_index > 0 ? PRIZE_LADDER[game.current_question_index - 1] : 0;
-    const votes = game?.audience_votes || {};
+    
+    // Usa voti live se disponibili, altrimenti quelli dal DB
+    const votes = Object.keys(liveVotes).length > 0 ? liveVotes : (game?.audience_votes || {});
     const totalVotes = Object.values(votes).reduce((a, b) => a + b, 0);
 
     // Ricevi comandi broadcast (solo display)
@@ -31,23 +35,52 @@ export default function MillionaireMode({ game, onVote, participantId }) {
         const ch = supabase.channel('tv_ctrl')
             .on('broadcast', { event: 'control' }, p => {
                 if (p.payload.command === 'millionaire_5050') setRemoved5050(p.payload.removed || []);
-                if (p.payload.command === 'millionaire_correct') setRemoved5050([]);
-                if (p.payload.command === 'millionaire_update') setRemoved5050([]);
+                if (p.payload.command === 'millionaire_correct') {
+                    setShowCorrect(true);
+                    setRemoved5050([]);
+                }
+                if (p.payload.command === 'millionaire_wrong') {
+                    setShowCorrect(false);
+                }
+                if (p.payload.command === 'millionaire_update') {
+                    setRemoved5050([]);
+                    setShowCorrect(false);
+                    setLiveVotes({});
+                }
             })
             .subscribe();
         return () => supabase.removeChannel(ch);
     }, [isDisplay]);
 
-    // Reset 50/50 quando cambia domanda
+    // Reset al cambio domanda
     useEffect(() => {
         setRemoved5050([]);
+        setShowCorrect(false);
+        setLiveVotes({});
     }, [game?.current_question_index]);
 
     // Sync audience state
     useEffect(() => {
         if (game?.status === 'lifeline_audience') setAudienceOpen(true);
-        else if (game?.status === 'active') setAudienceOpen(false);
+        else if (game?.status === 'active') { setAudienceOpen(false); }
     }, [game?.status]);
+
+    // Polling voti live quando audience è aperta (solo display)
+    useEffect(() => {
+        if (!isDisplay || !game?.id) return;
+        if (game?.status !== 'lifeline_audience') return;
+        const fetchVotes = async () => {
+            const { data } = await supabase.from('millionaire_votes').select('vote').eq('game_id', game.id);
+            if (data) {
+                const counts = {};
+                data.forEach(v => { counts[v.vote] = (counts[v.vote] || 0) + 1; });
+                setLiveVotes(counts);
+            }
+        };
+        fetchVotes();
+        const interval = setInterval(fetchVotes, 1500);
+        return () => clearInterval(interval);
+    }, [isDisplay, game?.id, game?.status]);
 
     const handleVote = async (letter) => {
         if (voted || !participantId) return;
@@ -207,43 +240,49 @@ export default function MillionaireMode({ game, onVote, participantId }) {
                         {q.options.map((opt, i) => {
                             const letter = ['A','B','C','D'][i];
                             const isRemoved = removed5050.includes(i);
+                            const isCorrect = showCorrect && i === q.correct_index;
                             const voteCount = votes[letter] || 0;
                             const pct = totalVotes > 0 ? Math.round((voteCount / totalVotes) * 100) : 0;
                             return (
                                 <div key={i} style={{
-                                    background: isRemoved ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.06)',
-                                    border: isRemoved ? '1px solid rgba(255,255,255,0.05)' : '1px solid rgba(245,158,11,0.25)',
+                                    background: isCorrect ? 'rgba(34,197,94,0.2)' : isRemoved ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.06)',
+                                    border: isCorrect ? '2px solid #22c55e' : isRemoved ? '1px solid rgba(255,255,255,0.05)' : '1px solid rgba(245,158,11,0.25)',
                                     borderRadius: '14px', padding: '14px 18px',
                                     display: 'flex', alignItems: 'center', gap: '12px',
-                                    opacity: isRemoved ? 0.2 : 1, transition: 'all 0.4s',
+                                    opacity: isRemoved ? 0.2 : 1,
+                                    transition: 'all 0.5s ease',
                                     position: 'relative', overflow: 'hidden',
+                                    boxShadow: isCorrect ? '0 0 30px rgba(34,197,94,0.4)' : 'none',
                                 }}>
                                     {/* Barra voti pubblico */}
                                     {totalVotes > 0 && !isRemoved && (
                                         <div style={{
                                             position: 'absolute', left: 0, top: 0, bottom: 0,
-                                            width: `${pct}%`, background: 'rgba(139,92,246,0.25)',
+                                            width: `${pct}%`, background: isCorrect ? 'rgba(34,197,94,0.2)' : 'rgba(139,92,246,0.25)',
                                             transition: 'width 0.5s ease',
                                         }} />
                                     )}
                                     <span style={{
-                                        background: isRemoved ? 'rgba(255,255,255,0.05)' : 'rgba(245,158,11,0.3)',
-                                        color: isRemoved ? 'rgba(255,255,255,0.2)' : '#fbbf24',
+                                        background: isCorrect ? '#22c55e' : isRemoved ? 'rgba(255,255,255,0.05)' : 'rgba(245,158,11,0.3)',
+                                        color: isCorrect ? '#000' : isRemoved ? 'rgba(255,255,255,0.2)' : '#fbbf24',
                                         borderRadius: '8px', width: '32px', height: '32px', flexShrink: 0,
                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                                         fontFamily: "'Montserrat', sans-serif", fontWeight: 900, fontSize: '1rem',
                                         position: 'relative', zIndex: 1,
-                                    }}>{letter}</span>
+                                        transition: 'all 0.5s',
+                                    }}>{isCorrect ? '✓' : letter}</span>
                                     <span style={{
-                                        fontFamily: "'Montserrat', sans-serif", fontWeight: 600,
+                                        fontFamily: "'Montserrat', sans-serif", fontWeight: isCorrect ? 900 : 600,
                                         fontSize: 'clamp(0.85rem, 1.5vw, 1.1rem)',
-                                        color: isRemoved ? 'rgba(255,255,255,0.1)' : '#fff',
+                                        color: isCorrect ? '#4ade80' : isRemoved ? 'rgba(255,255,255,0.1)' : '#fff',
                                         position: 'relative', zIndex: 1, flex: 1,
+                                        transition: 'all 0.5s',
                                     }}>{opt}</span>
                                     {totalVotes > 0 && !isRemoved && (
                                         <span style={{
                                             fontFamily: "'Montserrat', sans-serif", fontWeight: 900,
-                                            color: '#a78bfa', fontSize: '0.9rem', position: 'relative', zIndex: 1,
+                                            color: isCorrect ? '#4ade80' : '#a78bfa', fontSize: '0.9rem',
+                                            position: 'relative', zIndex: 1,
                                         }}>{pct}%</span>
                                     )}
                                 </div>
