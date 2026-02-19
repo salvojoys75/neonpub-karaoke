@@ -256,17 +256,16 @@ export default function ArcadePanel({
           if (onArcadeEnd) onArcadeEnd();
 
           try {
-              // 2. Aggiorna il DB: status 'archived' fa sparire il gioco dal Display
               const { error } = await supabase
                   .from('arcade_games')
                   .update({ status: 'archived' })
                   .eq('id', activeGame.id);
-              
               if (error) throw error;
+              // Nascondi subito la schermata vincitore sul display
+              await supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'clear_arcade' } });
               toast.success("Schermata vincitore chiusa!");
           } catch (e) {
               console.error("Errore archiviazione:", e);
-              // Fallback se 'archived' non è un enum valido: usiamo un flag o delete
               toast.error("Errore chiusura remota, riprova.");
           }
       }

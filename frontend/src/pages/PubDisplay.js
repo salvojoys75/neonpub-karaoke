@@ -99,7 +99,7 @@ function getActiveMode(data) {
   const arcade = data.active_arcade;
   if (extraction_data) return 'extraction';
   const isQuiz   = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
-  const isArcade = (arcade && ['active', 'paused'].includes(arcade.status)) || !!data.arcade_result;
+  const isArcade = (arcade && ['active', 'paused', 'setup', 'waiting'].includes(arcade.status)) || !!data.arcade_result;
   const isKaraoke = !isQuiz && !isArcade && perf && ['live', 'paused'].includes(perf.status);
   const isVoting  = !isQuiz && !isArcade && perf && perf.status === 'voting';
   const isScore   = !isQuiz && !isArcade && perf && perf.status === 'ended';
@@ -1650,6 +1650,9 @@ export default function PubDisplay() {
                 }
                 if (p.payload.command === 'clear_lobby') {
                     setLobbyState(null);
+                }
+                if (p.payload.command === 'clear_arcade') {
+                    setData(prev => prev ? { ...prev, arcade_result: null, active_arcade: null } : prev);
                 }
                 if (p.payload.command === 'play_media') {
                     console.log('🎬 play_media:', p.payload.key);
