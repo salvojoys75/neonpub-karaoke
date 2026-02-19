@@ -938,7 +938,50 @@ const KaraokeMode = ({ perf, isMuted }) => (
     </div>
 );
 
-const VotingMode = ({ perf }) => (
+const VotingMode = ({ perf }) => {
+    useEffect(() => {
+        // Suono suspense via Web Audio API — nessun file necessario
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const play = (freq, start, dur, vol = 0.3) => {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain); gain.connect(ctx.destination);
+                osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+                gain.gain.setValueAtTime(0, ctx.currentTime + start);
+                gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + start + 0.05);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+                osc.start(ctx.currentTime + start);
+                osc.stop(ctx.currentTime + start + dur + 0.1);
+            };
+            // Arpeggio suspense crescente
+            play(220, 0,    0.3, 0.2);
+            play(277, 0.35, 0.3, 0.25);
+            play(330, 0.7,  0.3, 0.3);
+            play(440, 1.05, 0.4, 0.35);
+            play(554, 1.5,  0.5, 0.4);
+            play(660, 2.1,  0.8, 0.45);
+            // Nota lunga finale che pulsa
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            const lfo = ctx.createOscillator();
+            const lfoGain = ctx.createGain();
+            lfo.frequency.value = 4;
+            lfoGain.gain.value = 0.1;
+            lfo.connect(lfoGain); lfoGain.connect(gain.gain);
+            osc.frequency.value = 440;
+            osc.type = 'sine';
+            gain.gain.setValueAtTime(0.3, ctx.currentTime + 3.0);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 7);
+            osc.connect(gain); gain.connect(ctx.destination);
+            lfo.start(ctx.currentTime + 3.0);
+            osc.start(ctx.currentTime + 3.0);
+            osc.stop(ctx.currentTime + 7.5);
+            lfo.stop(ctx.currentTime + 7.5);
+        } catch(e) {}
+    }, [perf?.id]);
+
+    return (
     <div className="w-full h-full flex flex-col items-center justify-center animated-bg p-8">
         <div className="bg-fuchsia-600/10 blur-[200px] w-[800px] h-[800px] absolute rounded-full animate-pulse"></div>
         <div className="text-center relative z-10">
@@ -951,13 +994,14 @@ const VotingMode = ({ perf }) => (
             <p className="text-4xl text-white/70 mt-16 font-bold animate-pulse">Usa l'app per votare da 1 a 5 stelle</p>
         </div>
     </div>
-);
+    );
+};
 
 const ScoreMode = ({ perf, pubCode }) => {
     useEffect(() => {
         const t = setTimeout(async () => {
             try { await api.stopAndNext(perf.id); } catch {}
-        }, 2000);
+        }, 1000);
         return () => clearTimeout(t);
     }, [perf?.id]);
     return (
