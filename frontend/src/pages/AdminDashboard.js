@@ -2584,6 +2584,8 @@ export default function AdminDashboard() {
       </Dialog>
 
       <Dialog open={showImportPoolModal} onOpenChange={setShowImportPoolModal}>
+          <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
+              <DialogHeader><DialogTitle>Importa Canzoni Pool (JSON)</DialogTitle></DialogHeader>
               <div className="space-y-4 pt-4">
                   <p className="text-xs text-zinc-500">Formato: {`[ { "title": "...", "artist": "...", "youtube_url": "https://...", "genre": "Pop", "decade": "1980", "difficulty": "facile" } ]`}</p>
                   <Textarea 
