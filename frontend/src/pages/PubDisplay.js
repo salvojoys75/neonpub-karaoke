@@ -1689,6 +1689,10 @@ export default function PubDisplay() {
                 if (p.payload.command === 'clear_millionaire') {
                     setData(prev => prev ? { ...prev, active_millionaire: null } : prev);
                 }
+                if (p.payload.command === 'prepare_millionaire') {
+                    // Forza reload immediato senza aspettare polling
+                    load();
+                }
                 if (p.payload.command === 'play_media') {
                     console.log('🎬 play_media:', p.payload.key);
                     setStandby(false);

@@ -1502,7 +1502,7 @@ export default function AdminDashboard() {
 
                {libraryTab === 'quiz' && (
                     <div className="flex flex-col h-full">
-                        <div className="grid grid-cols-2 gap-2 mb-4">
+                        <div className="grid grid-cols-2 gap-2 mb-2">
                             <Button className="bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-xs" onClick={()=>setShowCustomQuizModal(true)}>
                                 <Plus className="w-3 h-3 mr-1"/> Crea Quiz
                             </Button>
@@ -1510,6 +1510,9 @@ export default function AdminDashboard() {
                                 <Dices className="w-3 h-3 mr-1"/> Carica Modulo
                             </Button>
                         </div>
+                        <Button className="w-full bg-zinc-700 hover:bg-zinc-600 border border-white/10 text-xs mb-4" onClick={()=>setShowAdminCatalogImportModal(true)}>
+                            <FileJson className="w-3 h-3 mr-1"/> Importa JSON in Catalogo
+                        </Button>
 
                         {/* INFO */}
                         <div className="mb-2 p-2 bg-zinc-950 rounded text-[10px]">
