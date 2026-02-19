@@ -1100,6 +1100,7 @@ const ArcadeLobbyMode = ({ arcade, pubCode }) => {
 };
 
 
+const VotingMode = ({ perf }) => {
     useEffect(() => {
         // Suono suspense via Web Audio API — nessun file necessario
         try {
