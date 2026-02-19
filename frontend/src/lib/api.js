@@ -829,11 +829,23 @@ export const getQuizCatalog = async (venueId = null, daysThreshold = 30) => {
   const pubCode = localStorage.getItem('discojoys_pub_code');
   if (!pubCode) return { data: [] };
   const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
+  
+  // Prima prova le domande legate all'evento
   const { data: eventQuestions } = await supabase.from('event_quiz_catalog').select('quiz_catalog_id').eq('event_id', event.id);
-  if (!eventQuestions || eventQuestions.length === 0) return { data: [] };
-  const questionIds = eventQuestions.map(eq => eq.quiz_catalog_id);
-  let { data: catalog } = await supabase.from('quiz_catalog').select('*').in('id', questionIds).eq('is_active', true).order('category');
-  if (venueId) {
+  
+  let catalog;
+  if (eventQuestions && eventQuestions.length > 0) {
+    // Usa domande specifiche dell'evento
+    const questionIds = eventQuestions.map(eq => eq.quiz_catalog_id);
+    const { data } = await supabase.from('quiz_catalog').select('*').in('id', questionIds).eq('is_active', true).order('category');
+    catalog = data;
+  } else {
+    // Fallback: tutte le domande del catalogo globale (escluse personalizzate)
+    const { data } = await supabase.from('quiz_catalog').select('*').eq('is_active', true).neq('category', 'Personalizzata').order('category');
+    catalog = data;
+  }
+
+  if (venueId && catalog) {
       const thresholdDate = new Date(); thresholdDate.setDate(thresholdDate.getDate() - daysThreshold);
       const { data: usedQuestions } = await supabase.from('quiz_usage_history').select('question_id').eq('venue_id', venueId).gte('used_at', thresholdDate.toISOString());
       const usedIds = new Set(usedQuestions?.map(q => q.question_id) || []);
