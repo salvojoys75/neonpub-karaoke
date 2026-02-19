@@ -73,6 +73,17 @@ export default function ArcadePanel({
           setIsPlayerVisible(false);
           setNewBookingAlert(true);
           toast.info(`🎤 ${current.participants?.nickname} si è prenotato!`);
+          // Buzz prenotazione
+          try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const o = ctx.createOscillator(); const g = ctx.createGain();
+            o.connect(g); g.connect(ctx.destination);
+            o.type = 'square'; o.frequency.setValueAtTime(180, ctx.currentTime);
+            o.frequency.exponentialRampToValueAtTime(80, ctx.currentTime + 0.15);
+            g.gain.setValueAtTime(0.4, ctx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+            o.start(ctx.currentTime); o.stop(ctx.currentTime + 0.25);
+          } catch(e) {}
         }
 
         if (!current && prevBookingIdRef.current !== null) {
@@ -389,14 +400,22 @@ export default function ArcadePanel({
                <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-6 text-center">
                    <Trophy className="w-12 h-12 text-yellow-500 mx-auto mb-3 opacity-50"/>
                    <h3 className="text-lg font-bold text-white mb-1">Gioco Terminato</h3>
-                   <p className="text-sm text-zinc-500 mb-4">La sessione precedente "{activeGame.track_title}" è finita.</p>
-                   
-                   <Button 
-                     onClick={handleCloseEndedGame}
-                     className="bg-red-600 hover:bg-red-500 font-bold w-full h-12"
-                   >
-                     <RotateCcw className="w-5 h-5 mr-2"/> CHIUDI E APRI NUOVO GIOCO
-                   </Button>
+                   <p className="text-sm text-zinc-500 mb-4">"{activeGame.track_title}"</p>
+                   <div className="flex flex-col gap-2">
+                       <Button
+                         onClick={() => { setShowSetup(true); setActiveGame(null); setBookings([]); setCurrentBooking(null); ignoredGamesRef.current.add(activeGame.id); if(onArcadeEnd) onArcadeEnd(); }}
+                         className="bg-fuchsia-600 hover:bg-fuchsia-500 font-bold w-full h-12"
+                       >
+                         <Play className="w-5 h-5 mr-2"/> NUOVA CANZONE
+                       </Button>
+                       <Button
+                         onClick={handleCloseEndedGame}
+                         variant="ghost"
+                         className="text-zinc-500 hover:text-white w-full h-9 text-sm"
+                       >
+                         Chiudi gioco
+                       </Button>
+                   </div>
                </div>
           </div>
       );

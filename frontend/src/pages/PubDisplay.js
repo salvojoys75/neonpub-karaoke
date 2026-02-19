@@ -1085,11 +1085,6 @@ const QuizLobbyMode = ({ lobbyData }) => (
         </div>
 
         <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', marginBottom: '32px' }}>
-            <div style={{
-                fontFamily: "'Montserrat', sans-serif", fontSize: 'clamp(0.9rem, 2vw, 1.2rem)',
-                fontWeight: 800, color: 'rgba(99,102,241,0.8)', letterSpacing: '0.4em',
-                textTransform: 'uppercase', marginBottom: '12px',
-            }}>Nuovo Gioco</div>
             <h1 style={{
                 fontFamily: "'Montserrat', sans-serif", fontSize: 'clamp(3rem, 8vw, 7rem)',
                 fontWeight: 900, lineHeight: 1, textTransform: 'uppercase', letterSpacing: '-0.02em',
@@ -1164,15 +1159,6 @@ const ArcadeLobbyMode = ({ arcade, pubCode }) => {
 
         {/* Titolo */}
         <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', marginBottom: '24px' }}>
-            <div style={{
-                fontFamily: "'Montserrat', sans-serif",
-                fontSize: 'clamp(1rem, 2.5vw, 1.4rem)',
-                fontWeight: 800,
-                color: 'rgba(167,139,250,0.8)',
-                letterSpacing: '0.4em',
-                textTransform: 'uppercase',
-                marginBottom: '8px',
-            }}>Nuovo Gioco</div>
             <h1 style={{
                 fontFamily: "'Montserrat', sans-serif",
                 fontSize: 'clamp(3rem, 8vw, 7rem)',
@@ -1215,7 +1201,8 @@ const ArcadeLobbyMode = ({ arcade, pubCode }) => {
             ))}
         </div>
 
-        {/* Prenotati */}
+        {/* Prenotati — mostra solo se ci sono */}
+        {bookings.length > 0 && (
         <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: '700px', padding: '0 20px' }}>
             <div style={{
                 background: 'rgba(255,255,255,0.04)',
@@ -1223,52 +1210,31 @@ const ArcadeLobbyMode = ({ arcade, pubCode }) => {
                 borderRadius: '20px', padding: '20px 24px',
                 backdropFilter: 'blur(10px)',
             }}>
-                <div style={{
-                    fontFamily: "'Montserrat', sans-serif",
-                    fontSize: '0.75rem', fontWeight: 700,
-                    color: 'rgba(167,139,250,0.7)',
-                    letterSpacing: '0.3em', textTransform: 'uppercase',
-                    marginBottom: '16px',
-                    display: 'flex', alignItems: 'center', gap: '8px',
-                }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4ade80', display: 'inline-block', boxShadow: '0 0 8px #4ade80', animation: 'pulse 1.5s ease-in-out infinite' }} />
-                    {bookings.length > 0 ? `${bookings.length} prenotati` : 'In attesa di prenotazioni...'}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                    {bookings.slice(0, 12).map((b, i) => (
+                        <div key={b.id || i} style={{
+                            display: 'flex', alignItems: 'center', gap: '8px',
+                            background: 'rgba(124,58,237,0.2)',
+                            border: '1px solid rgba(124,58,237,0.4)',
+                            borderRadius: '100px', padding: '6px 14px',
+                        }}>
+                            <div style={{
+                                width: '24px', height: '24px', borderRadius: '50%', flexShrink: 0,
+                                background: 'linear-gradient(135deg, #7c3aed, #ec4899)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: '11px', fontWeight: 900, color: '#fff',
+                                fontFamily: "'Montserrat', sans-serif",
+                            }}>{b.participants?.nickname?.charAt(0)?.toUpperCase() || '?'}</div>
+                            <span style={{
+                                fontFamily: "'Montserrat', sans-serif",
+                                fontSize: '0.9rem', fontWeight: 700, color: '#fff',
+                            }}>{b.participants?.nickname || 'Giocatore'}</span>
+                        </div>
+                    ))}
                 </div>
-                {bookings.length > 0 ? (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-                        {bookings.slice(0, 12).map((b, i) => (
-                            <div key={b.id || i} style={{
-                                display: 'flex', alignItems: 'center', gap: '8px',
-                                background: 'rgba(124,58,237,0.2)',
-                                border: '1px solid rgba(124,58,237,0.4)',
-                                borderRadius: '100px', padding: '6px 14px',
-                                animation: 'celebrationPop 0.3s ease forwards',
-                            }}>
-                                <div style={{
-                                    width: '24px', height: '24px', borderRadius: '50%', flexShrink: 0,
-                                    background: 'linear-gradient(135deg, #7c3aed, #ec4899)',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    fontSize: '11px', fontWeight: 900, color: '#fff',
-                                    fontFamily: "'Montserrat', sans-serif",
-                                }}>
-                                    {b.participants?.nickname?.charAt(0)?.toUpperCase() || '?'}
-                                </div>
-                                <span style={{
-                                    fontFamily: "'Montserrat', sans-serif",
-                                    fontSize: '0.9rem', fontWeight: 700, color: '#fff',
-                                }}>{b.participants?.nickname || 'Giocatore'}</span>
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <div style={{
-                        fontFamily: "'Montserrat', sans-serif",
-                        fontSize: '1rem', color: 'rgba(255,255,255,0.3)',
-                        textAlign: 'center', padding: '8px 0', fontStyle: 'italic',
-                    }}>Scansiona il QR e prenota il tuo posto!</div>
-                )}
             </div>
         </div>
+        )}
 
     </div>
     );
