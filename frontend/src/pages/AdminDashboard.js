@@ -86,6 +86,7 @@ export default function AdminDashboard() {
 
   // --- IMPOSTAZIONI EVENTO ---
   const [venueName, setVenueName] = useState("");
+  const [eventId, setEventId] = useState(null);
   const [venueLogo, setVenueLogo] = useState("");
   const [uploadingLogo, setUploadingLogo] = useState(false);
 
@@ -368,6 +369,7 @@ export default function AdminDashboard() {
       setChallenges(challRes.data || []);
 
       if(pubRes.data && !venueName) { setVenueName(pubRes.data.name); setVenueLogo(pubRes.data.logo_url || ""); }
+      setEventId(pubRes.data.id);
       
       if(activeQuizRes.data) {
          setActiveQuizId(activeQuizRes.data.id);
@@ -1757,7 +1759,7 @@ export default function AdminDashboard() {
                {libraryTab === 'challenges' && (
                    <div className="space-y-3">
                        <MillionairePanel
-                           eventId={currentEvent?.id}
+                           eventId={eventId}
                            participants={leaderboard || []}
                            quizCatalog={quizCatalog || []}
                            onGameChange={loadData}
