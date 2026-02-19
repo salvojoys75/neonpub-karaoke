@@ -1085,4 +1085,4 @@ export const endMillionaireGame = async (gameId) => {
     getRandomSongPool, addSongToPool, updateSongInPool, deleteSongFromPool, importSongsToPool, extractRandomKaraoke, clearExtraction,
     getSongCatalog, getSongCatalogMoods, getSongCatalogGenres, addSongToCatalog, updateSongInCatalog, deleteSongFromCatalog, importSongsToCatalog, addCatalogSongToPool, addCatalogCategoryToPool,
     createMillionaireGame, startMillionaireGame, answerMillionaire, retireMillionaire, useLifeline5050, useLifelinePass, startAudienceVote, submitAudienceVote, closeAudienceVote, getActiveMillionaireGame, endMillionaireGame
-}
+};
