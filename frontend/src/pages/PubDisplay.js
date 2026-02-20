@@ -51,6 +51,18 @@ const playSound = (type) => {
             o.start(t); o.stop(t + 0.7);
         }
 
+        if (type === 'countdown_end') {
+            // Tre beep discendenti — fine countdown
+            [880, 660, 440].forEach((freq, i) => {
+                const o = ctx.createOscillator(); const g = ctx.createGain();
+                o.connect(g); g.connect(ctx.destination);
+                o.type = 'sine'; o.frequency.value = freq;
+                g.gain.setValueAtTime(0.25, t + i * 0.18);
+                g.gain.exponentialRampToValueAtTime(0.001, t + i * 0.18 + 0.15);
+                o.start(t + i * 0.18); o.stop(t + i * 0.18 + 0.2);
+            });
+        }
+
         if (type === 'correct') {
             // Fanfara breve — risposta esatta
             const notes = [523, 659, 784, 1047];
@@ -1396,7 +1408,7 @@ const QuizMode = ({ quiz, result }) => {
                 setTimeLeft(remaining);
                 if (remaining === 0 && !timeoutSoundedRef.current) {
                     timeoutSoundedRef.current = true;
-                    playSound('timeout');
+                    playSound('countdown_end');
                 }
             };
             update();
