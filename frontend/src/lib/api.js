@@ -602,23 +602,42 @@ export const getQuizResults = async (quizId) => {
 }
 
 // --- FIX SCORING: Accetta il punteggio calcolato dal client ---
+// ─── QUIZ ANSWER — punteggio basato sul tempo, calcolato sul client ──────────
+// Il client calcola i punti in base al tempo di risposta (stile Kahoot).
+// Il server verifica solo la correttezza e applica un cap di sicurezza.
 export const answerQuiz = async (data) => {
   const participant = getParticipantFromToken();
-  
-  // 1. Verifica correttezza
+
+  // 1. Verifica correttezza della risposta
   const { data: quiz, error: quizError } = await supabase
     .from('quizzes')
-    .select('correct_index')
+    .select('correct_index, points, status')
     .eq('id', data.quiz_id)
     .single();
 
   if (quizError) throw quizError;
 
+  // Blocca risposte arrivate dopo la chiusura
+  if (quiz.status !== 'active') throw new Error('Quiz non più attivo');
+
   const isCorrect = quiz.correct_index === data.answer_index;
-  
-  // 2. Se corretto, usa i punti calcolati dal telefono. Se sbagliato, 0.
-  // Fallback a 10 punti se il client non manda nulla ma ha indovinato.
-  const finalPoints = isCorrect ? (data.client_points || 10) : 0;
+
+  // 2. Calcolo punti finali
+  //    - Se sbagliato: 0 punti
+  //    - Se corretto: usa client_points (calcolato dal telefono in base al tempo)
+  //      con un cap di sicurezza = quiz.points (non si può guadagnare più del massimo)
+  //    - Fallback se il client non manda client_points: 30% del massimo (risposta lenta)
+  const maxPoints = quiz.points || 10;
+  let finalPoints = 0;
+  if (isCorrect) {
+    if (typeof data.client_points === 'number' && data.client_points >= 0) {
+      // Cap di sicurezza: non si possono avere più punti del massimo della domanda
+      finalPoints = Math.min(data.client_points, maxPoints);
+    } else {
+      // Fallback per client vecchi che non mandano client_points
+      finalPoints = Math.round(maxPoints * 0.3);
+    }
+  }
 
   // 3. Salva nel DB
   const { data: ans, error } = await supabase.from('quiz_answers').insert({
@@ -626,14 +645,14 @@ export const answerQuiz = async (data) => {
     participant_id: participant.participant_id,
     answer_index: data.answer_index,
     is_correct: isCorrect,
-    points_earned: finalPoints 
+    points_earned: finalPoints,
   }).select().single();
 
-  if (error) { 
-      if (error.code === '23505') throw new Error('Già risposto'); 
-      throw error; 
+  if (error) {
+    if (error.code === '23505') throw new Error('Già risposto');
+    throw error;
   }
-  
+
   return { data: { ...ans, points_earned: finalPoints } };
 }
 
