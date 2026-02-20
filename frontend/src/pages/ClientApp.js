@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Home, Music, Trophy, User, Star, MessageSquare, RefreshCw, Mic2, Check, Lock, X, Eye } from "lucide-react";
+import { Home, Music, Trophy, User, Star, MessageSquare, RefreshCw, Mic2, Check, Lock, X, Eye, Camera } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -42,6 +42,11 @@ export default function ClientApp() {
   const [showMillionaireModal, setShowMillionaireModal] = useState(false);
   const [millionaireVoted, setMillionaireVoted] = useState(false);
   const [millionaireVoteSelected, setMillionaireVoteSelected] = useState(null);
+  const [showSelfieModal, setShowSelfieModal] = useState(false);
+  const [selfiePreview, setSelfiePreview] = useState(null);
+  const [selfieUploading, setSelfieUploading] = useState(false);
+  const [selfieSent, setSelfieSent] = useState(false);
+  const selfieInputRef = useRef(null);
   const pollIntervalRef = useRef(null);
 
   useEffect(() => { if (!isAuthenticated) navigate("/"); }, [isAuthenticated, navigate]);
@@ -75,72 +80,19 @@ export default function ClientApp() {
       
       const serverQuiz = quizRes.data;
       if (serverQuiz) {
-        // Reset stato quando è una nuova domanda
-        if (!activeQuiz || activeQuiz.id !== serverQuiz.id) {
-          setQuizAnswer(null);
-          setQuizResult(null);
-          setPointsEarned(0);
-        }
+        if (!activeQuiz || activeQuiz.id !== serverQuiz.id) { setQuizAnswer(null); setQuizResult(null); setPointsEarned(0); }
         setActiveQuiz(serverQuiz);
-
-        // ✅ FIX: Il modal rimane aperto anche durante showing_results e leaderboard
-        // così l'utente vede il suo risultato. Si chiude SOLO quando il quiz è ended/null.
-        // Prima era: chiudeva il modal appena status != active e != closed → l'utente
-        // non vedeva mai il risultato!
-        if (serverQuiz.status === 'active' && !showQuizModal) {
-          setShowQuizModal(true);
-        }
-
-        // ✅ FIX: Carica risultato quando la regia clicca "Mostra Risultati"
-        // Funziona anche se quizAnswer è null (utente non ha risposto) — mostra solo la risposta corretta
-        if (serverQuiz.status === 'showing_results' && !quizResult) {
-          setTimeout(async () => {
-            try {
-              const { data } = await api.getQuizResults(serverQuiz.id);
-              setQuizResult(data);
-              setShowQuizModal(true); // riapre il modal se era stato chiuso
-
-              // ✅ FIX PRINCIPALE: Se pointsEarned è 0 (answerQuiz fallito da mobile,
-              // o lentezza rete) recupera i punti reali dal server cercando il partecipante
-              // tra i vincitori. Questo risolve il "0 punti" da mobile.
-              if (pointsEarned === 0 && data?.winners) {
-                try {
-                  const raw = localStorage.getItem('discojoys_token');
-                  if (raw) {
-                    const participant = JSON.parse(atob(raw));
-                    const myWin = data.winners.find(w => w.id === participant?.participant_id);
-                    if (myWin) {
-                      setPointsEarned(myWin.points || 0);
-                    }
-                  }
-                } catch (e) {
-                  // token malformato — ignora silenziosamente
-                }
-              }
-            } catch(e) {
-              console.error("Errore getQuizResults:", e);
-            }
-          }, 500);
-        }
-
-        // Chiude il modal SOLO quando il quiz è completamente finito (leaderboard o ended)
-        if (serverQuiz.status === 'leaderboard') {
-          // Lascia il modal aperto per mostrare "Guarda il Maxischermo"
-          setShowQuizModal(true);
-        }
-
-      } else {
-        // Quiz terminato/rimosso: reset completo e chiudi modal
-        setActiveQuiz(null);
-        setQuizResult(null);
-        setShowQuizModal(false);
-      }
+        if (serverQuiz.status !== 'active' && serverQuiz.status !== 'closed') { setShowQuizModal(false); }
+        if (serverQuiz.status === 'active' && !showQuizModal) { toast.success("📢 Nuovo Quiz!"); setShowQuizModal(true); }
+        if (serverQuiz.status === 'showing_results' && quizAnswer !== null && !quizResult) { setTimeout(async () => { const { data } = await api.getQuizResults(serverQuiz.id); setQuizResult(data); }, 500); }
+      } else { setActiveQuiz(null); setQuizResult(null); setShowQuizModal(false); }
       
       // ✅ GESTIONE ARCADE - Cambio automatico tab
       const serverArcade = arcadeRes.data;
       if (serverArcade && serverArcade.status === 'active') {
         if (!activeArcade || activeArcade.id !== serverArcade.id) {
           setActiveTab('arcade');
+          toast.success("🎮 Nuovo Gioco Arcade! Indovina la canzone!");
         }
         setActiveArcade(serverArcade);
       } else {
@@ -167,7 +119,7 @@ export default function ClientApp() {
         setShowMillionaireModal(false);
       }
     } catch (error) { console.error("Errore caricamento:", error); }
-  }, [activeQuiz, showQuizModal, user, hasVoted, quizAnswer, quizResult, activeArcade, activeMillionaire, showMillionaireModal, pointsEarned]);
+  }, [activeQuiz, showQuizModal, user, hasVoted, quizAnswer, quizResult, activeArcade, activeMillionaire, showMillionaireModal]);
 
   useEffect(() => { loadData(); pollIntervalRef.current = setInterval(loadData, 3000); return () => clearInterval(pollIntervalRef.current); }, [loadData]);
 
@@ -213,47 +165,52 @@ export default function ClientApp() {
     if (quizAnswer !== null) return;
     if (!activeQuiz || activeQuiz.status !== 'active') return;
     setQuizAnswer(index);
-
-    // ─── CALCOLO PUNTI LATO CLIENT (stile Kahoot/Wooclap) ───────────────────
-    // Il punteggio viene calcolato QUI sul telefono, in base al tempo
-    // trascorso dal started_at. Così non dipende dalla latenza di rete.
-    //
-    // Formula: da MAX_POINTS (risposta immediata) a 30% di MAX_POINTS (all'ultimo secondo)
-    // Scala lineare su QUIZ_TIME_LIMIT secondi (= countdown sul display TV)
-    // Se il tempo è scaduto → 0 punti.
-    const QUIZ_TIME_LIMIT = 15; // secondi — deve corrispondere al countdown del PubDisplay
+    // Calcolo punti lato client in base al tempo (stile Kahoot)
+    const QUIZ_TIME_LIMIT = 15;
     const MAX_POINTS = activeQuiz.points || 10;
-    const MIN_RATIO = 0.3; // 30% minimo garantito per chi risponde in tempo
-
-    let client_points = 0;
+    const MIN_RATIO = 0.3;
+    let client_points = MAX_POINTS;
     if (activeQuiz.started_at) {
       const elapsedSec = (Date.now() - new Date(activeQuiz.started_at).getTime()) / 1000;
       if (elapsedSec < QUIZ_TIME_LIMIT) {
-        // Interpolazione lineare: 1.0 a t=0, MIN_RATIO a t=QUIZ_TIME_LIMIT
         const ratio = 1 - (elapsedSec / QUIZ_TIME_LIMIT) * (1 - MIN_RATIO);
         client_points = Math.round(MAX_POINTS * ratio);
+      } else {
+        client_points = 0;
       }
-      // else: tempo scaduto → client_points rimane 0
-    } else {
-      // Fallback (nessun started_at): punteggio base pieno
-      client_points = MAX_POINTS;
     }
-    // ────────────────────────────────────────────────────────────────────────
-
     try {
-      const { data } = await api.answerQuiz({
-        quiz_id: activeQuiz.id,
-        answer_index: index,
-        client_points, // ← punti calcolati sul telefono, basati sul tempo reale di risposta
-      });
+      const { data } = await api.answerQuiz({ quiz_id: activeQuiz.id, answer_index: index, client_points });
       setPointsEarned(data.points_earned || 0);
     } catch (e) {
-      if (e?.message === 'Già risposto') {
-        // già risposto, ignora silenziosamente
-      } else {
-        console.error("Errore answerQuiz:", e);
-        // I punti verranno recuperati da getQuizResults quando la regia clicca "Mostra Risultati"
-      }
+      if (e?.message !== 'Già risposto') console.error("Errore answerQuiz:", e);
+    }
+  };
+
+  const handleSelfieCapture = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setSelfiePreview(ev.target.result);
+    reader.readAsDataURL(file);
+  };
+
+  const handleSelfieSend = async () => {
+    if (!selfiePreview) return;
+    setSelfieUploading(true);
+    try {
+      await api.submitSelfie(selfiePreview, user?.nickname);
+      setSelfieSent(true);
+      toast.success("📸 Selfie inviato alla regia!");
+      setTimeout(() => {
+        setShowSelfieModal(false);
+        setSelfiePreview(null);
+        setSelfieSent(false);
+      }, 2000);
+    } catch (e) {
+      toast.error("Errore invio selfie");
+    } finally {
+      setSelfieUploading(false);
     }
   };
 
@@ -297,7 +254,7 @@ export default function ClientApp() {
           <ArcadeSection participant={{ id: user?.id, nickname: user?.nickname, avatar_url: user?.avatar_url }} />
         )}
         {activeTab === "leaderboard" && (<div className="space-y-4"><h2 className="text-xl font-bold text-yellow-500">Classifica Quiz</h2>{leaderboard.map((player, index) => (<div key={index} className="glass rounded-xl p-4 flex items-center gap-4"><span className={`text-2xl font-bold w-8 ${index===0 ? 'text-yellow-400' : 'text-zinc-500'}`}>#{index + 1}</span><span className="flex-1 font-medium">{player.nickname}</span><span className="font-bold text-cyan-400">{player.score}</span></div>))}</div>)}
-        {activeTab === "profile" && (<div className="space-y-6 text-center pt-8"><div className="w-24 h-24 rounded-full bg-fuchsia-500/20 flex items-center justify-center mx-auto border-2 border-fuchsia-500/50"><User className="w-12 h-12 text-fuchsia-400" /></div><div><h2 className="text-2xl font-bold">{user?.nickname}</h2><p className="text-zinc-500">{user?.pub_name}</p></div><Button onClick={logout} variant="outline" className="w-full border-red-500/50 text-red-400 hover:bg-red-950">Esci dal Pub</Button></div>)}
+        {activeTab === "profile" && (<div className="space-y-6 text-center pt-8"><div className="w-24 h-24 rounded-full bg-fuchsia-500/20 flex items-center justify-center mx-auto border-2 border-fuchsia-500/50"><User className="w-12 h-12 text-fuchsia-400" /></div><div><h2 className="text-2xl font-bold">{user?.nickname}</h2><p className="text-zinc-500">{user?.pub_name}</p></div><Button onClick={() => { setSelfiePreview(null); setSelfieSent(false); setShowSelfieModal(true); }} className="w-full bg-gradient-to-r from-pink-500 to-fuchsia-600 font-bold"><Camera className="w-5 h-5 mr-2" /> Invia Selfie al Display</Button><Button onClick={logout} variant="outline" className="w-full border-red-500/50 text-red-400 hover:bg-red-950">Esci dal Pub</Button></div>)}
       </main>
       {/* ── NAVBAR con tab Arcade ── */}
       <nav className="mobile-nav safe-bottom bg-[#0a0a0a] border-t border-white/10 flex justify-around p-2 fixed bottom-0 w-full z-40">
@@ -328,6 +285,44 @@ export default function ClientApp() {
               })}
             </div>
             {millionaireVoted && <p className="text-center text-green-400 font-bold mt-4 text-sm">✅ Voto registrato!</p>}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── SELFIE MODAL ── */}
+      <input ref={selfieInputRef} type="file" accept="image/*" capture="user" className="hidden" onChange={handleSelfieCapture} />
+      <Dialog open={showSelfieModal} onOpenChange={(o) => { setShowSelfieModal(o); if (!o) { setSelfiePreview(null); setSelfieSent(false); } }}>
+        <DialogContent className="bg-zinc-900 border-pink-500/30 max-w-sm w-[90%] rounded-2xl">
+          <DialogHeader><DialogTitle className="text-center text-xl font-bold text-pink-400">📸 Selfie sul Display!</DialogTitle></DialogHeader>
+          <div className="flex flex-col items-center gap-4 py-2">
+            {selfieSent ? (
+              <div className="text-center py-6">
+                <div className="text-5xl mb-3">🎉</div>
+                <p className="text-green-400 font-bold text-lg">Selfie inviato!</p>
+                <p className="text-zinc-400 text-sm mt-1">La regia lo mostrerà a schermo</p>
+              </div>
+            ) : (
+              <>
+                {selfiePreview ? (
+                  <img src={selfiePreview} alt="preview" className="w-full max-h-64 object-cover rounded-xl border-2 border-pink-500/40" />
+                ) : (
+                  <div className="w-full h-48 bg-zinc-800 rounded-xl flex flex-col items-center justify-center border-2 border-dashed border-zinc-600 cursor-pointer" onClick={() => selfieInputRef.current?.click()}>
+                    <Camera className="w-12 h-12 text-zinc-500 mb-2" />
+                    <p className="text-zinc-400 text-sm">Tocca per scattare o scegliere</p>
+                  </div>
+                )}
+                <div className="flex gap-3 w-full">
+                  <Button variant="outline" className="flex-1 border-zinc-700" onClick={() => selfieInputRef.current?.click()}>
+                    <Camera className="w-4 h-4 mr-2" /> {selfiePreview ? 'Cambia' : 'Scegli foto'}
+                  </Button>
+                  {selfiePreview && (
+                    <Button onClick={handleSelfieSend} disabled={selfieUploading} className="flex-1 bg-gradient-to-r from-pink-500 to-fuchsia-600 font-bold">
+                      {selfieUploading ? 'Invio...' : 'Invia! 🚀'}
+                    </Button>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </DialogContent>
       </Dialog>

@@ -7,7 +7,7 @@ import {
   ListMusic, BrainCircuit, Swords, Send, Star, VolumeX, Volume2, ExternalLink,
   Users, Coins, Settings, Save, LayoutDashboard, Gem, Upload, UserPlus, Ban, Trash2, Image as ImageIcon,
   FileJson, Download, Gamepad2, StopCircle, Eye, EyeOff, ListOrdered, MonitorPlay, 
-  Music2, Film, Mic2, Clock, Unlock, Lock, Dices, Shuffle
+  Music2, Film, Mic2, Clock, Unlock, Lock, Dices, Shuffle, Camera
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -66,7 +66,7 @@ export default function AdminDashboard() {
   const [queue, setQueue] = useState([]);
   const [currentPerformance, setCurrentPerformance] = useState(null);
   const [pendingMessages, setPendingMessages] = useState([]);
-  const [pendingSelfies, setPendingSelfies] = useState([]); // { id, url, nickname, timestamp }
+  const [pendingSelfies, setPendingSelfies] = useState([]);
   const [approvedMessages, setApprovedMessages] = useState([]);
   const [isMuted, setIsMuted] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState(null);
@@ -75,7 +75,6 @@ export default function AdminDashboard() {
 
   // --- STATI CATALOGHI ---
   const [quizCatalog, setQuizCatalog] = useState([]);
-  const [millionaireCatalog, setMillionaireCatalog] = useState([]);
   const [quizCategoryFilter, setQuizCategoryFilter] = useState("all"); 
   const [challenges, setChallenges] = useState([]);
 
@@ -166,8 +165,6 @@ export default function AdminDashboard() {
   const [poolFormData, setPoolFormData] = useState({ title: '', artist: '', youtube_url: '', genre: '', decade: '', difficulty: 'facile' });
   const [showImportPoolModal, setShowImportPoolModal] = useState(false);
   const [importPoolText, setImportPoolText] = useState("");
-  const [showQuizCatalogImportModal, setShowQuizCatalogImportModal] = useState(false);
-  const [quizCatalogImportText, setQuizCatalogImportText] = useState("");
   const [extractionMode, setExtractionMode] = useState({ participant: 'random', song: 'random' });
   const [selectedParticipantId, setSelectedParticipantId] = useState(null);
   const [selectedSongId, setSelectedSongId] = useState(null);
@@ -332,19 +329,23 @@ export default function AdminDashboard() {
           setSelectedVenueId(pubRes.data.venue_id);
       }
 
-      const [qRes, perfRes, msgRes, activeQuizRes, quizCatRes, millCatRes, challRes] = await Promise.all([
+      const [qRes, perfRes, msgRes, activeQuizRes, quizCatRes, challRes] = await Promise.all([
         api.getAdminQueue(),
         api.getAdminCurrentPerformance(),
         api.getAdminPendingMessages(),
         api.getActiveQuiz(),
         api.getQuizCatalog(venueIdToUse, 30),
-        api.getMillionaireCatalog(),
         api.getChallengeCatalog()
       ]);
 
       setQueue(qRes.data || []);
       setCurrentPerformance(perfRes.data);
       setPendingMessages(msgRes.data || []);
+      // Selfie in attesa
+      try {
+        const selfieRes = await api.getPendingSelfies();
+        setPendingSelfies(selfieRes.data || []);
+      } catch(e) { setPendingSelfies([]); }
       
       // Load approved messages - separati per tipo
       // Messaggi UTENTI approvati (hanno participant_id)
@@ -371,7 +372,6 @@ export default function AdminDashboard() {
       setApprovedMessages(allApproved);
       
       setQuizCatalog(quizCatRes.data || []);
-      setMillionaireCatalog(millCatRes?.data || []);
       setChallenges(challRes.data || []);
 
       if(pubRes.data && !venueName) { setVenueName(pubRes.data.name); setVenueLogo(pubRes.data.logo_url || ""); }
@@ -395,20 +395,7 @@ export default function AdminDashboard() {
     if (appState === 'dashboard') {
       loadData();
       pollIntervalRef.current = setInterval(loadData, 3000);
-      // Ascolta selfie in arrivo via polling DB
-      const loadSelfies = async () => {
-        const pubCode = localStorage.getItem('discojoys_pub_code');
-        if (!pubCode) return;
-        const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
-        if (!event) return;
-        const { data } = await supabase.from('pending_selfies')
-          .select('*').eq('event_id', event.id).eq('status', 'pending')
-          .order('created_at', { ascending: true });
-        if (data) setPendingSelfies(data.map(s => ({ id: s.id, url: s.image_data, nickname: s.nickname })));
-      };
-      loadSelfies();
-      const selfieInterval = setInterval(loadSelfies, 3000);
-      return () => { clearInterval(pollIntervalRef.current); clearInterval(selfieInterval); };
+      return () => clearInterval(pollIntervalRef.current);
     }
   }, [appState, loadData]);
 
@@ -572,33 +559,6 @@ export default function AdminDashboard() {
       loadSongPool();
     } catch (e) {
       toast.error("Errore eliminazione: " + e.message);
-    }
-  };
-
-  const handleImportQuizCatalog = async () => {
-    try {
-      const parsed = JSON.parse(quizCatalogImportText);
-      if (!Array.isArray(parsed)) throw new Error("Formato non valido");
-      let count = 0;
-      for (const q of parsed) {
-        if (!q.question || !q.options || q.correct_index === undefined) continue;
-        await supabase.from('quiz_catalog').insert({
-          category: q.category || 'Music Milionario',
-          question: q.question,
-          options: q.options,
-          correct_index: q.correct_index,
-          points: q.points || 10,
-          media_type: q.media_type || 'text',
-          media_url: q.media_url || null,
-          is_active: true,
-        });
-        count++;
-      }
-      toast.success(`${count} domande aggiunte al catalogo quiz!`);
-      setShowQuizCatalogImportModal(false);
-      setQuizCatalogImportText("");
-    } catch (e) {
-      toast.error("Errore import: " + e.message);
     }
   };
 
@@ -1004,8 +964,7 @@ export default function AdminDashboard() {
                   name: mod.name,
                   category: mod.category || 'Generale',
                   description: mod.description || '',
-                  questions: mod.questions,
-                  media_type: mod.media_type || 'text'
+                  questions: mod.questions
               });
               
               if (error) {
@@ -1080,11 +1039,10 @@ export default function AdminDashboard() {
                 <h1 className="text-3xl font-bold text-fuchsia-500">SUPER ADMIN DASHBOARD</h1>
                 <Button variant="ghost" onClick={handleLogout}><LogOut className="w-4 h-4 mr-2"/> Esci</Button>
             </header>
-            <div className="mb-6 flex gap-3 flex-wrap">
+            <div className="mb-6 flex gap-3">
                 <Button onClick={()=>setShowCreateUserModal(true)} className="bg-green-600"><UserPlus className="w-4 h-4 mr-2"/> Nuovo Operatore</Button>
                 <Button onClick={()=>setShowAdminCatalogModal(true)} className="bg-fuchsia-600"><ListMusic className="w-4 h-4 mr-2"/> Gestione Catalogo Pool</Button>
-                <Button onClick={()=>setShowImportModal(true)} className="bg-cyan-600"><FileJson className="w-4 h-4 mr-2"/> Import Quiz Serata</Button>
-                <Button onClick={()=>setShowQuizCatalogImportModal(true)} className="bg-yellow-600 text-black font-bold"><FileJson className="w-4 h-4 mr-2"/> Import Domande Milionario</Button>
+                <Button onClick={()=>setShowImportModal(true)} className="bg-cyan-600"><FileJson className="w-4 h-4 mr-2"/> Import Moduli Quiz</Button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {userList.map(user => (
@@ -1252,26 +1210,6 @@ export default function AdminDashboard() {
                         </p>
                         <Textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder='Incolla JSON moduli qui...' className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"/>
                         <Button className="w-full bg-cyan-600 font-bold" onClick={handleImportScript}><FileJson className="w-4 h-4 mr-2"/> IMPORTA MODULI IN LIBRERIA</Button>
-                    </div>
-                </DialogContent>
-            </Dialog>
-
-            {/* MODAL IMPORT DOMANDE QUIZ CATALOGO */}
-            <Dialog open={showQuizCatalogImportModal} onOpenChange={setShowQuizCatalogImportModal}>
-                <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
-                    <DialogHeader><DialogTitle>🏆 Import Domande Milionario</DialogTitle></DialogHeader>
-                    <div className="space-y-4 pt-4">
-                        <p className="text-xs text-zinc-500">Le domande vengono aggiunte al catalogo globale disponibile su tutti gli eventi. Categoria di default: <span className="text-yellow-400 font-bold">Music Milionario</span>.</p>
-                        <p className="text-[10px] text-zinc-600 font-mono bg-zinc-950 p-2 rounded">{`[ { "question": "...", "options": ["A","B","C","D"], "correct_index": 0, "category": "Music Milionario", "points": 10 } ]`}</p>
-                        <Textarea
-                            value={quizCatalogImportText}
-                            onChange={e => setQuizCatalogImportText(e.target.value)}
-                            placeholder="Incolla JSON domande qui..."
-                            className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"
-                        />
-                        <Button className="w-full bg-yellow-600 hover:bg-yellow-500 font-bold text-black" onClick={handleImportQuizCatalog}>
-                            <FileJson className="w-4 h-4 mr-2"/> IMPORTA DOMANDE NEL CATALOGO
-                        </Button>
                     </div>
                 </DialogContent>
             </Dialog>
@@ -1502,7 +1440,11 @@ export default function AdminDashboard() {
                      </TabsTrigger>
                      <TabsTrigger value="messages" className="text-xs px-1 relative data-[state=active]:bg-green-900/30" title="Messaggi">
                         <MessageSquare className="w-5 h-5 text-green-400" />
-                        {(pendingMessages.length > 0 || pendingSelfies.length > 0) && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>}
+                        {pendingMessages.length > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>}
+                     </TabsTrigger>
+                     <TabsTrigger value="selfie" className="text-xs px-1 relative data-[state=active]:bg-pink-900/30" title="Selfie">
+                        <Camera className="w-5 h-5 text-pink-400" />
+                        {pendingSelfies.length > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>}
                      </TabsTrigger>
                      <TabsTrigger value="settings" className="text-xs px-1 data-[state=active]:bg-zinc-700/30" title="Impostazioni">
                         <Settings className="w-5 h-5 text-zinc-400" />
@@ -1578,6 +1520,9 @@ export default function AdminDashboard() {
                                 <Dices className="w-3 h-3 mr-1"/> Carica Modulo
                             </Button>
                         </div>
+                        <Button className="w-full bg-zinc-700 hover:bg-zinc-600 border border-white/10 text-xs mb-4" onClick={()=>setShowAdminCatalogImportModal(true)}>
+                            <FileJson className="w-3 h-3 mr-1"/> Importa JSON in Catalogo
+                        </Button>
 
                         {/* INFO */}
                         <div className="mb-2 p-2 bg-zinc-950 rounded text-[10px]">
@@ -1743,10 +1688,7 @@ export default function AdminDashboard() {
                                 {!quizPreviewLaunched ? (
                                     <div className="flex flex-col gap-2">
                                         <Button size="sm" className="w-full bg-zinc-700 hover:bg-zinc-600 font-bold h-8"
-                                            onClick={async () => {
-                                                // 1. Salva nel DB — il display lo vede via polling (robusto come Arcade)
-                                                try { await api.setQuizLobby(true); } catch(e) {}
-                                                // 2. Broadcast Realtime come backup (se il display è già connesso)
+                                            onClick={() => {
                                                 supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'prepare_quiz' }}).catch(() => {});
                                                 toast.success('📺 Display preparato');
                                             }}>
@@ -1838,7 +1780,7 @@ export default function AdminDashboard() {
                        <MillionairePanel
                            eventId={eventId}
                            participants={onlineParticipants || []}
-                           quizCatalog={millionaireCatalog || []}
+                           quizCatalog={quizCatalog || []}
                            onGameChange={loadData}
                        />
                    </div>
@@ -1847,38 +1789,6 @@ export default function AdminDashboard() {
                {libraryTab === 'messages' && (
                    <div className="space-y-4 pt-2">
                        <Button className="w-full bg-cyan-600 hover:bg-cyan-500 mb-4" onClick={()=>setShowMessageModal(true)}><MessageSquare className="w-4 h-4 mr-2"/> Scrivi Messaggio Regia</Button>
-
-                       {/* SELFIE IN ATTESA */}
-                       {pendingSelfies.length > 0 && (
-                           <div className="space-y-2">
-                               <h3 className="text-xs font-bold text-pink-400 uppercase">📸 Selfie in Attesa ({pendingSelfies.length})</h3>
-                               {pendingSelfies.map(s => (
-                                   <div key={s.id} className="bg-zinc-800 p-3 rounded border-l-2 border-pink-500">
-                                       <div className="flex items-center gap-2 mb-2">
-                                           <span className="font-bold text-sm text-white">{s.nickname}</span>
-                                       </div>
-                                       <img src={s.url} alt="selfie" className="w-full rounded-lg object-cover max-h-40 mb-2" />
-                                       <div className="flex gap-2">
-                                           <Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-900/20 h-7 flex-1"
-                                               onClick={async () => {
-                                                   await supabase.from('pending_selfies').update({ status: 'rejected' }).eq('id', s.id);
-                                                   setPendingSelfies(prev => prev.filter(x => x.id !== s.id));
-                                               }}>
-                                               ❌ Rifiuta
-                                           </Button>
-                                           <Button size="sm" className="bg-green-600 h-7 flex-1 hover:bg-green-500"
-                                               onClick={async () => {
-                                                   await supabase.from('pending_selfies').update({ status: 'approved' }).eq('id', s.id);
-                                                   setPendingSelfies(prev => prev.filter(x => x.id !== s.id));
-                                                   toast.success('📸 Selfie mandato in onda!');
-                                               }}>
-                                               ✅ Manda in Onda
-                                           </Button>
-                                       </div>
-                                   </div>
-                               ))}
-                           </div>
-                       )}
                        
                        <h3 className="text-xs font-bold text-zinc-500 uppercase">In Attesa ({pendingMessages.length})</h3>
                        {pendingMessages.map(msg => (
@@ -1902,6 +1812,34 @@ export default function AdminDashboard() {
                                <Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-900/20 shrink-0" onClick={async()=>{ try { await api.deleteApprovedMessage(msg.id); toast.success("Eliminato"); loadData(); } catch(e) { toast.error("Errore eliminazione"); }}}><Trash2 className="w-4 h-4"/></Button>
                            </div>
                        )) : <p className="text-xs text-zinc-600 italic">Nessun messaggio approvato</p>}
+                   </div>
+               )}
+
+               {libraryTab === 'selfie' && (
+                   <div className="space-y-4 pt-2">
+                       <h3 className="text-xs font-bold text-pink-400 uppercase mb-2">📸 Selfie in Attesa ({pendingSelfies.length})</h3>
+                       {pendingSelfies.length === 0 ? (
+                           <p className="text-xs text-zinc-600 italic text-center py-6">Nessun selfie in attesa</p>
+                       ) : pendingSelfies.map(selfie => (
+                           <div key={selfie.id} className="bg-zinc-800 rounded-xl overflow-hidden border border-zinc-700">
+                               <img src={selfie.image_data} alt={selfie.nickname} className="w-full max-h-48 object-cover" />
+                               <div className="p-3">
+                                   <p className="font-bold text-sm text-white mb-2">📸 {selfie.nickname}</p>
+                                   <div className="flex gap-2">
+                                       <Button size="sm" variant="ghost" className="flex-1 text-red-500 hover:bg-red-900/20" onClick={async () => { await api.rejectSelfie(selfie.id); loadData(); }}>
+                                           <X className="w-4 h-4 mr-1" /> Rifiuta
+                                       </Button>
+                                       <Button size="sm" className="flex-1 bg-green-600 hover:bg-green-500" onClick={async () => {
+                                           await api.approveSelfie(selfie.id, selfie.image_data, selfie.nickname);
+                                           toast.success("📸 Selfie inviato al display!");
+                                           loadData();
+                                       }}>
+                                           <Check className="w-4 h-4 mr-1" /> Invia Display
+                                       </Button>
+                                   </div>
+                               </div>
+                           </div>
+                       ))}
                    </div>
                )}
 
@@ -2588,26 +2526,6 @@ export default function AdminDashboard() {
       </Dialog>
 
       {/* MODALE IMPORT POOL JSON */}
-      {/* MODAL IMPORT DOMANDE QUIZ CATALOGO */}
-      <Dialog open={showQuizCatalogImportModal} onOpenChange={setShowQuizCatalogImportModal}>
-          <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
-              <DialogHeader><DialogTitle>🎯 Importa Domande Quiz nel Catalogo</DialogTitle></DialogHeader>
-              <div className="space-y-4 pt-4">
-                  <p className="text-xs text-zinc-500">Le domande verranno aggiunte al catalogo globale con categoria <span className="text-yellow-400 font-bold">Music Milionario</span> (o quella specificata nel JSON).</p>
-                  <p className="text-[10px] text-zinc-600 font-mono bg-zinc-950 p-2 rounded">{`[ { "question": "...", "options": ["A","B","C","D"], "correct_index": 0, "category": "Music Milionario", "points": 10 } ]`}</p>
-                  <Textarea
-                      value={quizCatalogImportText}
-                      onChange={e => setQuizCatalogImportText(e.target.value)}
-                      placeholder="Incolla JSON domande qui..."
-                      className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"
-                  />
-                  <Button className="w-full bg-yellow-600 hover:bg-yellow-500 font-bold text-black" onClick={handleImportQuizCatalog}>
-                      <FileJson className="w-4 h-4 mr-2"/> IMPORTA DOMANDE NEL CATALOGO
-                  </Button>
-              </div>
-          </DialogContent>
-      </Dialog>
-
       <Dialog open={showImportPoolModal} onOpenChange={setShowImportPoolModal}>
           <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
               <DialogHeader><DialogTitle>Importa Canzoni Pool (JSON)</DialogTitle></DialogHeader>

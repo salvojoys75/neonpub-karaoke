@@ -1140,6 +1140,58 @@ export const setQuizLobby = async (active) => {
 };
 
 
+// ─── SELFIE ──────────────────────────────────────────────────────────────────
+
+export const submitSelfie = async (imageDataUrl, nickname) => {
+  const participant = getParticipantFromToken();
+  // La tabella pending_selfies non ha participant_id — usiamo solo event_id e nickname
+  const { data, error } = await supabase.from('pending_selfies').insert({
+    event_id: participant.event_id,
+    nickname: nickname || participant.nickname || 'Anonimo',
+    image_data: imageDataUrl,
+    status: 'pending',
+  }).select().single();
+  if (error) throw error;
+  return { data };
+};
+
+export const getPendingSelfies = async () => {
+  const event = await getAdminEvent();
+  const { data, error } = await supabase
+    .from('pending_selfies')
+    .select('*')
+    .eq('event_id', event.id)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return { data: data || [] };
+};
+
+export const approveSelfie = async (selfieId, imageDataUrl, nickname) => {
+  const { error } = await supabase
+    .from('pending_selfies')
+    .update({ status: 'approved' })
+    .eq('id', selfieId);
+  if (error) throw error;
+  // Invia al display via broadcast
+  await supabase.channel('tv_ctrl').send({
+    type: 'broadcast',
+    event: 'control',
+    payload: { command: 'selfie', url: imageDataUrl, nickname: nickname },
+  });
+  return { data: 'ok' };
+};
+
+export const rejectSelfie = async (selfieId) => {
+  const { error } = await supabase
+    .from('pending_selfies')
+    .delete()
+    .eq('id', selfieId);
+  if (error) throw error;
+  return { data: 'ok' };
+};
+
+
 export default {
     getDisplayData, sendReaction, getActiveArcadeGame, createPub, updateEventSettings, uploadLogo, getPub, joinPub, uploadAvatar, adminLogin, getMe,
     getAllProfiles, updateProfileCredits, createOperatorProfile, toggleUserStatus,
@@ -1156,5 +1208,6 @@ export default {
     getRandomSongPool, addSongToPool, updateSongInPool, deleteSongFromPool, importSongsToPool, extractRandomKaraoke, clearExtraction,
     getSongCatalog, getSongCatalogMoods, getSongCatalogGenres, addSongToCatalog, updateSongInCatalog, deleteSongFromCatalog, importSongsToCatalog, addCatalogSongToPool, addCatalogCategoryToPool,
     createMillionaireGame, startMillionaireGame, answerMillionaire, retireMillionaire, useLifeline5050, useLifelinePass, startAudienceVote, submitAudienceVote, closeAudienceVote, getActiveMillionaireGame, endMillionaireGame,
-    setQuizLobby
+    setQuizLobby,
+    submitSelfie, getPendingSelfies, approveSelfie, rejectSelfie
 };
