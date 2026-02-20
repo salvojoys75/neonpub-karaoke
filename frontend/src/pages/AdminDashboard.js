@@ -1076,10 +1076,11 @@ export default function AdminDashboard() {
                 <h1 className="text-3xl font-bold text-fuchsia-500">SUPER ADMIN DASHBOARD</h1>
                 <Button variant="ghost" onClick={handleLogout}><LogOut className="w-4 h-4 mr-2"/> Esci</Button>
             </header>
-            <div className="mb-6 flex gap-3">
+            <div className="mb-6 flex gap-3 flex-wrap">
                 <Button onClick={()=>setShowCreateUserModal(true)} className="bg-green-600"><UserPlus className="w-4 h-4 mr-2"/> Nuovo Operatore</Button>
                 <Button onClick={()=>setShowAdminCatalogModal(true)} className="bg-fuchsia-600"><ListMusic className="w-4 h-4 mr-2"/> Gestione Catalogo Pool</Button>
                 <Button onClick={()=>setShowImportModal(true)} className="bg-cyan-600"><FileJson className="w-4 h-4 mr-2"/> Import Moduli Quiz</Button>
+                <Button onClick={()=>setShowQuizCatalogImportModal(true)} className="bg-yellow-600 text-black font-bold"><FileJson className="w-4 h-4 mr-2"/> Import Domande Quiz Catalogo</Button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {userList.map(user => (
@@ -1553,9 +1554,6 @@ export default function AdminDashboard() {
                                 <Dices className="w-3 h-3 mr-1"/> Carica Modulo
                             </Button>
                         </div>
-                        <Button className="w-full bg-zinc-700 hover:bg-zinc-600 border border-white/10 text-xs mb-4" onClick={()=>setShowQuizCatalogImportModal(true)}>
-                            <FileJson className="w-3 h-3 mr-1"/> Importa JSON in Catalogo
-                        </Button>
 
                         {/* INFO */}
                         <div className="mb-2 p-2 bg-zinc-950 rounded text-[10px]">
