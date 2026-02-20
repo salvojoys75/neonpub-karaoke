@@ -1440,12 +1440,9 @@ export default function AdminDashboard() {
                      </TabsTrigger>
                      <TabsTrigger value="messages" className="text-xs px-1 relative data-[state=active]:bg-green-900/30" title="Messaggi">
                         <MessageSquare className="w-5 h-5 text-green-400" />
-                        {pendingMessages.length > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>}
+                        {(pendingMessages.length > 0 || pendingSelfies.length > 0) && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>}
                      </TabsTrigger>
-                     <TabsTrigger value="selfie" className="text-xs px-1 relative data-[state=active]:bg-pink-900/30" title="Selfie">
-                        <Camera className="w-5 h-5 text-pink-400" />
-                        {pendingSelfies.length > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>}
-                     </TabsTrigger>
+
                      <TabsTrigger value="settings" className="text-xs px-1 data-[state=active]:bg-zinc-700/30" title="Impostazioni">
                         <Settings className="w-5 h-5 text-zinc-400" />
                      </TabsTrigger>
@@ -1812,34 +1809,29 @@ export default function AdminDashboard() {
                                <Button size="sm" variant="ghost" className="text-red-500 hover:bg-red-900/20 shrink-0" onClick={async()=>{ try { await api.deleteApprovedMessage(msg.id); toast.success("Eliminato"); loadData(); } catch(e) { toast.error("Errore eliminazione"); }}}><Trash2 className="w-4 h-4"/></Button>
                            </div>
                        )) : <p className="text-xs text-zinc-600 italic">Nessun messaggio approvato</p>}
-                   </div>
-               )}
 
-               {libraryTab === 'selfie' && (
-                   <div className="space-y-4 pt-2">
-                       <h3 className="text-xs font-bold text-pink-400 uppercase mb-2">📸 Selfie in Attesa ({pendingSelfies.length})</h3>
-                       {pendingSelfies.length === 0 ? (
-                           <p className="text-xs text-zinc-600 italic text-center py-6">Nessun selfie in attesa</p>
-                       ) : pendingSelfies.map(selfie => (
-                           <div key={selfie.id} className="bg-zinc-800 rounded-xl overflow-hidden border border-zinc-700">
-                               <img src={selfie.image_data} alt={selfie.nickname} className="w-full max-h-48 object-cover" />
-                               <div className="p-3">
-                                   <p className="font-bold text-sm text-white mb-2">📸 {selfie.nickname}</p>
-                                   <div className="flex gap-2">
-                                       <Button size="sm" variant="ghost" className="flex-1 text-red-500 hover:bg-red-900/20" onClick={async () => { await api.rejectSelfie(selfie.id); loadData(); }}>
-                                           <X className="w-4 h-4 mr-1" /> Rifiuta
-                                       </Button>
-                                       <Button size="sm" className="flex-1 bg-green-600 hover:bg-green-500" onClick={async () => {
-                                           await api.approveSelfie(selfie.id, selfie.image_data, selfie.nickname);
-                                           toast.success("📸 Selfie inviato al display!");
-                                           loadData();
-                                       }}>
-                                           <Check className="w-4 h-4 mr-1" /> Invia Display
-                                       </Button>
+                       {/* ── SELFIE IN ATTESA ── */}
+                       <div className="border-t border-white/10 mt-6 pt-4">
+                           <h3 className="text-xs font-bold text-pink-400 uppercase mb-3">📸 Selfie in Attesa ({pendingSelfies.length})</h3>
+                           {pendingSelfies.length === 0 ? (
+                               <p className="text-xs text-zinc-600 italic text-center py-3">Nessun selfie in attesa</p>
+                           ) : pendingSelfies.map(selfie => (
+                               <div key={selfie.id} className="bg-zinc-800 rounded-xl overflow-hidden border border-zinc-700 mb-3">
+                                   <img src={selfie.image_data} alt={selfie.nickname} className="w-full max-h-48 object-cover" />
+                                   <div className="p-3">
+                                       <p className="font-bold text-sm text-white mb-2">📸 {selfie.nickname}</p>
+                                       <div className="flex gap-2">
+                                           <Button size="sm" variant="ghost" className="flex-1 text-red-500 hover:bg-red-900/20" onClick={async () => { await api.rejectSelfie(selfie.id); loadData(); }}>
+                                               <X className="w-4 h-4 mr-1" /> Rifiuta
+                                           </Button>
+                                           <Button size="sm" className="flex-1 bg-green-600 hover:bg-green-500" onClick={async () => { await api.approveSelfie(selfie.id, selfie.image_data, selfie.nickname); toast.success("📸 Selfie inviato al display!"); loadData(); }}>
+                                               <Check className="w-4 h-4 mr-1" /> Invia Display
+                                           </Button>
+                                       </div>
                                    </div>
                                </div>
-                           </div>
-                       ))}
+                           ))}
+                       </div>
                    </div>
                )}
 
