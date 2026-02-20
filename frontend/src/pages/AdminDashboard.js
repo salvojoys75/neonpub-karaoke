@@ -1079,8 +1079,8 @@ export default function AdminDashboard() {
             <div className="mb-6 flex gap-3 flex-wrap">
                 <Button onClick={()=>setShowCreateUserModal(true)} className="bg-green-600"><UserPlus className="w-4 h-4 mr-2"/> Nuovo Operatore</Button>
                 <Button onClick={()=>setShowAdminCatalogModal(true)} className="bg-fuchsia-600"><ListMusic className="w-4 h-4 mr-2"/> Gestione Catalogo Pool</Button>
-                <Button onClick={()=>setShowImportModal(true)} className="bg-cyan-600"><FileJson className="w-4 h-4 mr-2"/> Import Moduli Quiz</Button>
-                <Button onClick={()=>setShowQuizCatalogImportModal(true)} className="bg-yellow-600 text-black font-bold"><FileJson className="w-4 h-4 mr-2"/> Import Domande Quiz Catalogo</Button>
+                <Button onClick={()=>setShowImportModal(true)} className="bg-cyan-600"><FileJson className="w-4 h-4 mr-2"/> Import Quiz Serata</Button>
+                <Button onClick={()=>setShowQuizCatalogImportModal(true)} className="bg-yellow-600 text-black font-bold"><FileJson className="w-4 h-4 mr-2"/> Import Domande Milionario</Button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {userList.map(user => (
@@ -1255,7 +1255,7 @@ export default function AdminDashboard() {
             {/* MODAL IMPORT DOMANDE QUIZ CATALOGO */}
             <Dialog open={showQuizCatalogImportModal} onOpenChange={setShowQuizCatalogImportModal}>
                 <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
-                    <DialogHeader><DialogTitle>🎯 Import Domande Quiz Catalogo</DialogTitle></DialogHeader>
+                    <DialogHeader><DialogTitle>🏆 Import Domande Milionario</DialogTitle></DialogHeader>
                     <div className="space-y-4 pt-4">
                         <p className="text-xs text-zinc-500">Le domande vengono aggiunte al catalogo globale disponibile su tutti gli eventi. Categoria di default: <span className="text-yellow-400 font-bold">Music Milionario</span>.</p>
                         <p className="text-[10px] text-zinc-600 font-mono bg-zinc-950 p-2 rounded">{`[ { "question": "...", "options": ["A","B","C","D"], "correct_index": 0, "category": "Music Milionario", "points": 10 } ]`}</p>
