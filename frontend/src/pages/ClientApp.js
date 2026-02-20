@@ -22,12 +22,11 @@ export default function ClientApp() {
   const [currentPerformance, setCurrentPerformance] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
   const [activeQuiz, setActiveQuiz] = useState(null);
-  const [activeArcade, setActiveArcade] = useState(null);
+  const [activeArcade, setActiveArcade] = useState(null); // ✅ NUOVO stato arcade
   const [quizResult, setQuizResult] = useState(null);
   const [showQuizModal, setShowQuizModal] = useState(false);
   const [quizAnswer, setQuizAnswer] = useState(null);
   const [pointsEarned, setPointsEarned] = useState(0);
-  const [quizTimeLeft, setQuizTimeLeft] = useState(null);
   const [floatingReactions, setFloatingReactions] = useState([]);
   const [remainingReactions, setRemainingReactions] = useState(REACTION_LIMIT);
   const [showRequestModal, setShowRequestModal] = useState(false);
@@ -39,14 +38,6 @@ export default function ClientApp() {
   const [hasVoted, setHasVoted] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
   const [messageText, setMessageText] = useState("");
-  const [activeMillionaire, setActiveMillionaire] = useState(null);
-  const [showMillionaireModal, setShowMillionaireModal] = useState(false);
-  const [millionaireVoted, setMillionaireVoted] = useState(false);
-  const [millionaireVoteSelected, setMillionaireVoteSelected] = useState(null);
-  const [showSelfieModal, setShowSelfieModal] = useState(false);
-  const [selfiePreview, setSelfiePreview] = useState(null);
-  const [selfieSending, setSelfieSending] = useState(false);
-  const selfieInputRef = useRef(null);
   const pollIntervalRef = useRef(null);
 
   useEffect(() => { if (!isAuthenticated) navigate("/"); }, [isAuthenticated, navigate]);
@@ -55,14 +46,13 @@ export default function ClientApp() {
     // Senza token non ha senso chiamare le API
     if (!localStorage.getItem('discojoys_token')) return;
     try {
-      const [queueRes, myRes, perfRes, lbRes, quizRes, arcadeRes, millionaireRes] = await Promise.all([
+      const [queueRes, myRes, perfRes, lbRes, quizRes, arcadeRes] = await Promise.all([
         api.getSongQueue(), 
         api.getMyRequests(), 
         api.getCurrentPerformance(), 
         api.getLeaderboard(), 
         api.getActiveQuiz(),
-        api.getActiveArcadeGame(),
-        api.getActiveMillionaireGame(),
+        api.getActiveArcadeGame(), // ✅ Carica arcade
       ]);
       setQueue(queueRes.data || []);
       setMyRequests(myRes.data || []);
@@ -83,96 +73,27 @@ export default function ClientApp() {
         if (!activeQuiz || activeQuiz.id !== serverQuiz.id) { setQuizAnswer(null); setQuizResult(null); setPointsEarned(0); }
         setActiveQuiz(serverQuiz);
         if (serverQuiz.status !== 'active' && serverQuiz.status !== 'closed') { setShowQuizModal(false); }
-        if (serverQuiz.status === 'active' && !showQuizModal) { setShowQuizModal(true); }
+        if (serverQuiz.status === 'active' && !showQuizModal) { toast.success("📢 Nuovo Quiz!"); setShowQuizModal(true); }
         if (serverQuiz.status === 'showing_results' && quizAnswer !== null && !quizResult) { setTimeout(async () => { const { data } = await api.getQuizResults(serverQuiz.id); setQuizResult(data); }, 500); }
       } else { setActiveQuiz(null); setQuizResult(null); setShowQuizModal(false); }
       
       // ✅ GESTIONE ARCADE - Cambio automatico tab
       const serverArcade = arcadeRes.data;
       if (serverArcade && serverArcade.status === 'active') {
+        // Nuovo gioco arcade o primo caricamento
         if (!activeArcade || activeArcade.id !== serverArcade.id) {
-          setActiveTab('arcade');
+          setActiveTab('arcade'); // ✅ Cambio automatico alla tab arcade
+          toast.success("🎮 Nuovo Gioco Arcade! Indovina la canzone!");
         }
         setActiveArcade(serverArcade);
       } else {
         setActiveArcade(null);
       }
-
-      // ✅ GESTIONE MILIONARIO
-      const serverMill = millionaireRes?.data;
-      if (serverMill && ['active','lifeline_audience'].includes(serverMill.status)) {
-        if (!activeMillionaire || activeMillionaire.id !== serverMill.id) {
-          setMillionaireVoted(false);
-          setMillionaireVoteSelected(null);
-        }
-        setActiveMillionaire(serverMill);
-        if (serverMill.status === 'lifeline_audience' && !showMillionaireModal) {
-          setShowMillionaireModal(true);
-          toast.success("🎰 Vota ora per aiutare il concorrente!");
-        }
-        if (serverMill.status === 'active' && showMillionaireModal) {
-          setShowMillionaireModal(false);
-        }
-      } else {
-        setActiveMillionaire(null);
-        setShowMillionaireModal(false);
-      }
+      // ✅ FIX: Non caricare mai extraction_data nel telefono - è solo per il display TV
     } catch (error) { console.error("Errore caricamento:", error); }
-  }, [activeQuiz, showQuizModal, user, hasVoted, quizAnswer, quizResult, activeArcade, activeMillionaire, showMillionaireModal]);
-
-  // Countdown quiz sul telefono
-  useEffect(() => {
-    if (activeQuiz?.status === 'active' && activeQuiz?.started_at) {
-      const t = setInterval(() => {
-        const elapsed = (Date.now() - new Date(activeQuiz.started_at).getTime()) / 1000;
-        setQuizTimeLeft(Math.max(0, 15 - elapsed));
-      }, 100);
-      return () => clearInterval(t);
-    } else {
-      setQuizTimeLeft(null);
-    }
-  }, [activeQuiz?.status, activeQuiz?.started_at]);
+  }, [activeQuiz, showQuizModal, user, hasVoted, quizAnswer, quizResult, activeArcade]);
 
   useEffect(() => { loadData(); pollIntervalRef.current = setInterval(loadData, 3000); return () => clearInterval(pollIntervalRef.current); }, [loadData]);
-
-  const handleMillionaireVote = async (letter) => {
-    if (millionaireVoted || !activeMillionaire) return;
-    setMillionaireVoteSelected(letter);
-    setMillionaireVoted(true);
-    try {
-      await api.submitAudienceVote(activeMillionaire.id, user?.id, letter);
-      toast.success("Voto registrato!");
-    } catch(e) { toast.error("Errore voto"); }
-  };
-
-  const handleSelfieCapture = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => setSelfiePreview(ev.target.result);
-    reader.readAsDataURL(file);
-    setShowSelfieModal(true);
-  };
-
-  const handleSelfieSend = async () => {
-    if (!selfiePreview) return;
-    setSelfieSending(true);
-    try {
-      const token = localStorage.getItem('discojoys_token');
-      const p = token ? JSON.parse(atob(token)) : null;
-      if (!p?.event_id) throw new Error('Evento non trovato');
-      await supabase.from('pending_selfies').insert({
-        event_id: p.event_id,
-        nickname: user?.nickname || 'Anonimo',
-        image_data: selfiePreview,
-        status: 'pending'
-      });
-      toast.success("📸 Selfie inviato alla regia!");
-      setShowSelfieModal(false);
-      setSelfiePreview(null);
-    } catch(e) { toast.error("Errore: " + e.message); }
-    finally { setSelfieSending(false); }
-  };
 
   const addFloatingReaction = (emoji) => { const id = Date.now() + Math.random(); const left = Math.random() * 80 + 10; setFloatingReactions(prev => [...prev, { id, emoji, left }]); setTimeout(() => setFloatingReactions(prev => prev.filter(r => r.id !== id)), 2000); };
 
@@ -203,16 +124,10 @@ export default function ClientApp() {
   };
 
   const handleQuizAnswer = async (index) => {
-    if (quizAnswer !== null) return;
-    if (!activeQuiz || activeQuiz.status !== 'active') return;
-    const answeredAt = Date.now();
+    if (quizAnswer !== null) return; if (!activeQuiz || activeQuiz.status !== 'active') return;
     setQuizAnswer(index);
-    try {
-      const { data } = await api.answerQuiz({ quiz_id: activeQuiz.id, answer_index: index, answered_at: answeredAt });
-      setPointsEarned(data.points_earned || 0);
-    } catch (e) {
-      // silenzioso — l'utente vede già la risposta selezionata
-    }
+    const answeredAt = Date.now();
+    try { const { data } = await api.answerQuiz({ quiz_id: activeQuiz.id, answer_index: index, answered_at: answeredAt }); setPointsEarned(data.points_earned || 0); } catch (e) { toast.info("Risposta salvata."); }
   };
 
   if (!isAuthenticated) return null;
@@ -245,10 +160,6 @@ export default function ClientApp() {
               </div>
             ) : (<div className="glass rounded-2xl p-8 text-center border-dashed border-2 border-zinc-800"><Music className="w-12 h-12 mx-auto text-zinc-600 mb-2" /><p className="text-zinc-500">Il palco è vuoto</p></div>)}
             <Button onClick={() => setShowMessageModal(true)} variant="outline" className="w-full border-zinc-700 hover:bg-zinc-800"><MessageSquare className="w-4 h-4 mr-2" /> Invia Messaggio</Button>
-            <Button onClick={() => selfieInputRef.current?.click()} variant="outline" className="w-full border-pink-700 hover:bg-pink-900/20 text-pink-400">
-              📸 Fai un Selfie sul Display
-            </Button>
-            <input ref={selfieInputRef} type="file" accept="image/*" capture="user" className="hidden" onChange={handleSelfieCapture} />
             <Button onClick={() => setShowRequestModal(true)} className="w-full rounded-full bg-gradient-to-r from-fuchsia-600 to-purple-600 py-6 text-lg shadow-lg font-bold"><Music className="w-5 h-5 mr-2" /> Richiedi Canzone</Button>
             <div className="space-y-3"><h3 className="font-bold text-lg flex items-center gap-2"><Music className="w-5 h-5 text-fuchsia-400" /> Prossimi</h3>{queue.filter(s => s.status === "queued").sort((a, b) => (a.position || 0) - (b.position || 0)).slice(0, 5).map((song, index) => (<div key={song.id} className="glass rounded-xl p-4 flex items-center gap-4"><span className="mono text-2xl text-fuchsia-400 font-bold w-8">{index + 1}</span><div className="flex-1 min-w-0"><p className="font-medium truncate">{song.title}</p><p className="text-sm text-zinc-500 truncate">{song.artist}</p></div><span className="text-xs text-cyan-400">{song.user_nickname}</span></div>))}</div>
           </div>
@@ -268,52 +179,11 @@ export default function ClientApp() {
       <Dialog open={showRequestModal} onOpenChange={setShowRequestModal}><DialogContent className="bg-zinc-900 border-zinc-800"><DialogHeader><DialogTitle>Richiedi Canzone</DialogTitle></DialogHeader><form onSubmit={handleRequestSong} className="space-y-4 mt-4"><Input value={songTitle} onChange={(e) => setSongTitle(e.target.value)} placeholder="Titolo" className="bg-zinc-800 border-zinc-700"/><Input value={songArtist} onChange={(e) => setSongArtist(e.target.value)} placeholder="Artista" className="bg-zinc-800 border-zinc-700"/><Input value={songYoutubeUrl} onChange={(e) => setSongYoutubeUrl(e.target.value)} placeholder="Link YouTube (facoltativo)" className="bg-zinc-800 border-zinc-700"/><Button type="submit" className="w-full bg-fuchsia-600 hover:bg-fuchsia-700">Invia</Button></form></DialogContent></Dialog>
       <Dialog open={showVoteModal} onOpenChange={setShowVoteModal}><DialogContent className="bg-zinc-900 border-zinc-800 text-center"><DialogHeader><DialogTitle>Vota l'Esibizione!</DialogTitle></DialogHeader><div className="flex justify-center gap-2 py-4">{[1, 2, 3, 4, 5].map(star => (<button key={star} onClick={() => setSelectedStars(star)}><Star className={`w-10 h-10 ${selectedStars >= star ? 'text-yellow-500 fill-yellow-500' : 'text-zinc-600'}`} /></button>))}</div><Button onClick={handleVote} disabled={selectedStars === 0} className="w-full bg-yellow-500 text-black">Conferma Voto</Button></DialogContent></Dialog>
       <Dialog open={showMessageModal} onOpenChange={setShowMessageModal}><DialogContent className="bg-zinc-900 border-zinc-800"><DialogHeader><DialogTitle>Messaggio al Pub</DialogTitle></DialogHeader><Input value={messageText} onChange={(e) => setMessageText(e.target.value)} placeholder="Scrivi messaggio..." className="bg-zinc-800 border-zinc-700"/><Button onClick={handleSendMessage} className="w-full mt-4 bg-cyan-600 hover:bg-cyan-700">Invia</Button></DialogContent></Dialog>
-      {/* SELFIE MODAL */}
-      <Dialog open={showSelfieModal} onOpenChange={(o) => { setShowSelfieModal(o); if (!o) setSelfiePreview(null); }}>
-        <DialogContent className="bg-zinc-900 border-pink-500/30 max-w-sm w-[90%] rounded-2xl">
-          <DialogHeader><DialogTitle className="text-center text-xl font-bold text-pink-400">📸 Il tuo Selfie</DialogTitle></DialogHeader>
-          {selfiePreview && <img src={selfiePreview} alt="selfie" className="w-full rounded-xl object-cover max-h-64" />}
-          <p className="text-zinc-400 text-xs text-center">La regia la vedrà e deciderà se mandarla sul display 😄</p>
-          <div className="flex gap-2">
-            <Button onClick={() => { setShowSelfieModal(false); setSelfiePreview(null); }} variant="outline" className="flex-1 border-zinc-700">Annulla</Button>
-            <Button onClick={handleSelfieSend} disabled={selfieSending} className="flex-1 bg-pink-600 hover:bg-pink-500 font-bold">
-              {selfieSending ? '...' : '🚀 Manda!'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* MILIONARIO — Aiuto del Pubblico */}
-      <Dialog open={showMillionaireModal} onOpenChange={setShowMillionaireModal}>
-        <DialogContent className="bg-zinc-900 border-yellow-500/30 max-w-md w-[90%] rounded-2xl">
-          <DialogHeader><DialogTitle className="text-center text-xl font-bold text-yellow-400">🎰 Aiuto del Pubblico!</DialogTitle></DialogHeader>
-          <div className="py-2">
-            <p className="text-white text-center font-medium mb-1">{activeMillionaire?.questions?.[activeMillionaire?.current_question_index]?.question}</p>
-            <p className="text-zinc-500 text-xs text-center mb-4">Vota la risposta che ritieni corretta</p>
-            <div className="space-y-2">
-              {activeMillionaire?.questions?.[activeMillionaire?.current_question_index]?.options?.map((opt, i) => {
-                const letter = ['A','B','C','D'][i];
-                const isSelected = millionaireVoteSelected === letter;
-                return (
-                  <button key={i} onClick={() => handleMillionaireVote(letter)} disabled={millionaireVoted}
-                    className={`w-full p-3 rounded-xl border text-left transition-all active:scale-95 flex items-center gap-3 ${isSelected ? 'bg-yellow-500/20 border-yellow-500 text-white' : 'border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200'} ${millionaireVoted && !isSelected ? 'opacity-40' : ''}`}>
-                    <span className={`font-bold w-7 h-7 flex items-center justify-center rounded-lg text-sm shrink-0 ${isSelected ? 'bg-yellow-500 text-black' : 'bg-zinc-700 text-white'}`}>{letter}</span>
-                    <span className="flex-1 text-sm">{opt}</span>
-                    {isSelected && <Check className="w-4 h-4 text-yellow-400 shrink-0" />}
-                  </button>
-                );
-              })}
-            </div>
-            {millionaireVoted && <p className="text-center text-green-400 font-bold mt-4 text-sm">✅ Voto registrato!</p>}
-          </div>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={showQuizModal} onOpenChange={setShowQuizModal}>
         <DialogContent className="bg-zinc-900 border-fuchsia-500/30 max-w-md w-[90%] rounded-2xl">
           <DialogHeader><DialogTitle className="text-center text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-400 to-purple-600">{activeQuiz?.status === 'closed' ? "STOP AL VOTO!" : activeQuiz?.status === 'leaderboard' ? "CLASSIFICA LIVE" : quizResult ? "Risultato" : "Quiz Time!"}</DialogTitle></DialogHeader>
           {activeQuiz?.status === 'leaderboard' && (<div className="text-center py-8"><Trophy className="w-20 h-20 text-yellow-500 mx-auto mb-4 animate-bounce" /><p className="text-xl font-bold text-white mb-2">Guarda il Maxischermo!</p><p className="text-zinc-400">La classifica è in onda ora.</p></div>)}
-          {!quizResult && activeQuiz && activeQuiz.status !== 'leaderboard' && (<div className="py-4"><p className="text-xl text-center mb-4 font-medium text-white">{activeQuiz.question}</p>{activeQuiz.status === 'active' && quizTimeLeft !== null && quizAnswer === null && (<div className="flex items-center gap-2 mb-4"><div className="flex-1 h-2 bg-white/10 rounded-full overflow-hidden"><div className="h-full rounded-full transition-all duration-100" style={{width:`${(quizTimeLeft/15)*100}%`,background:quizTimeLeft>7?'#22c55e':quizTimeLeft>4?'#f59e0b':'#ef4444'}}/></div><span className="font-black text-lg tabular-nums w-6 text-right" style={{color:quizTimeLeft>7?'#22c55e':quizTimeLeft>4?'#f59e0b':'#ef4444'}}>{Math.ceil(quizTimeLeft)}</span></div>)}{activeQuiz.status === 'closed' ? (<div className="text-center p-6 bg-white/5 rounded-xl border border-white/10 animate-pulse"><Lock className="w-12 h-12 mx-auto text-red-500 mb-2" /><p className="text-lg font-bold text-red-400">Tempo Scaduto</p><p className="text-sm text-zinc-500">Attendi i risultati...</p></div>) : (<div className="space-y-3">{activeQuiz.options.map((option, index) => (<button key={index} onClick={() => handleQuizAnswer(index)} disabled={quizAnswer !== null} className={`w-full p-4 rounded-xl border text-left transition-all active:scale-95 flex items-center ${quizAnswer === index ? 'bg-fuchsia-600 border-fuchsia-500 text-white shadow-[0_0_15px_rgba(192,38,211,0.5)]' : 'border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200'}`}><span className={`font-bold mr-3 w-6 h-6 flex items-center justify-center rounded-full text-xs ${quizAnswer === index ? 'bg-white text-fuchsia-600' : 'bg-zinc-700 text-zinc-300'}`}>{String.fromCharCode(65 + index)}</span><span className="flex-1">{option}</span>{quizAnswer === index && <Check className="w-5 h-5 ml-2" />}</button>))}</div>)}</div>)}
+          {!quizResult && activeQuiz && activeQuiz.status !== 'leaderboard' && (<div className="py-4"><p className="text-xl text-center mb-6 font-medium text-white">{activeQuiz.question}</p>{activeQuiz.status === 'closed' ? (<div className="text-center p-6 bg-white/5 rounded-xl border border-white/10 animate-pulse"><Lock className="w-12 h-12 mx-auto text-red-500 mb-2" /><p className="text-lg font-bold text-red-400">Tempo Scaduto</p><p className="text-sm text-zinc-500">Attendi i risultati...</p></div>) : (<div className="space-y-3">{activeQuiz.options.map((option, index) => (<button key={index} onClick={() => handleQuizAnswer(index)} disabled={quizAnswer !== null} className={`w-full p-4 rounded-xl border text-left transition-all active:scale-95 flex items-center ${quizAnswer === index ? 'bg-fuchsia-600 border-fuchsia-500 text-white shadow-[0_0_15px_rgba(192,38,211,0.5)]' : 'border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200'}`}><span className={`font-bold mr-3 w-6 h-6 flex items-center justify-center rounded-full text-xs ${quizAnswer === index ? 'bg-white text-fuchsia-600' : 'bg-zinc-700 text-zinc-300'}`}>{String.fromCharCode(65 + index)}</span><span className="flex-1">{option}</span>{quizAnswer === index && <Check className="w-5 h-5 ml-2" />}</button>))}</div>)}</div>)}
           {quizResult && activeQuiz?.status !== 'leaderboard' && (<div className="text-center py-6 animate-zoom-in"><Trophy className="w-16 h-16 text-yellow-400 mx-auto mb-4" /><p className="text-sm text-zinc-400 uppercase tracking-widest mb-1">Risposta Corretta</p><div className="bg-green-500/20 border border-green-500 p-4 rounded-xl mb-6"><p className="text-2xl font-bold text-white">{quizResult.correct_option}</p></div>{pointsEarned > 0 ? (<div className="bg-fuchsia-600/20 border border-fuchsia-500 p-3 rounded mb-4"><p className="text-fuchsia-400 font-bold text-lg">+ {pointsEarned} Punti!</p></div>) : (<p className="text-red-400 mb-4">Peccato! Niente punti.</p>)}<div className="flex justify-center mb-4"><Button variant="outline" size="sm" onClick={() => setActiveTab("leaderboard")}><Eye className="w-4 h-4 mr-2"/> Vedi Classifica</Button></div><p className="text-zinc-500 text-sm">{quizResult.total_answers} persone hanno partecipato</p></div>)}
         </DialogContent>
       </Dialog>

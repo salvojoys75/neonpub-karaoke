@@ -75,6 +75,7 @@ export default function AdminDashboard() {
 
   // --- STATI CATALOGHI ---
   const [quizCatalog, setQuizCatalog] = useState([]);
+  const [millionaireCatalog, setMillionaireCatalog] = useState([]);
   const [quizCategoryFilter, setQuizCategoryFilter] = useState("all"); 
   const [challenges, setChallenges] = useState([]);
 
@@ -337,6 +338,7 @@ export default function AdminDashboard() {
         api.getAdminPendingMessages(),
         api.getActiveQuiz(),
         api.getQuizCatalog(venueIdToUse, 30),
+        api.getMillionaireCatalog(),
         api.getChallengeCatalog()
       ]);
 
@@ -369,6 +371,7 @@ export default function AdminDashboard() {
       setApprovedMessages(allApproved);
       
       setQuizCatalog(quizCatRes.data || []);
+      setMillionaireCatalog(millCatRes?.data || []);
       setChallenges(challRes.data || []);
 
       if(pubRes.data && !venueName) { setVenueName(pubRes.data.name); setVenueLogo(pubRes.data.logo_url || ""); }
@@ -1832,7 +1835,7 @@ export default function AdminDashboard() {
                        <MillionairePanel
                            eventId={eventId}
                            participants={onlineParticipants || []}
-                           quizCatalog={quizCatalog || []}
+                           quizCatalog={millionaireCatalog || []}
                            onGameChange={loadData}
                        />
                    </div>

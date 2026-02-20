@@ -886,6 +886,11 @@ export const getQuizCatalog = async (venueId = null, daysThreshold = 30) => {
   }
   return { data: catalog || [] };
 };
+export const getMillionaireCatalog = async () => {
+  const { data } = await supabase.from('quiz_catalog').select('*').eq('is_active', true).neq('category', 'Personalizzata').order('category');
+  return { data: data || [] };
+}
+
 export const deleteQuizQuestion = async (catalogId) => { await supabase.from('quiz_catalog').delete().eq('id', catalogId); return { data: 'ok' }; }
 export const getChallengeCatalog = async () => { const { data } = await supabase.from('challenge_catalog').select('*'); return { data: data || [] }; };
 export const importQuizCatalog = async (jsonString) => { return { success: true, count: 0 }; } // Placeholder
@@ -1134,7 +1139,7 @@ export const endMillionaireGame = async (gameId) => {
 export default {
     getDisplayData, sendReaction, getActiveArcadeGame, createPub, updateEventSettings, uploadLogo, getPub, joinPub, uploadAvatar, adminLogin, getMe,
     getAllProfiles, updateProfileCredits, createOperatorProfile, toggleUserStatus,
-    getEventState, setEventModule, getQuizCatalog, getChallengeCatalog, importQuizCatalog,
+    getEventState, setEventModule, getQuizCatalog, getMillionaireCatalog, getChallengeCatalog, importQuizCatalog,
     requestSong, getSongQueue, getMyRequests, getAdminQueue, approveRequest, rejectRequest, deleteRequest,
     startPerformance, pausePerformance, resumePerformance, endPerformance, closeVoting, stopAndNext, restartPerformance, toggleMute,
     getCurrentPerformance, getAdminCurrentPerformance,
