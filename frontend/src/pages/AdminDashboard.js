@@ -1251,6 +1251,26 @@ export default function AdminDashboard() {
                     </div>
                 </DialogContent>
             </Dialog>
+
+            {/* MODAL IMPORT DOMANDE QUIZ CATALOGO */}
+            <Dialog open={showQuizCatalogImportModal} onOpenChange={setShowQuizCatalogImportModal}>
+                <DialogContent className="bg-zinc-900 border-zinc-800 max-w-2xl">
+                    <DialogHeader><DialogTitle>🎯 Import Domande Quiz Catalogo</DialogTitle></DialogHeader>
+                    <div className="space-y-4 pt-4">
+                        <p className="text-xs text-zinc-500">Le domande vengono aggiunte al catalogo globale disponibile su tutti gli eventi. Categoria di default: <span className="text-yellow-400 font-bold">Music Milionario</span>.</p>
+                        <p className="text-[10px] text-zinc-600 font-mono bg-zinc-950 p-2 rounded">{`[ { "question": "...", "options": ["A","B","C","D"], "correct_index": 0, "category": "Music Milionario", "points": 10 } ]`}</p>
+                        <Textarea
+                            value={quizCatalogImportText}
+                            onChange={e => setQuizCatalogImportText(e.target.value)}
+                            placeholder="Incolla JSON domande qui..."
+                            className="bg-zinc-950 border-zinc-700 font-mono text-xs h-64"
+                        />
+                        <Button className="w-full bg-yellow-600 hover:bg-yellow-500 font-bold text-black" onClick={handleImportQuizCatalog}>
+                            <FileJson className="w-4 h-4 mr-2"/> IMPORTA DOMANDE NEL CATALOGO
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
       );
   }
