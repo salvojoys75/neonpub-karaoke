@@ -75,12 +75,66 @@ export default function ClientApp() {
       
       const serverQuiz = quizRes.data;
       if (serverQuiz) {
-        if (!activeQuiz || activeQuiz.id !== serverQuiz.id) { setQuizAnswer(null); setQuizResult(null); setPointsEarned(0); }
+        // Reset stato quando è una nuova domanda
+        if (!activeQuiz || activeQuiz.id !== serverQuiz.id) {
+          setQuizAnswer(null);
+          setQuizResult(null);
+          setPointsEarned(0);
+        }
         setActiveQuiz(serverQuiz);
-        if (serverQuiz.status !== 'active' && serverQuiz.status !== 'closed') { setShowQuizModal(false); }
-        if (serverQuiz.status === 'active' && !showQuizModal) { setShowQuizModal(true); }
-        if (serverQuiz.status === 'showing_results' && quizAnswer !== null && !quizResult) { setTimeout(async () => { const { data } = await api.getQuizResults(serverQuiz.id); setQuizResult(data); }, 500); }
-      } else { setActiveQuiz(null); setQuizResult(null); setShowQuizModal(false); }
+
+        // ✅ FIX: Il modal rimane aperto anche durante showing_results e leaderboard
+        // così l'utente vede il suo risultato. Si chiude SOLO quando il quiz è ended/null.
+        // Prima era: chiudeva il modal appena status != active e != closed → l'utente
+        // non vedeva mai il risultato!
+        if (serverQuiz.status === 'active' && !showQuizModal) {
+          setShowQuizModal(true);
+        }
+
+        // ✅ FIX: Carica risultato quando la regia clicca "Mostra Risultati"
+        // Funziona anche se quizAnswer è null (utente non ha risposto) — mostra solo la risposta corretta
+        if (serverQuiz.status === 'showing_results' && !quizResult) {
+          setTimeout(async () => {
+            try {
+              const { data } = await api.getQuizResults(serverQuiz.id);
+              setQuizResult(data);
+              setShowQuizModal(true); // riapre il modal se era stato chiuso
+
+              // ✅ FIX PRINCIPALE: Se pointsEarned è 0 (answerQuiz fallito da mobile,
+              // o lentezza rete) recupera i punti reali dal server cercando il partecipante
+              // tra i vincitori. Questo risolve il "0 punti" da mobile.
+              if (pointsEarned === 0 && data?.winners) {
+                try {
+                  const raw = localStorage.getItem('discojoys_token');
+                  if (raw) {
+                    const participant = JSON.parse(atob(raw));
+                    const myWin = data.winners.find(w => w.id === participant?.participant_id);
+                    if (myWin) {
+                      setPointsEarned(myWin.points || 0);
+                    }
+                  }
+                } catch (e) {
+                  // token malformato — ignora silenziosamente
+                }
+              }
+            } catch(e) {
+              console.error("Errore getQuizResults:", e);
+            }
+          }, 500);
+        }
+
+        // Chiude il modal SOLO quando il quiz è completamente finito (leaderboard o ended)
+        if (serverQuiz.status === 'leaderboard') {
+          // Lascia il modal aperto per mostrare "Guarda il Maxischermo"
+          setShowQuizModal(true);
+        }
+
+      } else {
+        // Quiz terminato/rimosso: reset completo e chiudi modal
+        setActiveQuiz(null);
+        setQuizResult(null);
+        setShowQuizModal(false);
+      }
       
       // ✅ GESTIONE ARCADE - Cambio automatico tab
       const serverArcade = arcadeRes.data;
@@ -113,7 +167,7 @@ export default function ClientApp() {
         setShowMillionaireModal(false);
       }
     } catch (error) { console.error("Errore caricamento:", error); }
-  }, [activeQuiz, showQuizModal, user, hasVoted, quizAnswer, quizResult, activeArcade, activeMillionaire, showMillionaireModal]);
+  }, [activeQuiz, showQuizModal, user, hasVoted, quizAnswer, quizResult, activeArcade, activeMillionaire, showMillionaireModal, pointsEarned]);
 
   useEffect(() => { loadData(); pollIntervalRef.current = setInterval(loadData, 3000); return () => clearInterval(pollIntervalRef.current); }, [loadData]);
 
@@ -156,10 +210,24 @@ export default function ClientApp() {
   };
 
   const handleQuizAnswer = async (index) => {
-    if (quizAnswer !== null) return; if (!activeQuiz || activeQuiz.status !== 'active') return;
+    if (quizAnswer !== null) return;
+    if (!activeQuiz || activeQuiz.status !== 'active') return;
     setQuizAnswer(index);
     const answeredAt = Date.now();
-    try { const { data } = await api.answerQuiz({ quiz_id: activeQuiz.id, answer_index: index, answered_at: answeredAt }); setPointsEarned(data.points_earned || 0); } catch (e) { toast.info("Risposta salvata."); }
+    try {
+      const { data } = await api.answerQuiz({ quiz_id: activeQuiz.id, answer_index: index, answered_at: answeredAt });
+      setPointsEarned(data.points_earned || 0);
+    } catch (e) {
+      // ✅ FIX: Non mostrare toast "risposta salvata" se è un errore di duplicato (già risposto)
+      // In tutti gli altri casi logga l'errore ma non resetta quizAnswer così il bottone resta disabilitato
+      if (e?.message === 'Già risposto') {
+        // già risposto, ignora silenziosamente
+      } else {
+        console.error("Errore answerQuiz:", e);
+        // Non fare toast.info qui — i punti verranno recuperati da getQuizResults
+        // quando la regia clicca "Mostra Risultati" (vedi fix sopra nel loadData)
+      }
+    }
   };
 
   if (!isAuthenticated) return null;

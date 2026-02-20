@@ -1743,7 +1743,10 @@ export default function AdminDashboard() {
                                 {!quizPreviewLaunched ? (
                                     <div className="flex flex-col gap-2">
                                         <Button size="sm" className="w-full bg-zinc-700 hover:bg-zinc-600 font-bold h-8"
-                                            onClick={() => {
+                                            onClick={async () => {
+                                                // 1. Salva nel DB — il display lo vede via polling (robusto come Arcade)
+                                                try { await api.setQuizLobby(true); } catch(e) {}
+                                                // 2. Broadcast Realtime come backup (se il display è già connesso)
                                                 supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'prepare_quiz' }}).catch(() => {});
                                                 toast.success('📺 Display preparato');
                                             }}>

@@ -1617,7 +1617,17 @@ export default function PubDisplay() {
         const { current_performance: perf, active_quiz: quiz } = data;
         if (perf && ['live', 'paused', 'voting'].includes(perf.status)) setLobbyState(null);
         if (quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status)) setLobbyState(null);
-    }, [data]);
+        // ✅ NUOVO: se il DB dice quiz_lobby=true e il lobbyState non è ancora impostato,
+        // lo imposta via polling — questo è il fix per "Prepara Display" audio che non arrivava
+        if (data.quiz_lobby && !quiz && !(lobbyState?.type === 'quiz')) {
+            setLobbyState({ type: 'quiz', data: {} });
+            setStandby(false);
+        }
+        // Se quiz_lobby è tornato false (quiz partito o annullato), pulisce il lobby state
+        if (!data.quiz_lobby && lobbyState?.type === 'quiz' && !quiz) {
+            setLobbyState(null);
+        }
+    }, [data, lobbyState]);
 
     // ── Reazioni realtime ────────────────────────────────────────────────────
     useEffect(() => {

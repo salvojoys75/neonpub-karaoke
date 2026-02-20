@@ -76,7 +76,8 @@ export const getDisplayData = async (pubCode) => {
       active_arcade: activeArcade.data,
       active_millionaire: activeMill.data || null,
       active_selfie: null, // verrà popolato dal polling separato
-      approved_messages: approvedMsgs.data?.filter(m => m.participants?.nickname).map(m => ({text: m.text, nickname: m.participants?.nickname})) || []
+      approved_messages: approvedMsgs.data?.filter(m => m.participants?.nickname).map(m => ({text: m.text, nickname: m.participants?.nickname})) || [],
+      quiz_lobby: event.settings?.quiz_lobby === true  // ← NUOVO: letto dal DB, robusto vs broadcast
     }
   }
 }
@@ -558,7 +559,14 @@ export const startQuiz = async (data) => {
     event_id: event.id, category: data.category, question: data.question, options: data.options, correct_index: data.correct_index, points: data.points, status: 'active', started_at: new Date().toISOString(), media_url: data.media_url || null, media_type: data.media_type || 'text', quiz_catalog_id: data.quiz_catalog_id || null
   }).select().single()
   if (error) throw error; 
-  await supabase.from('events').update({ active_module: 'quiz', active_module_id: quiz.id }).eq('id', event.id);
+  // Pulisce quiz_lobby quando il quiz parte davvero — il display passa a QuizMode
+  const { data: current } = await supabase.from('events').select('settings').eq('id', event.id).single();
+  const currentSettings = current?.settings || {};
+  await supabase.from('events').update({ 
+    active_module: 'quiz', 
+    active_module_id: quiz.id,
+    settings: { ...currentSettings, quiz_lobby: false }
+  }).eq('id', event.id);
   return { data: quiz }
 }
 
@@ -1135,6 +1143,19 @@ export const endMillionaireGame = async (gameId) => {
     return { data };
 };
 
+// ── QUIZ LOBBY — salva stato nel DB così il display lo vede via polling
+// anche se il broadcast Realtime non arriva (es. canale non ancora sottoscritto)
+export const setQuizLobby = async (active) => {
+    const event = await getAdminEvent();
+    // Legge settings attuali per non sovrascrivere altri campi
+    const { data: current } = await supabase.from('events').select('settings').eq('id', event.id).single();
+    const currentSettings = current?.settings || {};
+    await supabase.from('events').update({
+        settings: { ...currentSettings, quiz_lobby: active }
+    }).eq('id', event.id);
+    return { data: 'ok' };
+};
+
 
 export default {
     getDisplayData, sendReaction, getActiveArcadeGame, createPub, updateEventSettings, uploadLogo, getPub, joinPub, uploadAvatar, adminLogin, getMe,
@@ -1151,5 +1172,6 @@ export default {
     getMyVenues, createVenue, updateVenue, deleteVenue, trackQuizUsage, resetQuizUsageForVenue,
     getRandomSongPool, addSongToPool, updateSongInPool, deleteSongFromPool, importSongsToPool, extractRandomKaraoke, clearExtraction,
     getSongCatalog, getSongCatalogMoods, getSongCatalogGenres, addSongToCatalog, updateSongInCatalog, deleteSongFromCatalog, importSongsToCatalog, addCatalogSongToPool, addCatalogCategoryToPool,
-    createMillionaireGame, startMillionaireGame, answerMillionaire, retireMillionaire, useLifeline5050, useLifelinePass, startAudienceVote, submitAudienceVote, closeAudienceVote, getActiveMillionaireGame, endMillionaireGame
+    createMillionaireGame, startMillionaireGame, answerMillionaire, retireMillionaire, useLifeline5050, useLifelinePass, startAudienceVote, submitAudienceVote, closeAudienceVote, getActiveMillionaireGame, endMillionaireGame,
+    setQuizLobby
 };
