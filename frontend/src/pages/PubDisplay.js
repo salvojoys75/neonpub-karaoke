@@ -1385,12 +1385,19 @@ const QuizMode = ({ quiz, result }) => {
     const prevStatusRef = useRef(null);
     const [timeLeft, setTimeLeft] = useState(null);
 
+    const timeoutSoundedRef = useRef(false);
+
     useEffect(() => {
+        timeoutSoundedRef.current = false; // reset ad ogni nuova domanda
         if (quiz?.status === 'active' && quiz?.started_at) {
             const update = () => {
                 const elapsed = (Date.now() - new Date(quiz.started_at).getTime()) / 1000;
                 const remaining = Math.max(0, 15 - elapsed);
                 setTimeLeft(remaining);
+                if (remaining === 0 && !timeoutSoundedRef.current) {
+                    timeoutSoundedRef.current = true;
+                    playSound('timeout');
+                }
             };
             update();
             const t = setInterval(update, 100);
