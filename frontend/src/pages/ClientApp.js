@@ -83,7 +83,7 @@ export default function ClientApp() {
         // Nuovo gioco arcade o primo caricamento
         if (!activeArcade || activeArcade.id !== serverArcade.id) {
           setActiveTab('arcade'); // ✅ Cambio automatico alla tab arcade
-          // Arcade iniziato — nessun toast
+          
         }
         setActiveArcade(serverArcade);
       } else {

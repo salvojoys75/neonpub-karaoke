@@ -1472,91 +1472,9 @@ const QuizMode = ({ quiz, result }) => {
     const spotifyEmbedUrl = isAudioQuiz ? getSpotifyEmbed(quiz.media_url) : null;
     const ytId = isVideoQuiz ? getYtId(quiz.media_url) : null;
 
-    if (isAudioQuiz && spotifyEmbedUrl) {
-        return (
-        <div className="w-full h-full flex flex-col bg-[#080808] overflow-hidden">
-            <div className="shrink-0 px-8 pt-6 pb-2">
-                <div className="rounded-xl overflow-hidden border border-zinc-700 shadow-lg">
-                    <div className="bg-zinc-900 px-3 py-1 text-xs text-zinc-500 font-bold uppercase tracking-widest flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
-                        ASCOLTA LA CANZONE
-                    </div>
-                    <iframe key={quiz.id} src={spotifyEmbedUrl} width="100%" height="80" frameBorder="0"
-                        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" className="block" />
-                </div>
-            </div>
-            <div className="flex flex-col items-center justify-center px-8 py-4 shrink-0">
-                <div className="bg-fuchsia-600 text-white px-6 py-2 rounded-full font-black text-lg uppercase tracking-[0.3em] mb-4 shadow-[0_0_20px_rgba(217,70,239,0.5)] border border-white/20">
-                    {quiz.category || "QUIZ TIME"}
-                </div>
-                <h1 style={{fontSize: 'clamp(1.2rem, 3vw, 3rem)', lineHeight: 1.2}} className="font-black text-white text-center drop-shadow-2xl">{quiz.question}</h1>
-            </div>
-            <div className="flex-1 px-8 pb-8 flex items-center">
-                {quiz.status === 'closed' ? (
-                    <div className="w-full flex justify-center">
-                        <div className="bg-red-600 px-10 py-5 rounded-[2rem] animate-pulse shadow-[0_0_60px_rgba(220,38,38,0.8)] border-4 border-red-400">
-                            <h2 className="text-5xl font-black text-white uppercase italic">TEMPO SCADUTO!</h2>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-2 gap-3 w-full h-full">
-                        {quiz.options.map((opt, i) => (
-                            <div key={i} className="glass-panel border-l-[8px] border-fuchsia-600 px-4 rounded-r-2xl flex items-center gap-4 text-left overflow-hidden">
-                                <div style={{fontSize: 'clamp(1.2rem, 2.5vw, 2.5rem)', minWidth: '2.5em', minHeight: '2.5em'}} className="bg-black/40 rounded-xl flex items-center justify-center font-black text-white shrink-0 font-mono border border-white/10 aspect-square">
-                                    {String.fromCharCode(65+i)}
-                                </div>
-                                <div style={{fontSize: 'clamp(1rem, 2vw, 2rem)'}} className="font-bold text-white leading-tight line-clamp-3">{opt}</div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </div>
-        </div>
-        );
-    }
 
-    if (isVideoQuiz && ytId) {
-        return (
-        <div className="w-full h-full flex flex-col bg-[#080808] overflow-hidden" style={{height: '100%'}}>
-            <div style={{height: '12%'}} className="flex flex-col items-center justify-center px-8 gap-1 shrink-0 overflow-hidden">
-                <div style={{fontSize: 'clamp(0.6rem, 1vw, 0.9rem)'}} className="bg-fuchsia-600 text-white px-4 py-1 rounded-full font-black uppercase tracking-[0.3em] shadow-[0_0_20px_rgba(217,70,239,0.5)] border border-white/20 shrink-0">
-                    {quiz.category || "QUIZ TIME"}
-                </div>
-                <h1 style={{fontSize: 'clamp(1rem, 2.5vw, 2.2rem)', lineHeight: 1.2}} className="font-black text-white text-center drop-shadow-2xl line-clamp-2">{quiz.question}</h1>
-            </div>
-            <div style={{height: '55%'}} className="shrink-0 px-8">
-                <div className="w-full h-full rounded-2xl overflow-hidden border border-white/10 shadow-2xl relative bg-black">
-                    {ytId && (
-                        <iframe src={`https://www.youtube.com/embed/${ytId}?autoplay=1&controls=0&modestbranding=1&showinfo=0&rel=0&loop=1&playlist=${ytId}`}
-                            allow="autoplay; encrypted-media" allowFullScreen={false}
-                            style={{position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none'}} />
-                    )}
-                    <div style={{position: 'absolute', top: 0, left: 0, right: 0, height: '80px', background: '#000000', zIndex: 50, pointerEvents: 'none'}} />
-                </div>
-            </div>
-            <div style={{height: '33%'}} className="shrink-0 px-8 py-2 flex items-center">
-                {quiz.status === 'closed' ? (
-                    <div className="w-full flex justify-center">
-                        <div className="bg-red-600 px-10 py-5 rounded-[2rem] animate-pulse shadow-[0_0_60px_rgba(220,38,38,0.8)] border-4 border-red-400">
-                            <h2 className="text-5xl font-black text-white uppercase italic">TEMPO SCADUTO!</h2>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-2 gap-2 w-full h-full">
-                        {quiz.options.map((opt, i) => (
-                            <div key={i} className="glass-panel border-l-[8px] border-fuchsia-600 px-3 rounded-r-2xl flex items-center gap-3 text-left overflow-hidden">
-                                <div style={{fontSize: 'clamp(0.9rem, 1.8vw, 1.8rem)', minWidth: '2em', minHeight: '2em'}} className="bg-black/40 rounded-lg flex items-center justify-center font-black text-white shrink-0 font-mono border border-white/10 aspect-square">
-                                    {String.fromCharCode(65+i)}
-                                </div>
-                                <div style={{fontSize: 'clamp(0.8rem, 1.5vw, 1.4rem)'}} className="font-bold text-white leading-tight line-clamp-2">{opt}</div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </div>
-        </div>
-        );
-    }
+
+
 
     return (
     <div className="w-full h-full flex flex-col bg-[#080808] relative p-12 overflow-hidden">
