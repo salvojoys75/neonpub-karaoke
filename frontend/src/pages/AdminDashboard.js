@@ -332,7 +332,7 @@ export default function AdminDashboard() {
           setSelectedVenueId(pubRes.data.venue_id);
       }
 
-      const [qRes, perfRes, msgRes, activeQuizRes, quizCatRes, challRes] = await Promise.all([
+      const [qRes, perfRes, msgRes, activeQuizRes, quizCatRes, millCatRes, challRes] = await Promise.all([
         api.getAdminQueue(),
         api.getAdminCurrentPerformance(),
         api.getAdminPendingMessages(),

@@ -73,7 +73,7 @@ export default function ClientApp() {
         if (!activeQuiz || activeQuiz.id !== serverQuiz.id) { setQuizAnswer(null); setQuizResult(null); setPointsEarned(0); }
         setActiveQuiz(serverQuiz);
         if (serverQuiz.status !== 'active' && serverQuiz.status !== 'closed') { setShowQuizModal(false); }
-        if (serverQuiz.status === 'active' && !showQuizModal) { toast.success("📢 Nuovo Quiz!"); setShowQuizModal(true); }
+        if (serverQuiz.status === 'active' && !showQuizModal) { setShowQuizModal(true); }
         if (serverQuiz.status === 'showing_results' && quizAnswer !== null && !quizResult) { setTimeout(async () => { const { data } = await api.getQuizResults(serverQuiz.id); setQuizResult(data); }, 500); }
       } else { setActiveQuiz(null); setQuizResult(null); setShowQuizModal(false); }
       
@@ -83,7 +83,7 @@ export default function ClientApp() {
         // Nuovo gioco arcade o primo caricamento
         if (!activeArcade || activeArcade.id !== serverArcade.id) {
           setActiveTab('arcade'); // ✅ Cambio automatico alla tab arcade
-          toast.success("🎮 Nuovo Gioco Arcade! Indovina la canzone!");
+          // Arcade iniziato — nessun toast
         }
         setActiveArcade(serverArcade);
       } else {
