@@ -83,7 +83,7 @@ export default function ClientApp() {
         if (!activeQuiz || activeQuiz.id !== serverQuiz.id) { setQuizAnswer(null); setQuizResult(null); setPointsEarned(0); }
         setActiveQuiz(serverQuiz);
         if (serverQuiz.status !== 'active' && serverQuiz.status !== 'closed') { setShowQuizModal(false); }
-        if (serverQuiz.status === 'active' && !showQuizModal) { toast.success("📢 Nuovo Quiz!"); setShowQuizModal(true); }
+        if (serverQuiz.status === 'active' && !showQuizModal) { setShowQuizModal(true); }
         if (serverQuiz.status === 'showing_results' && quizAnswer !== null && !quizResult) { setTimeout(async () => { const { data } = await api.getQuizResults(serverQuiz.id); setQuizResult(data); }, 500); }
       } else { setActiveQuiz(null); setQuizResult(null); setShowQuizModal(false); }
       
@@ -92,7 +92,6 @@ export default function ClientApp() {
       if (serverArcade && serverArcade.status === 'active') {
         if (!activeArcade || activeArcade.id !== serverArcade.id) {
           setActiveTab('arcade');
-          toast.success("🎮 Nuovo Gioco Arcade! Indovina la canzone!");
         }
         setActiveArcade(serverArcade);
       } else {
@@ -109,7 +108,7 @@ export default function ClientApp() {
         setActiveMillionaire(serverMill);
         if (serverMill.status === 'lifeline_audience' && !showMillionaireModal) {
           setShowMillionaireModal(true);
-          toast.success("🎰 Aiuto del pubblico! Vota ora!");
+          toast.success("🎰 Vota ora per aiutare il concorrente!");
         }
         if (serverMill.status === 'active' && showMillionaireModal) {
           setShowMillionaireModal(false);
@@ -205,19 +204,15 @@ export default function ClientApp() {
 
   const handleQuizAnswer = async (index) => {
     if (quizAnswer !== null) return;
-    if (!activeQuiz || activeQuiz.status !== 'active') { toast.error("Tempo scaduto!"); return; }
-    const answeredAt = Date.now(); // timestamp esatto del click sul telefono
+    if (!activeQuiz || activeQuiz.status !== 'active') return;
+    const answeredAt = Date.now();
     setQuizAnswer(index);
     try {
       const { data } = await api.answerQuiz({ quiz_id: activeQuiz.id, answer_index: index, answered_at: answeredAt });
-      if (data.points_earned > 0) {
-        setPointsEarned(data.points_earned);
-        toast.success(`⚡ +${data.points_earned} punti!`);
-      } else {
-        setPointsEarned(0);
-        toast.info("Risposta sbagliata!");
-      }
-    } catch (e) { toast.info("Risposta salvata."); }
+      setPointsEarned(data.points_earned || 0);
+    } catch (e) {
+      // silenzioso — l'utente vede già la risposta selezionata
+    }
   };
 
   if (!isAuthenticated) return null;
