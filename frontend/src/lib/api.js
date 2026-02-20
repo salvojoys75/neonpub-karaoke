@@ -1,7 +1,5 @@
 import { supabase } from './supabase'
 
-// --- HELPER DI AUTENTICAZIONE ---
-
 function getParticipantFromToken() {
   const token = localStorage.getItem('discojoys_token')
   if (!token) throw new Error('Not authenticated')
@@ -29,8 +27,6 @@ async function getAdminEvent() {
 
   return data
 }
-
-// --- FUNZIONI DISPLAY (PUBBLICO) ---
 
 export const getDisplayData = async (pubCode) => {
   const { data: event } = await supabase.from('events').select('*').eq('code', pubCode.toUpperCase()).single()
@@ -75,14 +71,13 @@ export const getDisplayData = async (pubCode) => {
       extraction_data: event.extraction_data,
       active_arcade: activeArcade.data,
       active_millionaire: activeMill.data || null,
-      active_selfie: null, // verrà popolato dal polling separato
+      active_selfie: null,
       approved_messages: approvedMsgs.data?.filter(m => m.participants?.nickname).map(m => ({text: m.text, nickname: m.participants?.nickname})) || [],
-      quiz_lobby: event.settings?.quiz_lobby === true  // ← NUOVO: letto dal DB, robusto vs broadcast
+      quiz_lobby: event.settings?.quiz_lobby === true
     }
   }
 }
 
-// FIX REAZIONI: Assicura che il nickname venga inviato
 export const sendReaction = async (data) => {
   const participant = getParticipantFromToken()
   const nicknameToSend = participant.nickname || 'Anonimo';
@@ -97,8 +92,6 @@ export const sendReaction = async (data) => {
   if (error) throw error
   return { data: reaction }
 }
-
-// --- GESTIONE LOCALI (VENUES) - RIPRISTINATA ---
 
 export const getMyVenues = async () => {
   const { data: user } = await supabase.auth.getUser()
@@ -159,8 +152,6 @@ export const deleteVenue = async (venueId) => {
   return { data: 'ok' }
 }
 
-// --- GESTIONE EVENTI (CREATE PUB) - RIPRISTINATA ---
-
 export const createPub = async (data) => {
   const { data: user } = await supabase.auth.getUser()
   if (!user?.user) throw new Error('Not authenticated')
@@ -170,7 +161,6 @@ export const createPub = async (data) => {
   if (!profile) throw new Error("Profilo utente non trovato.");
   if (!profile.is_active) throw new Error("Utente disabilitato.");
   
-  // Se non è super admin, controlla i crediti
   if (profile.credits < 1) throw new Error("Crediti insufficienti! Ricarica i crediti per creare un evento.");
 
   const { error: creditError } = await supabase.from('profiles')
@@ -225,8 +215,6 @@ export const getActiveEventsForUser = async () => {
   return data || [];
 }
 
-// --- RICHIESTE CANZONI - RIPRISTINATA ---
-
 export const requestSong = async (data) => {
   const participant = getParticipantFromToken()
   const { data: request, error } = await supabase.from('song_requests').insert({
@@ -259,20 +247,14 @@ export const getMyRequests = async () => {
   return { data }
 }
 
-// --- FUNZIONI ARCADE ---
-
 export const getActiveArcadeGame = async () => {
   try {
     let eventId = null;
-    
-    // Tentativo 1: Admin
     const pubCode = localStorage.getItem('discojoys_pub_code');
     if (pubCode) {
         const { data } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
         if (data) eventId = data.id;
-    } 
-    // Tentativo 2: Utente
-    else {
+    } else {
         const token = localStorage.getItem('discojoys_token');
         if (token) {
             const p = JSON.parse(atob(token));
@@ -286,14 +268,13 @@ export const getActiveArcadeGame = async () => {
       .from('arcade_games')
       .select('*')
       .eq('event_id', eventId)
-      .in('status', ['setup', 'waiting', 'active', 'paused', 'ended']) // FIX: Include ended
+      .in('status', ['setup', 'waiting', 'active', 'paused', 'ended'])
       .order('created_at', { ascending: false })
       .limit(1);
     
     if (error) throw error;
     return { data: data?.[0] || null };
   } catch (error) {
-    console.error('❌ Errore getActiveArcadeGame:', error);
     return { data: null };
   }
 };
@@ -351,11 +332,9 @@ export const validateArcadeAnswer = async (bookingId, isCorrect, givenAnswer = n
     if (updateError) throw updateError;
     
     if (isCorrect) {
-      // Assegna punti
       const { data: p } = await supabase.from('participants').select('score').eq('id', booking.participant_id).single();
       await supabase.from('participants').update({ score: (p?.score || 0) + pointsAwarded }).eq('id', booking.participant_id);
       
-      // FIX ARCADE: CHIUDI GIOCO E SETTA VINCITORE
       await supabase.from('arcade_games')
         .update({ 
           status: 'ended', 
@@ -373,8 +352,6 @@ export const getArcadeBookings = async (gameId) => { try { const { data, error }
 export const getCurrentBooking = async (gameId) => { try { const { data, error } = await supabase.from('arcade_bookings').select(`*, participants:participant_id (id, nickname, avatar_url)`).eq('game_id', gameId).eq('status', 'pending').order('booking_order', { ascending: true }).limit(1); if (error) throw error; return { data: data?.[0] || null }; } catch (error) { return { data: null }; } }
 export const getArcadeLeaderboard = async () => { return { data: [] } }
 export const cancelArcadeBooking = async (bookingId) => { try { const { data, error } = await supabase.from('arcade_bookings').update({ status: 'cancelled' }).eq('id', bookingId).select().single(); if (error) throw error; return { data }; } catch (error) { throw error; } }
-
-// --- ALTRE FUNZIONI ---
 
 export const getPub = async (pubCode) => {
   if (!pubCode) return { data: null };
@@ -559,7 +536,7 @@ export const startQuiz = async (data) => {
     event_id: event.id, category: data.category, question: data.question, options: data.options, correct_index: data.correct_index, points: data.points, status: 'active', started_at: new Date().toISOString(), media_url: data.media_url || null, media_type: data.media_type || 'text', quiz_catalog_id: data.quiz_catalog_id || null
   }).select().single()
   if (error) throw error; 
-  // Pulisce quiz_lobby quando il quiz parte davvero — il display passa a QuizMode
+  
   const { data: current } = await supabase.from('events').select('settings').eq('id', event.id).single();
   const currentSettings = current?.settings || {};
   await supabase.from('events').update({ 
@@ -576,7 +553,6 @@ export const closeQuizVoting = async (quizId) => {
 }
 
 export const showQuizResults = async (quizId) => {
-  // Assegna i punti a tutti i vincitori ora che la regia mostra i risultati
   const { data: correctAnswers } = await supabase
     .from('quiz_answers')
     .select('participant_id, points_earned')
@@ -618,49 +594,47 @@ export const getQuizResults = async (quizId) => {
         id: a.participants?.id, 
         nickname: a.participants?.nickname || 'Unknown', 
         avatar: a.participants?.avatar_url || null, 
-        points: a.points_earned || quiz.points  // punti reali con bonus velocità
+        points: a.points_earned || quiz.points
       })),
       points: quiz.points
     }
   }
 }
 
+// --- FIX SCORING: Accetta il punteggio calcolato dal client ---
 export const answerQuiz = async (data) => {
   const participant = getParticipantFromToken();
-  const clientAnsweredAt = data.answered_at || Date.now(); // timestamp dal client
+  
+  // 1. Verifica correttezza
+  const { data: quiz, error: quizError } = await supabase
+    .from('quizzes')
+    .select('correct_index')
+    .eq('id', data.quiz_id)
+    .single();
 
-  const { data: quiz, error: quizError } = await supabase.from('quizzes').select('correct_index, points, started_at').eq('id', data.quiz_id).single();
   if (quizError) throw quizError;
 
   const isCorrect = quiz.correct_index === data.answer_index;
-  let pointsEarned = 0;
+  
+  // 2. Se corretto, usa i punti calcolati dal telefono. Se sbagliato, 0.
+  // Fallback a 10 punti se il client non manda nulla ma ha indovinato.
+  const finalPoints = isCorrect ? (data.client_points || 10) : 0;
 
-  if (isCorrect && quiz.started_at) {
-    const quizStartedAt = new Date(quiz.started_at).getTime();
-    const serverNow = Date.now();
-    // Tolleranza: il timestamp del client non può essere nel futuro o troppo nel passato
-    const clampedAnsweredAt = Math.min(clientAnsweredAt, serverNow + 500); // max 500ms in futuro
-    const elapsedMs = Math.max(0, clampedAnsweredAt - quizStartedAt);
-    const elapsedSec = elapsedMs / 1000;
-    const maxSec = 15;
-    if (elapsedSec <= maxSec) {
-      // Formula continua: 100 punti a 0 sec, 0 punti a 15 sec
-      pointsEarned = Math.max(0, Math.round(100 * (1 - elapsedSec / maxSec)));
-    }
-    // Minimo 5 punti se risponde giusto entro il tempo
-    if (pointsEarned === 0 && elapsedSec <= maxSec) pointsEarned = 5;
-  }
-
+  // 3. Salva nel DB
   const { data: ans, error } = await supabase.from('quiz_answers').insert({
     quiz_id: data.quiz_id,
     participant_id: participant.participant_id,
     answer_index: data.answer_index,
     is_correct: isCorrect,
-    points_earned: pointsEarned
+    points_earned: finalPoints 
   }).select().single();
-  if (error) { if (error.code === '23505') throw new Error('Già risposto'); throw error; }
-  // I punti NON vengono assegnati ora — vengono assegnati quando la regia clicca "Mostra Risultati"
-  return { data: { ...ans, points_earned: pointsEarned } };
+
+  if (error) { 
+      if (error.code === '23505') throw new Error('Già risposto'); 
+      throw error; 
+  }
+  
+  return { data: { ...ans, points_earned: finalPoints } };
 }
 
 export const getActiveQuiz = async () => {
@@ -821,7 +795,6 @@ export const clearExtraction = async (pubCode) => {
     .single()
   if (evErr) throw evErr
 
-  // Rendi visibile la canzone estratta (da approved → queued)
   if (event.extraction_data?.song) {
     await supabase
       .from('song_requests')
@@ -838,8 +811,6 @@ export const clearExtraction = async (pubCode) => {
   if (error) throw error
   return { data: 'ok' }
 }
-
-// --- FUNZIONI DI SUPPORTO E ALTRO ---
 
 export const adminLogin = async (data) => { return { data: { user: { email: data.email } } } }
 export const getMe = async () => { const { data: { user } } = await supabase.auth.getUser(); return { data: user } }
@@ -871,17 +842,14 @@ export const getQuizCatalog = async (venueId = null, daysThreshold = 30) => {
   if (!pubCode) return { data: [] };
   const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
   
-  // Prima prova le domande legate all'evento
   const { data: eventQuestions } = await supabase.from('event_quiz_catalog').select('quiz_catalog_id').eq('event_id', event.id);
   
   let catalog;
   if (eventQuestions && eventQuestions.length > 0) {
-    // Usa domande specifiche dell'evento
     const questionIds = eventQuestions.map(eq => eq.quiz_catalog_id);
     const { data } = await supabase.from('quiz_catalog').select('*').in('id', questionIds).eq('is_active', true).order('category');
     catalog = data;
   } else {
-    // Fallback: tutte le domande del catalogo globale (escluse personalizzate)
     const { data } = await supabase.from('quiz_catalog').select('*').eq('is_active', true).neq('category', 'Personalizzata').order('category');
     catalog = data;
   }
@@ -901,7 +869,7 @@ export const getMillionaireCatalog = async () => {
 
 export const deleteQuizQuestion = async (catalogId) => { await supabase.from('quiz_catalog').delete().eq('id', catalogId); return { data: 'ok' }; }
 export const getChallengeCatalog = async () => { const { data } = await supabase.from('challenge_catalog').select('*'); return { data: data || [] }; };
-export const importQuizCatalog = async (jsonString) => { return { success: true, count: 0 }; } // Placeholder
+export const importQuizCatalog = async (jsonString) => { return { success: true, count: 0 }; }
 export const getQuizModules = async () => { const { data } = await supabase.from('quiz_library').select('*'); return { data: data || [] }; }
 export const loadQuizModule = async (moduleId) => { 
     const pubCode = localStorage.getItem('discojoys_pub_code');
@@ -1061,7 +1029,6 @@ export const retireMillionaire = async (gameId, currentPrize, participantId) => 
         status: 'retired', current_prize: currentPrize, ended_at: new Date().toISOString()
     }).eq('id', gameId).select().single();
     if (error) throw error;
-    // Assegna punti
     if (participantId && currentPrize > 0) {
         const { data: p } = await supabase.from('participants').select('score').eq('id', participantId).single();
         if (p) await supabase.from('participants').update({ score: (p.score || 0) + currentPrize }).eq('id', participantId);
@@ -1143,11 +1110,8 @@ export const endMillionaireGame = async (gameId) => {
     return { data };
 };
 
-// ── QUIZ LOBBY — salva stato nel DB così il display lo vede via polling
-// anche se il broadcast Realtime non arriva (es. canale non ancora sottoscritto)
 export const setQuizLobby = async (active) => {
     const event = await getAdminEvent();
-    // Legge settings attuali per non sovrascrivere altri campi
     const { data: current } = await supabase.from('events').select('settings').eq('id', event.id).single();
     const currentSettings = current?.settings || {};
     await supabase.from('events').update({

@@ -47,7 +47,6 @@ export default function ClientApp() {
   useEffect(() => { if (!isAuthenticated) navigate("/"); }, [isAuthenticated, navigate]);
 
   const loadData = useCallback(async () => {
-    // Senza token non ha senso chiamare le API
     if (!localStorage.getItem('discojoys_token')) return;
     try {
       const [queueRes, myRes, perfRes, lbRes, quizRes, arcadeRes, millionaireRes] = await Promise.all([
@@ -75,7 +74,6 @@ export default function ClientApp() {
       
       const serverQuiz = quizRes.data;
       if (serverQuiz) {
-        // Reset stato quando è una nuova domanda
         if (!activeQuiz || activeQuiz.id !== serverQuiz.id) {
           setQuizAnswer(null);
           setQuizResult(null);
@@ -83,26 +81,17 @@ export default function ClientApp() {
         }
         setActiveQuiz(serverQuiz);
 
-        // ✅ FIX: Il modal rimane aperto anche durante showing_results e leaderboard
-        // così l'utente vede il suo risultato. Si chiude SOLO quando il quiz è ended/null.
-        // Prima era: chiudeva il modal appena status != active e != closed → l'utente
-        // non vedeva mai il risultato!
         if (serverQuiz.status === 'active' && !showQuizModal) {
           setShowQuizModal(true);
         }
 
-        // ✅ FIX: Carica risultato quando la regia clicca "Mostra Risultati"
-        // Funziona anche se quizAnswer è null (utente non ha risposto) — mostra solo la risposta corretta
         if (serverQuiz.status === 'showing_results' && !quizResult) {
           setTimeout(async () => {
             try {
               const { data } = await api.getQuizResults(serverQuiz.id);
               setQuizResult(data);
-              setShowQuizModal(true); // riapre il modal se era stato chiuso
+              setShowQuizModal(true); 
 
-              // ✅ FIX PRINCIPALE: Se pointsEarned è 0 (answerQuiz fallito da mobile,
-              // o lentezza rete) recupera i punti reali dal server cercando il partecipante
-              // tra i vincitori. Questo risolve il "0 punti" da mobile.
               if (pointsEarned === 0 && data?.winners) {
                 try {
                   const raw = localStorage.getItem('discojoys_token');
@@ -113,9 +102,7 @@ export default function ClientApp() {
                       setPointsEarned(myWin.points || 0);
                     }
                   }
-                } catch (e) {
-                  // token malformato — ignora silenziosamente
-                }
+                } catch (e) {}
               }
             } catch(e) {
               console.error("Errore getQuizResults:", e);
@@ -123,20 +110,16 @@ export default function ClientApp() {
           }, 500);
         }
 
-        // Chiude il modal SOLO quando il quiz è completamente finito (leaderboard o ended)
         if (serverQuiz.status === 'leaderboard') {
-          // Lascia il modal aperto per mostrare "Guarda il Maxischermo"
           setShowQuizModal(true);
         }
 
       } else {
-        // Quiz terminato/rimosso: reset completo e chiudi modal
         setActiveQuiz(null);
         setQuizResult(null);
         setShowQuizModal(false);
       }
       
-      // ✅ GESTIONE ARCADE - Cambio automatico tab
       const serverArcade = arcadeRes.data;
       if (serverArcade && serverArcade.status === 'active') {
         if (!activeArcade || activeArcade.id !== serverArcade.id) {
@@ -147,7 +130,6 @@ export default function ClientApp() {
         setActiveArcade(null);
       }
 
-      // ✅ GESTIONE MILIONARIO
       const serverMill = millionaireRes?.data;
       if (serverMill && ['active','lifeline_audience'].includes(serverMill.status)) {
         if (!activeMillionaire || activeMillionaire.id !== serverMill.id) {
@@ -209,30 +191,57 @@ export default function ClientApp() {
     }
   };
 
+  // --- FIX SCORING: Calcolo punteggio lato Client ---
   const handleQuizAnswer = async (index) => {
-    if (quizAnswer !== null) return;
+    if (quizAnswer !== null) return; 
     if (!activeQuiz || activeQuiz.status !== 'active') return;
-    setQuizAnswer(index);
-    const answeredAt = Date.now();
+
+    setQuizAnswer(index); // Blocca UI
+    
+    // Calcolo punteggio locale
+    let calculatedPoints = 0;
+    
+    if (activeQuiz.started_at) {
+        const now = Date.now();
+        const startTime = new Date(activeQuiz.started_at).getTime();
+        
+        // Calcola secondi trascorsi (Math.max evita numeri negativi se orologio sballato)
+        const elapsedMs = Math.max(0, now - startTime);
+        const elapsedSec = elapsedMs / 1000;
+        const maxSec = 15; // Tempo massimo per bonus
+        
+        if (elapsedSec <= maxSec) {
+            // 100 punti a 0s, 0 punti a 15s
+            calculatedPoints = Math.round(100 * (1 - elapsedSec / maxSec));
+        }
+        
+        // Minimo 10 punti se rispondi entro il tempo
+        if (calculatedPoints < 10) calculatedPoints = 10;
+        if (calculatedPoints > 100) calculatedPoints = 100;
+    } else {
+        // Fallback se manca orario
+        calculatedPoints = 50;
+    }
+    
+    setPointsEarned(calculatedPoints);
+
     try {
-      const { data } = await api.answerQuiz({ quiz_id: activeQuiz.id, answer_index: index, answered_at: answeredAt });
-      setPointsEarned(data.points_earned || 0);
+      // Invia anche i punti calcolati
+      await api.answerQuiz({ 
+          quiz_id: activeQuiz.id, 
+          answer_index: index, 
+          client_points: calculatedPoints 
+      });
     } catch (e) {
-      // ✅ FIX: Non mostrare toast "risposta salvata" se è un errore di duplicato (già risposto)
-      // In tutti gli altri casi logga l'errore ma non resetta quizAnswer così il bottone resta disabilitato
-      if (e?.message === 'Già risposto') {
-        // già risposto, ignora silenziosamente
-      } else {
-        console.error("Errore answerQuiz:", e);
-        // Non fare toast.info qui — i punti verranno recuperati da getQuizResults
-        // quando la regia clicca "Mostra Risultati" (vedi fix sopra nel loadData)
+      if (e?.message !== 'Già risposto') {
+        console.error("Errore invio risposta:", e);
+        toast.error("Errore di connessione (ma riprova se vuoi)");
       }
     }
   };
 
   if (!isAuthenticated) return null;
 
-  // Tabs config — aggiunto Arcade
   const tabs = [
     { id: "home", icon: Home, label: "Home" },
     { id: "songs", icon: Music, label: "Canzoni" },
@@ -265,21 +274,18 @@ export default function ClientApp() {
           </div>
         )}
         {activeTab === "songs" && (<div className="space-y-4"><h2 className="text-xl font-bold">Le Mie Richieste</h2>{myRequests.map(song => (<div key={song.id} className="glass rounded-xl p-4"><p className="font-medium">{song.title}</p><div className="flex justify-between mt-1"><p className="text-sm text-zinc-500">{song.artist}</p><span className={`text-xs uppercase px-2 py-1 rounded ${song.status==='queued' ? 'bg-green-500/20 text-green-400' : 'bg-zinc-800 text-zinc-500'}`}>{song.status}</span></div></div>))}</div>)}
-        {/* ── TAB ARCADE ── */}
         {activeTab === "arcade" && (
           <ArcadeSection participant={{ id: user?.id, nickname: user?.nickname, avatar_url: user?.avatar_url }} />
         )}
         {activeTab === "leaderboard" && (<div className="space-y-4"><h2 className="text-xl font-bold text-yellow-500">Classifica Quiz</h2>{leaderboard.map((player, index) => (<div key={index} className="glass rounded-xl p-4 flex items-center gap-4"><span className={`text-2xl font-bold w-8 ${index===0 ? 'text-yellow-400' : 'text-zinc-500'}`}>#{index + 1}</span><span className="flex-1 font-medium">{player.nickname}</span><span className="font-bold text-cyan-400">{player.score}</span></div>))}</div>)}
         {activeTab === "profile" && (<div className="space-y-6 text-center pt-8"><div className="w-24 h-24 rounded-full bg-fuchsia-500/20 flex items-center justify-center mx-auto border-2 border-fuchsia-500/50"><User className="w-12 h-12 text-fuchsia-400" /></div><div><h2 className="text-2xl font-bold">{user?.nickname}</h2><p className="text-zinc-500">{user?.pub_name}</p></div><Button onClick={logout} variant="outline" className="w-full border-red-500/50 text-red-400 hover:bg-red-950">Esci dal Pub</Button></div>)}
       </main>
-      {/* ── NAVBAR con tab Arcade ── */}
       <nav className="mobile-nav safe-bottom bg-[#0a0a0a] border-t border-white/10 flex justify-around p-2 fixed bottom-0 w-full z-40">
         {tabs.map(tab => (<button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center gap-1 p-2 rounded-lg transition ${activeTab === tab.id ? 'text-fuchsia-500' : 'text-zinc-500'}`}><tab.icon className="w-6 h-6" /><span className="text-[10px]">{tab.label}</span></button>))}
       </nav>
       <Dialog open={showRequestModal} onOpenChange={setShowRequestModal}><DialogContent className="bg-zinc-900 border-zinc-800"><DialogHeader><DialogTitle>Richiedi Canzone</DialogTitle></DialogHeader><form onSubmit={handleRequestSong} className="space-y-4 mt-4"><Input value={songTitle} onChange={(e) => setSongTitle(e.target.value)} placeholder="Titolo" className="bg-zinc-800 border-zinc-700"/><Input value={songArtist} onChange={(e) => setSongArtist(e.target.value)} placeholder="Artista" className="bg-zinc-800 border-zinc-700"/><Input value={songYoutubeUrl} onChange={(e) => setSongYoutubeUrl(e.target.value)} placeholder="Link YouTube (facoltativo)" className="bg-zinc-800 border-zinc-700"/><Button type="submit" className="w-full bg-fuchsia-600 hover:bg-fuchsia-700">Invia</Button></form></DialogContent></Dialog>
       <Dialog open={showVoteModal} onOpenChange={setShowVoteModal}><DialogContent className="bg-zinc-900 border-zinc-800 text-center"><DialogHeader><DialogTitle>Vota l'Esibizione!</DialogTitle></DialogHeader><div className="flex justify-center gap-2 py-4">{[1, 2, 3, 4, 5].map(star => (<button key={star} onClick={() => setSelectedStars(star)}><Star className={`w-10 h-10 ${selectedStars >= star ? 'text-yellow-500 fill-yellow-500' : 'text-zinc-600'}`} /></button>))}</div><Button onClick={handleVote} disabled={selectedStars === 0} className="w-full bg-yellow-500 text-black">Conferma Voto</Button></DialogContent></Dialog>
       <Dialog open={showMessageModal} onOpenChange={setShowMessageModal}><DialogContent className="bg-zinc-900 border-zinc-800"><DialogHeader><DialogTitle>Messaggio al Pub</DialogTitle></DialogHeader><Input value={messageText} onChange={(e) => setMessageText(e.target.value)} placeholder="Scrivi messaggio..." className="bg-zinc-800 border-zinc-700"/><Button onClick={handleSendMessage} className="w-full mt-4 bg-cyan-600 hover:bg-cyan-700">Invia</Button></DialogContent></Dialog>
-      {/* MILIONARIO — Aiuto del Pubblico */}
       <Dialog open={showMillionaireModal} onOpenChange={setShowMillionaireModal}>
         <DialogContent className="bg-zinc-900 border-yellow-500/30 max-w-md w-[90%] rounded-2xl">
           <DialogHeader><DialogTitle className="text-center text-xl font-bold text-yellow-400">🎰 Aiuto del Pubblico!</DialogTitle></DialogHeader>

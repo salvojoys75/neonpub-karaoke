@@ -11,16 +11,12 @@ import FloatingReactions from '@/components/FloatingReactions';
 import ExtractionMode from '@/components/ExtractionMode';
 import MillionaireMode from '@/components/MillionaireMode';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SOUNDS — Web Audio API, nessun file esterno
-// ─────────────────────────────────────────────────────────────────────────────
 const playSound = (type) => {
     try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
         const t = ctx.currentTime;
 
         if (type === 'quiz_suspense') {
-            // Battito cuore stile Chi vuol essere milionario — pulsante, ipnotico
             const pulse = (start, vol) => {
                 const o = ctx.createOscillator(); const g = ctx.createGain();
                 o.connect(g); g.connect(ctx.destination);
@@ -29,20 +25,17 @@ const playSound = (type) => {
                 g.gain.linearRampToValueAtTime(vol, t + start + 0.04);
                 g.gain.exponentialRampToValueAtTime(0.001, t + start + 0.25);
                 o.start(t + start); o.stop(t + start + 0.3);
-                // click
                 const o2 = ctx.createOscillator(); const g2 = ctx.createGain();
                 o2.connect(g2); g2.connect(ctx.destination);
                 o2.type = 'square'; o2.frequency.value = 200;
                 g2.gain.setValueAtTime(0.08, t + start); g2.gain.exponentialRampToValueAtTime(0.001, t + start + 0.06);
                 o2.start(t + start); o2.stop(t + start + 0.07);
             };
-            // Accelerazione graduale — si ripete ogni 0.9s poi 0.7s poi 0.5s poi 0.4s
             const times = [0, 0.9, 1.8, 2.5, 3.2, 3.9, 4.5, 5.0, 5.5, 5.9, 6.3, 6.6, 6.9, 7.1, 7.3];
             times.forEach((s, i) => pulse(s, 0.25 + i * 0.02));
         }
 
         if (type === 'timeout') {
-            // Bzzzt — tempo scaduto
             const o = ctx.createOscillator(); const g = ctx.createGain();
             o.connect(g); g.connect(ctx.destination);
             o.type = 'sawtooth';
@@ -52,7 +45,6 @@ const playSound = (type) => {
         }
 
         if (type === 'countdown_end') {
-            // Tre beep discendenti — fine countdown
             [880, 660, 440].forEach((freq, i) => {
                 const o = ctx.createOscillator(); const g = ctx.createGain();
                 o.connect(g); g.connect(ctx.destination);
@@ -64,7 +56,6 @@ const playSound = (type) => {
         }
 
         if (type === 'correct') {
-            // Fanfara breve — risposta esatta
             const notes = [523, 659, 784, 1047];
             notes.forEach((freq, i) => {
                 const o = ctx.createOscillator(); const g = ctx.createGain();
@@ -78,7 +69,6 @@ const playSound = (type) => {
         }
 
         if (type === 'leaderboard') {
-            // Drumroll + fanfara classifica
             for (let i = 0; i < 12; i++) {
                 const o = ctx.createOscillator(); const g = ctx.createGain();
                 o.connect(g); g.connect(ctx.destination);
@@ -98,13 +88,6 @@ const playSound = (type) => {
         }
     } catch(e) {}
 };
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MEDIA ORCHESTRATOR
-// Gestisce sigla, applausi, estrazione, transizioni e sottofondo
-// FILE ATTESI in /public/media/ :
-//   sigla.mp4, applausi.mp3, estrazione.mp4, transizione.mp4, sottofondo.mp3
-// ─────────────────────────────────────────────────────────────────────────────
 
 function getActiveMode(data) {
   if (!data) return 'loading';
@@ -130,7 +113,6 @@ function useMediaOrchestrator(data) {
   const [overlay, setOverlay]       = useState(null);
   const prevDataRef    = useRef(null);
   const prevModeRef    = useRef(null);
-  const siglaShownRef  = useRef(false);
   const subfontoRef    = useRef(null);
   const dismissTimerRef = useRef(null);
   const isFirstDataRef  = useRef(true);
@@ -209,9 +191,7 @@ function useMediaOrchestrator(data) {
     const curr     = data;
     const prev     = prevDataRef.current;
     const currMode = getActiveMode(curr);
-    const prevMode = prevModeRef.current;
 
-    // 1. SIGLA — NON parte automaticamente, solo dalla regia manualmente
     if (isFirstDataRef.current) {
       isFirstDataRef.current = false;
       prevDataRef.current = curr;
@@ -219,7 +199,6 @@ function useMediaOrchestrator(data) {
       return;
     }
 
-    // 2. ESTRAZIONE — ExtractionMode gestisce tutto da solo
     const extractionAppeared = !prev?.extraction_data && curr.extraction_data;
     if (extractionAppeared) {
       stopSottofondo();
@@ -228,7 +207,6 @@ function useMediaOrchestrator(data) {
       return;
     }
 
-    // 2b. VINCITORE ARCADE → applausi
     const arcadeWinnerAppeared = !prev?.arcade_result && curr.arcade_result;
     if (arcadeWinnerAppeared) {
       stopSottofondo();
@@ -238,14 +216,13 @@ function useMediaOrchestrator(data) {
       return;
     }
 
-    // 3. FINE ESIBIZIONE → applausi solo se c'è stato voto reale
     const prevPerf = prev?.current_performance;
     const currPerf = curr.current_performance;
     const perfFinita =
       prevPerf &&
       !['ended'].includes(prevPerf.status) &&
       currPerf?.status === 'ended' &&
-      currPerf?.average_score > 0; // skip non ha punteggio
+      currPerf?.average_score > 0;
     if (perfFinita) {
       stopSottofondo();
       trigger('applausi', 7000);
@@ -254,9 +231,6 @@ function useMediaOrchestrator(data) {
       return;
     }
 
-    // 4. CAMBIO MODULO — transizione disabilitata per ora
-
-    // 5. IDLE → sottofondo
     if (currMode === 'idle' && !overlayActiveRef.current && !sottofondoMutedRef.current) {
       startSottofondo();
       stopMillionaireBg();
@@ -281,7 +255,6 @@ function useMediaOrchestrator(data) {
     };
   }, [stopSottofondo]);
 
-  // triggerManual: usato dalla regia per lanciare effetti a mano
   const triggerManual = useCallback((key) => {
     if (key === 'stop_sottofondo') {
       sottofondoMutedRef.current = true;
@@ -300,10 +273,6 @@ function useMediaOrchestrator(data) {
   return { overlay, dismissOverlay: dismiss, triggerManual };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// MEDIA OVERLAY COMPONENT
-// ─────────────────────────────────────────────────────────────────────────────
-
 const MEDIA_OVERLAY_STYLES = `
   @keyframes celebrationFadeInOut {
     0%   { opacity: 0; }
@@ -320,8 +289,6 @@ const MEDIA_OVERLAY_STYLES = `
     40%  { transform: scale(1.3) rotate(8deg);  opacity: 1; }
     100% { transform: scale(1)   rotate(0deg);  opacity: 1; }
   }
-
-  /* ── SIGLA ANIMATIONS ── */
   @keyframes siglaZoomIn {
     0%   { transform: scale(0.2); opacity: 0; filter: blur(20px); }
     60%  { transform: scale(1.08); opacity: 1; filter: blur(0px); }
@@ -383,7 +350,6 @@ const MEDIA_OVERLAY_STYLES = `
   }
 `;
 
-// ── Componente sigla con testi sincronizzati ───────────────────────────────
 function SiglaOverlay({ onDismiss, pubData }) {
   const videoRef = useRef(null);
   const [elapsed, setElapsed] = useState(0);
@@ -395,7 +361,6 @@ function SiglaOverlay({ onDismiss, pubData }) {
   const nPartecipanti = pubData?.leaderboard?.length || 0;
   const dataOggi     = new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
-  // Timer sincronizzato al video
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.currentTime = 0;
@@ -407,7 +372,6 @@ function SiglaOverlay({ onDismiss, pubData }) {
     return () => clearInterval(timerRef.current);
   }, [onDismiss]);
 
-  // Flash bianco a 00:58
   useEffect(() => {
     if (elapsed >= 58 && elapsed < 58.5 && !flashActive) {
       setFlashActive(true);
@@ -415,7 +379,6 @@ function SiglaOverlay({ onDismiss, pubData }) {
     }
   }, [elapsed, flashActive]);
 
-  // Visibilità dei blocchi di testo
   const show15  = elapsed >= 15  && elapsed < 22;
   const show22  = elapsed >= 22  && elapsed < 30;
   const show30  = elapsed >= 30  && elapsed < 38;
@@ -428,7 +391,6 @@ function SiglaOverlay({ onDismiss, pubData }) {
     <>
       <style>{MEDIA_OVERLAY_STYLES}</style>
 
-      {/* Flash bianco al momento d'impatto 00:58 */}
       {flashActive && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 9600,
@@ -439,7 +401,6 @@ function SiglaOverlay({ onDismiss, pubData }) {
       )}
 
       <div className="fixed inset-0 z-[9500] overflow-hidden">
-        {/* VIDEO SFONDO */}
         <video
           ref={videoRef}
           src="/media/sigla.mp4"
@@ -449,14 +410,12 @@ function SiglaOverlay({ onDismiss, pubData }) {
           onError={onDismiss}
         />
 
-        {/* OVERLAY SCURO LEGGERO per leggibilità testi */}
         <div style={{
           position: 'absolute', inset: 0,
           background: 'linear-gradient(to bottom, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0.1) 50%, rgba(0,0,0,0.4) 100%)',
           pointerEvents: 'none',
         }}/>
 
-        {/* ── 00:15 — NOME LOCALE ── */}
         {show15 && (
           <div style={{
             position: 'absolute', inset: 0,
@@ -505,7 +464,6 @@ function SiglaOverlay({ onDismiss, pubData }) {
           </div>
         )}
 
-        {/* ── 00:22 — STASERA QUALCOSA DI SPECIALE ── */}
         {show22 && (
           <div style={{
             position: 'absolute', inset: 0,
@@ -540,7 +498,6 @@ function SiglaOverlay({ onDismiss, pubData }) {
           </div>
         )}
 
-        {/* ── 00:30 — NOME SERATA + DATA ── */}
         {show30 && (
           <div style={{
             position: 'absolute', inset: 0,
@@ -575,7 +532,6 @@ function SiglaOverlay({ onDismiss, pubData }) {
           </div>
         )}
 
-        {/* ── 00:38 — PARTECIPANTI ── */}
         {show38 && nPartecipanti > 0 && (
           <div style={{
             position: 'absolute', inset: 0,
@@ -618,7 +574,6 @@ function SiglaOverlay({ onDismiss, pubData }) {
           </div>
         )}
 
-        {/* ── 00:46 — ATTIVITÀ UNA ALLA VOLTA ── */}
         {show46 && (
           <div style={{
             position: 'absolute', inset: 0,
@@ -657,7 +612,6 @@ function SiglaOverlay({ onDismiss, pubData }) {
           </div>
         )}
 
-        {/* ── 00:58 — "1 SOLO VINCITORE" ── */}
         {show58 && (
           <div style={{
             position: 'absolute', inset: 0,
@@ -699,7 +653,6 @@ function SiglaOverlay({ onDismiss, pubData }) {
           </div>
         )}
 
-        {/* ── 01:01 — "CHE LA SFIDA ABBIA INIZIO!" ── */}
         {show101 && (
           <div style={{
             position: 'absolute', inset: 0,
@@ -707,7 +660,6 @@ function SiglaOverlay({ onDismiss, pubData }) {
             alignItems: 'center', justifyContent: 'center',
             pointerEvents: 'none',
           }}>
-            {/* Glow potente dietro */}
             <div style={{
               position: 'absolute',
               width: '900px', height: '500px',
@@ -746,7 +698,6 @@ function MediaOverlay({ overlay, onDismiss, pubData }) {
       a.volume = 0.85;
       a.play().catch(() => {});
       audioRef.current = a;
-      // Fade out negli ultimi 2 secondi (applausi dura 7s)
       setTimeout(() => {
         if (!audioRef.current) return;
         const fadeOut = setInterval(() => {
@@ -759,17 +710,14 @@ function MediaOverlay({ overlay, onDismiss, pubData }) {
     return () => {
       if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overlay?.key, overlay?.triggeredAt]);
 
   if (!overlay) return null;
 
-  // ── SIGLA — gestita da SiglaOverlay dedicato ──────────────────────────────
   if (overlay.key === 'sigla') {
     return <SiglaOverlay onDismiss={onDismiss} pubData={pubData} />;
   }
 
-  // ── Applausi: overlay celebrazione con coriandoli ─────────────────────────
   if (overlay.key === 'applausi') {
     const COLORS = ['#d946ef','#a855f7','#f59e0b','#10b981','#3b82f6','#ef4444','#fff'];
     return (
@@ -781,7 +729,6 @@ function MediaOverlay({ overlay, onDismiss, pubData }) {
             animation: 'celebrationFadeInOut 7s ease forwards',
           }}
         >
-          {/* Solo coriandoli — niente testo che copre il punteggio */}
           {Array.from({ length: 60 }).map((_, i) => (
             <div
               key={i}
@@ -804,10 +751,6 @@ function MediaOverlay({ overlay, onDismiss, pubData }) {
 
   return null;
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// STILI CSS ORIGINALI
-// ─────────────────────────────────────────────────────────────────────────────
 
 const STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800;900&family=JetBrains+Mono:wght@500&display=swap');
@@ -861,10 +804,6 @@ const STYLES = `
   .dj-karaoke-bar { height: var(--karaoke-bar-h); }
   .dj-karaoke-player { bottom: var(--karaoke-bar-h); }
 `;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// COMPONENTI ORIGINALI (invariati)
-// ─────────────────────────────────────────────────────────────────────────────
 
 const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => {
   const messagesString = messages && messages.length > 0 ? messages.map(m => `${m.nickname}: ${m.text}`).join('   •   ') : '';
@@ -974,10 +913,8 @@ const Sidebar = ({ pubCode, queue, leaderboard, selfie }) => (
           </div>
       </div>
 
-      {/* CLASSIFICA o SELFIE */}
       <div className="glass-panel rounded-3xl flex flex-col overflow-hidden relative flex-1">
           {selfie ? (
-              /* ── SELFIE MODE ── */
               <div className="flex flex-col h-full">
                   <div className="bg-gradient-to-r from-pink-500 to-fuchsia-600 px-4 py-3 flex items-center gap-2 border-b border-white/10 shrink-0">
                       <span className="text-[2vh]">📸</span>
@@ -989,7 +926,6 @@ const Sidebar = ({ pubCode, queue, leaderboard, selfie }) => (
                   </div>
               </div>
           ) : (
-              /* ── CLASSIFICA MODE ── */
               <>
                   <div className="bg-gradient-to-r from-yellow-500 to-orange-500 px-6 py-4 flex items-center justify-between border-b border-white/10 shrink-0">
                       <div className="flex items-center gap-3">
@@ -1134,7 +1070,6 @@ const QuizLobbyMode = ({ lobbyData }) => (
             ))}
         </div>
 
-        {/* Equalizzatore decorativo */}
         <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-end', height: '55px', marginBottom: '28px', position: 'relative', zIndex: 1 }}>
             {[40,65,30,80,55,70,35,90,50,75,40,60].map((h, i) => (
                 <div key={i} style={{
@@ -1183,7 +1118,6 @@ const ArcadeLobbyMode = ({ arcade, pubCode }) => {
     <div className="w-full h-full flex flex-col items-center justify-center relative overflow-hidden"
          style={{ background: 'linear-gradient(135deg, #0a0a1a 0%, #0d0020 50%, #0a0a1a 100%)' }}>
 
-        {/* Sfondo animato */}
         <div style={{
             position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none'
         }}>
@@ -1204,7 +1138,6 @@ const ArcadeLobbyMode = ({ arcade, pubCode }) => {
             ))}
         </div>
 
-        {/* Equalizzatore decorativo in cima */}
         <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-end', height: '60px', marginBottom: '32px', position: 'relative', zIndex: 1 }}>
             {[40,65,30,80,55,70,35,90,50,75,40,60].map((h, i) => (
                 <div key={i} style={{
@@ -1219,7 +1152,6 @@ const ArcadeLobbyMode = ({ arcade, pubCode }) => {
             ))}
         </div>
 
-        {/* Titolo */}
         <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', marginBottom: '24px' }}>
             <h1 style={{
                 fontFamily: "'Montserrat', sans-serif",
@@ -1236,7 +1168,6 @@ const ArcadeLobbyMode = ({ arcade, pubCode }) => {
             }}>Indovina<br/>la Hit</h1>
         </div>
 
-        {/* Spiegazione */}
         <div style={{
             position: 'relative', zIndex: 1,
             display: 'flex', gap: '20px', marginBottom: '40px',
@@ -1263,7 +1194,6 @@ const ArcadeLobbyMode = ({ arcade, pubCode }) => {
             ))}
         </div>
 
-        {/* Prenotati — mostra solo se ci sono */}
         {bookings.length > 0 && (
         <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: '700px', padding: '0 20px' }}>
             <div style={{
@@ -1305,7 +1235,6 @@ const ArcadeLobbyMode = ({ arcade, pubCode }) => {
 
 const VotingMode = ({ perf }) => {
     useEffect(() => {
-        // Suono suspense via Web Audio API — nessun file necessario
         try {
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
             const play = (freq, start, dur, vol = 0.3) => {
@@ -1319,14 +1248,12 @@ const VotingMode = ({ perf }) => {
                 osc.start(ctx.currentTime + start);
                 osc.stop(ctx.currentTime + start + dur + 0.1);
             };
-            // Arpeggio suspense crescente
             play(220, 0,    0.3, 0.2);
             play(277, 0.35, 0.3, 0.25);
             play(330, 0.7,  0.3, 0.3);
             play(440, 1.05, 0.4, 0.35);
             play(554, 1.5,  0.5, 0.4);
             play(660, 2.1,  0.8, 0.45);
-            // Nota lunga finale che pulsa
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
             const lfo = ctx.createOscillator();
@@ -1400,7 +1327,7 @@ const QuizMode = ({ quiz, result }) => {
     const timeoutSoundedRef = useRef(false);
 
     useEffect(() => {
-        timeoutSoundedRef.current = false; // reset ad ogni nuova domanda
+        timeoutSoundedRef.current = false; 
         if (quiz?.status === 'active' && quiz?.started_at) {
             const update = () => {
                 const elapsed = (Date.now() - new Date(quiz.started_at).getTime()) / 1000;
@@ -1422,15 +1349,11 @@ const QuizMode = ({ quiz, result }) => {
     useEffect(() => {
         const prev = prevStatusRef.current;
         const curr = quiz?.status;
-        // Suono suspense quando parte la domanda testuale
         if (curr === 'active' && prev !== 'active') {
             if (!quiz.media_url || quiz.media_type === 'text') playSound('quiz_suspense');
         }
-        // Suono tempo scaduto
         if (curr === 'closed' && prev === 'active') playSound('timeout');
-        // Suono risposta esatta
         if (curr === 'showing_results' && prev === 'closed') playSound('correct');
-        // Suono classifica
         if (curr === 'leaderboard' && prev !== 'leaderboard') playSound('leaderboard');
         prevStatusRef.current = curr;
     }, [quiz?.status]);
@@ -1471,10 +1394,6 @@ const QuizMode = ({ quiz, result }) => {
     const isAudioQuiz = quiz.media_type === 'audio' && quiz.media_url && !result;
     const spotifyEmbedUrl = isAudioQuiz ? getSpotifyEmbed(quiz.media_url) : null;
     const ytId = isVideoQuiz ? getYtId(quiz.media_url) : null;
-
-
-
-
 
     return (
     <div className="w-full h-full flex flex-col bg-[#080808] relative p-12 overflow-hidden">
@@ -1575,22 +1494,18 @@ const IdleMode = ({ pub }) => (
     </div>
 );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// COMPONENTE PRINCIPALE — PubDisplay
-// ─────────────────────────────────────────────────────────────────────────────
-
 export default function PubDisplay() {
     const { pubCode } = useParams();
     const [data, setData]           = useState(null);
     const [isMuted, setIsMuted]     = useState(false);
     const [quizResult, setQuizResult] = useState(null);
     const [newReaction, setNewReaction] = useState(null);
-    const [standby, setStandby]     = useState(true); // schermata di attesa iniziale
-    const [lobbyState, setLobbyState] = useState(null); // { type: 'karaoke'|'quiz', data: {} }
-    const [activeSelfie, setActiveSelfie] = useState(null); // { url, nickname } - selfie display
+    const [standby, setStandby]     = useState(true); 
+    const [lobbyState, setLobbyState] = useState(null);
+    const [activeSelfie, setActiveSelfie] = useState(null);
     const shownSelfieIds = useRef(new Set());
+    const lastBroadcastTimeRef = useRef(0);
 
-    // Polling selfie approvati dal DB
     useEffect(() => {
         if (!pubCode) return;
         const pollSelfies = async () => {
@@ -1602,7 +1517,6 @@ export default function PubDisplay() {
             if (data && !shownSelfieIds.current.has(data.id)) {
                 shownSelfieIds.current.add(data.id);
                 setActiveSelfie({ url: data.image_data, nickname: data.nickname });
-                // Cancella dal DB dopo la visualizzazione
                 await supabase.from('pending_selfies').delete().eq('id', data.id);
                 setTimeout(() => setActiveSelfie(null), 12000);
             }
@@ -1611,25 +1525,24 @@ export default function PubDisplay() {
         return () => clearInterval(interval);
     }, [pubCode]);
 
-    // Reset lobby quando parte attività reale
     useEffect(() => {
         if (!data) return;
         const { current_performance: perf, active_quiz: quiz } = data;
         if (perf && ['live', 'paused', 'voting'].includes(perf.status)) setLobbyState(null);
         if (quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status)) setLobbyState(null);
-        // ✅ NUOVO: se il DB dice quiz_lobby=true e il lobbyState non è ancora impostato,
-        // lo imposta via polling — questo è il fix per "Prepara Display" audio che non arrivava
         if (data.quiz_lobby && !quiz && !(lobbyState?.type === 'quiz')) {
             setLobbyState({ type: 'quiz', data: {} });
             setStandby(false);
         }
-        // Se quiz_lobby è tornato false (quiz partito o annullato), pulisce il lobby state
+        
+        const timeSinceBroadcast = Date.now() - lastBroadcastTimeRef.current;
         if (!data.quiz_lobby && lobbyState?.type === 'quiz' && !quiz) {
-            setLobbyState(null);
+            if (timeSinceBroadcast > 4000) {
+                setLobbyState(null);
+            }
         }
     }, [data, lobbyState]);
 
-    // ── Reazioni realtime ────────────────────────────────────────────────────
     useEffect(() => {
         const reactionChannel = supabase.channel('public:reactions')
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions' }, (payload) => {
@@ -1640,7 +1553,6 @@ export default function PubDisplay() {
         return () => { supabase.removeChannel(reactionChannel); };
     }, []);
 
-    // ── Caricamento dati ─────────────────────────────────────────────────────
     const load = useCallback(async () => {
         try {
             const res = await api.getDisplayData(pubCode);
@@ -1677,7 +1589,6 @@ export default function PubDisplay() {
         } catch(e) { console.error(e); }
     }, [pubCode]);
 
-    // ── 🎬 MEDIA ORCHESTRATOR ────────────────────────────────────────────────
     const { overlay, dismissOverlay, triggerManual } = useMediaOrchestrator(data);
     const triggerManualRef = useRef(triggerManual);
     useEffect(() => { triggerManualRef.current = triggerManual; }, [triggerManual]);
@@ -1702,6 +1613,7 @@ export default function PubDisplay() {
                 if (p.payload.command === 'prepare_quiz') {
                     setStandby(false);
                     setLobbyState({ type: 'quiz', data: p.payload });
+                    lastBroadcastTimeRef.current = Date.now();
                 }
                 if (p.payload.command === 'clear_lobby') {
                     setLobbyState(null);
@@ -1717,11 +1629,9 @@ export default function PubDisplay() {
                     setTimeout(() => setActiveSelfie(null), 12000);
                 }
                 if (p.payload.command === 'prepare_millionaire') {
-                    // Forza reload immediato senza aspettare polling
                     load();
                 }
                 if (p.payload.command === 'play_media') {
-                    console.log('🎬 play_media:', p.payload.key);
                     setStandby(false);
                     triggerManualRef.current?.(p.payload.key);
                 }
@@ -1732,7 +1642,6 @@ export default function PubDisplay() {
         return () => { clearInterval(int); supabase.removeChannel(ctrlChannel); };
     }, [pubCode, load]);
 
-    // Esci dallo standby automaticamente quando parte un'attività reale
     useEffect(() => {
         if (!data) return;
         const { current_performance: perf, active_quiz: quiz, extraction_data } = data;
@@ -1746,7 +1655,6 @@ export default function PubDisplay() {
         if (hasActivity) setStandby(false);
     }, [data]);
 
-    // ── Schermata di caricamento dati ───────────────────────────────────────
     if (!data) return (
         <div className="w-screen h-screen bg-black flex flex-col items-center justify-center">
              <div className="w-20 h-20 border-8 border-fuchsia-600 border-t-transparent rounded-full animate-spin mb-6"></div>
@@ -1756,23 +1664,19 @@ export default function PubDisplay() {
 
     const { pub, current_performance: perf, queue, active_quiz: quiz, admin_message, leaderboard, approved_messages, extraction_data } = data;
 
-    // ── Schermata STANDBY — attesa prima che la regia inizi ─────────────────
     if (standby) return (
         <div
             className="w-screen h-screen bg-black flex flex-col items-center justify-center relative overflow-hidden"
-            onClick={() => setStandby(false)} // click di emergenza
+            onClick={() => setStandby(false)} 
         >
             <style>{STYLES}</style>
-            {/* Sfondo animato */}
             <div className="absolute inset-0 animated-bg opacity-60" />
             <div className="absolute inset-0" style={{
                 background: 'radial-gradient(ellipse at center, rgba(217,70,239,0.15) 0%, transparent 70%)',
             }}/>
-            {/* Pattern */}
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-5 pointer-events-none"/>
 
             <div className="relative z-10 flex flex-col items-center gap-8">
-                {/* Logo o iniziali */}
                 {pub?.logo_url ? (
                     <img src={pub.logo_url} alt="Logo"
                         className="w-40 h-40 rounded-[2rem] border-4 border-white/10 shadow-2xl object-contain bg-black p-4"
@@ -1785,7 +1689,6 @@ export default function PubDisplay() {
                     </div>
                 )}
 
-                {/* Nome locale */}
                 <div style={{
                     fontFamily: "'Montserrat', sans-serif",
                     fontSize: 'clamp(2rem, 5vw, 4.5rem)',
@@ -1799,7 +1702,6 @@ export default function PubDisplay() {
                     {pub?.name || 'DiscoJoys'}
                 </div>
 
-                {/* Indicatore attesa */}
                 <div style={{
                     fontFamily: "'Montserrat', sans-serif",
                     fontSize: 'clamp(0.8rem, 1.5vw, 1.2rem)',
@@ -1822,7 +1724,6 @@ export default function PubDisplay() {
                     In attesa della regia
                 </div>
 
-                {/* QR code piccolo */}
                 {pubCode && (
                     <div className="mt-4 bg-white p-3 rounded-2xl shadow-2xl">
                         <QRCodeSVG value={`${window.location.origin}/join/${pubCode}`} size={120} level="M" />
@@ -1852,10 +1753,6 @@ export default function PubDisplay() {
     const isVoting      = !isQuiz && !isArcade && !isArcadeLobby && !isMillionaire && perf && perf.status === 'voting';
     const isScore       = !isQuiz && !isArcade && !isArcadeLobby && !isMillionaire && perf && perf.status === 'ended' && perf.average_score > 0;
 
-    const hasRealActivity = isQuiz || isArcade || isKaraoke || isVoting || isScore || isMillionaire;
-    const isLobbyKaraoke = !hasRealActivity && !isArcadeLobby && lobbyState?.type === 'karaoke';
-    const isLobbyQuiz    = !hasRealActivity && !isArcadeLobby && !isLobbyKaraoke && lobbyState?.type === 'quiz';
-
     let Content = null;
     if (isMillionaire)    Content = <MillionaireMode game={millionaire} />;
     else if (isQuiz)           Content = <QuizMode quiz={quiz} result={quizResult} />;
@@ -1872,19 +1769,12 @@ export default function PubDisplay() {
         <div className="w-screen h-screen relative bg-black overflow-hidden">
             <style>{STYLES}</style>
             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10 pointer-events-none z-0"></div>
-
-            {/* REAZIONI FLOTTANTI */}
             <div className="absolute inset-0 z-[9999] pointer-events-none">
                 <FloatingReactions newReaction={newReaction} />
             </div>
-
-            {/* 🎬 MEDIA OVERLAY — sopra tutto, sotto solo le reazioni */}
             <MediaOverlay overlay={overlay} onDismiss={dismissOverlay} pubData={data} />
-
             <TopBar pubName={pub.name} logoUrl={pub.logo_url} onlineCount={leaderboard?.length || 0} messages={recentMessages} isMuted={isMuted} />
             <AdminMessageOverlay message={admin_message} />
-
-            {/* ESTRAZIONE — parte immediatamente, ExtractionMode gestisce tutto */}
             {extraction_data && (
                 <div className="absolute inset-0 z-[300]">
                     <ExtractionMode
@@ -1895,11 +1785,9 @@ export default function PubDisplay() {
                     />
                 </div>
             )}
-
             <div className="dj-content absolute z-10">
                 {Content}
             </div>
-
             <Sidebar pubCode={pubCode} queue={queue} leaderboard={leaderboard} selfie={activeSelfie} />
         </div>
     );
