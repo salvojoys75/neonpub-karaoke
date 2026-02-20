@@ -1001,7 +1001,8 @@ export default function AdminDashboard() {
                   name: mod.name,
                   category: mod.category || 'Generale',
                   description: mod.description || '',
-                  questions: mod.questions
+                  questions: mod.questions,
+                  media_type: mod.media_type || 'text'
               });
               
               if (error) {
