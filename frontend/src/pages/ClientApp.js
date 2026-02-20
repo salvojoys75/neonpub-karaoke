@@ -27,6 +27,7 @@ export default function ClientApp() {
   const [showQuizModal, setShowQuizModal] = useState(false);
   const [quizAnswer, setQuizAnswer] = useState(null);
   const [pointsEarned, setPointsEarned] = useState(0);
+  const [quizTimeLeft, setQuizTimeLeft] = useState(null);
   const [floatingReactions, setFloatingReactions] = useState([]);
   const [remainingReactions, setRemainingReactions] = useState(REACTION_LIMIT);
   const [showRequestModal, setShowRequestModal] = useState(false);
@@ -120,6 +121,19 @@ export default function ClientApp() {
     } catch (error) { console.error("Errore caricamento:", error); }
   }, [activeQuiz, showQuizModal, user, hasVoted, quizAnswer, quizResult, activeArcade, activeMillionaire, showMillionaireModal]);
 
+  // Countdown quiz sul telefono
+  useEffect(() => {
+    if (activeQuiz?.status === 'active' && activeQuiz?.started_at) {
+      const t = setInterval(() => {
+        const elapsed = (Date.now() - new Date(activeQuiz.started_at).getTime()) / 1000;
+        setQuizTimeLeft(Math.max(0, 15 - elapsed));
+      }, 100);
+      return () => clearInterval(t);
+    } else {
+      setQuizTimeLeft(null);
+    }
+  }, [activeQuiz?.status, activeQuiz?.started_at]);
+
   useEffect(() => { loadData(); pollIntervalRef.current = setInterval(loadData, 3000); return () => clearInterval(pollIntervalRef.current); }, [loadData]);
 
   const handleMillionaireVote = async (letter) => {
@@ -190,9 +204,20 @@ export default function ClientApp() {
   };
 
   const handleQuizAnswer = async (index) => {
-    if (quizAnswer !== null) return; if (!activeQuiz || activeQuiz.status !== 'active') { toast.error("Tempo scaduto!"); return; }
+    if (quizAnswer !== null) return;
+    if (!activeQuiz || activeQuiz.status !== 'active') { toast.error("Tempo scaduto!"); return; }
+    const answeredAt = Date.now(); // timestamp esatto del click sul telefono
     setQuizAnswer(index);
-    try { const { data } = await api.answerQuiz({ quiz_id: activeQuiz.id, answer_index: index }); if (data.points_earned > 0) { setPointsEarned(data.points_earned); toast.success(`Hai guadagnato ${data.points_earned} punti!`); } else { setPointsEarned(0); } } catch (e) { toast.info("Risposta salvata."); }
+    try {
+      const { data } = await api.answerQuiz({ quiz_id: activeQuiz.id, answer_index: index, answered_at: answeredAt });
+      if (data.points_earned > 0) {
+        setPointsEarned(data.points_earned);
+        toast.success(`⚡ +${data.points_earned} punti!`);
+      } else {
+        setPointsEarned(0);
+        toast.info("Risposta sbagliata!");
+      }
+    } catch (e) { toast.info("Risposta salvata."); }
   };
 
   if (!isAuthenticated) return null;
@@ -293,7 +318,7 @@ export default function ClientApp() {
         <DialogContent className="bg-zinc-900 border-fuchsia-500/30 max-w-md w-[90%] rounded-2xl">
           <DialogHeader><DialogTitle className="text-center text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-400 to-purple-600">{activeQuiz?.status === 'closed' ? "STOP AL VOTO!" : activeQuiz?.status === 'leaderboard' ? "CLASSIFICA LIVE" : quizResult ? "Risultato" : "Quiz Time!"}</DialogTitle></DialogHeader>
           {activeQuiz?.status === 'leaderboard' && (<div className="text-center py-8"><Trophy className="w-20 h-20 text-yellow-500 mx-auto mb-4 animate-bounce" /><p className="text-xl font-bold text-white mb-2">Guarda il Maxischermo!</p><p className="text-zinc-400">La classifica è in onda ora.</p></div>)}
-          {!quizResult && activeQuiz && activeQuiz.status !== 'leaderboard' && (<div className="py-4"><p className="text-xl text-center mb-6 font-medium text-white">{activeQuiz.question}</p>{activeQuiz.status === 'closed' ? (<div className="text-center p-6 bg-white/5 rounded-xl border border-white/10 animate-pulse"><Lock className="w-12 h-12 mx-auto text-red-500 mb-2" /><p className="text-lg font-bold text-red-400">Tempo Scaduto</p><p className="text-sm text-zinc-500">Attendi i risultati...</p></div>) : (<div className="space-y-3">{activeQuiz.options.map((option, index) => (<button key={index} onClick={() => handleQuizAnswer(index)} disabled={quizAnswer !== null} className={`w-full p-4 rounded-xl border text-left transition-all active:scale-95 flex items-center ${quizAnswer === index ? 'bg-fuchsia-600 border-fuchsia-500 text-white shadow-[0_0_15px_rgba(192,38,211,0.5)]' : 'border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200'}`}><span className={`font-bold mr-3 w-6 h-6 flex items-center justify-center rounded-full text-xs ${quizAnswer === index ? 'bg-white text-fuchsia-600' : 'bg-zinc-700 text-zinc-300'}`}>{String.fromCharCode(65 + index)}</span><span className="flex-1">{option}</span>{quizAnswer === index && <Check className="w-5 h-5 ml-2" />}</button>))}</div>)}</div>)}
+          {!quizResult && activeQuiz && activeQuiz.status !== 'leaderboard' && (<div className="py-4"><p className="text-xl text-center mb-4 font-medium text-white">{activeQuiz.question}</p>{activeQuiz.status === 'active' && quizTimeLeft !== null && quizAnswer === null && (<div className="flex items-center gap-2 mb-4"><div className="flex-1 h-2 bg-white/10 rounded-full overflow-hidden"><div className="h-full rounded-full transition-all duration-100" style={{width:`${(quizTimeLeft/15)*100}%`,background:quizTimeLeft>7?'#22c55e':quizTimeLeft>4?'#f59e0b':'#ef4444'}}/></div><span className="font-black text-lg tabular-nums w-6 text-right" style={{color:quizTimeLeft>7?'#22c55e':quizTimeLeft>4?'#f59e0b':'#ef4444'}}>{Math.ceil(quizTimeLeft)}</span></div>)}{activeQuiz.status === 'closed' ? (<div className="text-center p-6 bg-white/5 rounded-xl border border-white/10 animate-pulse"><Lock className="w-12 h-12 mx-auto text-red-500 mb-2" /><p className="text-lg font-bold text-red-400">Tempo Scaduto</p><p className="text-sm text-zinc-500">Attendi i risultati...</p></div>) : (<div className="space-y-3">{activeQuiz.options.map((option, index) => (<button key={index} onClick={() => handleQuizAnswer(index)} disabled={quizAnswer !== null} className={`w-full p-4 rounded-xl border text-left transition-all active:scale-95 flex items-center ${quizAnswer === index ? 'bg-fuchsia-600 border-fuchsia-500 text-white shadow-[0_0_15px_rgba(192,38,211,0.5)]' : 'border-white/10 bg-white/5 hover:bg-white/10 text-zinc-200'}`}><span className={`font-bold mr-3 w-6 h-6 flex items-center justify-center rounded-full text-xs ${quizAnswer === index ? 'bg-white text-fuchsia-600' : 'bg-zinc-700 text-zinc-300'}`}>{String.fromCharCode(65 + index)}</span><span className="flex-1">{option}</span>{quizAnswer === index && <Check className="w-5 h-5 ml-2" />}</button>))}</div>)}</div>)}
           {quizResult && activeQuiz?.status !== 'leaderboard' && (<div className="text-center py-6 animate-zoom-in"><Trophy className="w-16 h-16 text-yellow-400 mx-auto mb-4" /><p className="text-sm text-zinc-400 uppercase tracking-widest mb-1">Risposta Corretta</p><div className="bg-green-500/20 border border-green-500 p-4 rounded-xl mb-6"><p className="text-2xl font-bold text-white">{quizResult.correct_option}</p></div>{pointsEarned > 0 ? (<div className="bg-fuchsia-600/20 border border-fuchsia-500 p-3 rounded mb-4"><p className="text-fuchsia-400 font-bold text-lg">+ {pointsEarned} Punti!</p></div>) : (<p className="text-red-400 mb-4">Peccato! Niente punti.</p>)}<div className="flex justify-center mb-4"><Button variant="outline" size="sm" onClick={() => setActiveTab("leaderboard")}><Eye className="w-4 h-4 mr-2"/> Vedi Classifica</Button></div><p className="text-zinc-500 text-sm">{quizResult.total_answers} persone hanno partecipato</p></div>)}
         </DialogContent>
       </Dialog>

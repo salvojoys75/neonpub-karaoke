@@ -568,6 +568,23 @@ export const closeQuizVoting = async (quizId) => {
 }
 
 export const showQuizResults = async (quizId) => {
+  // Assegna i punti a tutti i vincitori ora che la regia mostra i risultati
+  const { data: correctAnswers } = await supabase
+    .from('quiz_answers')
+    .select('participant_id, points_earned')
+    .eq('quiz_id', quizId)
+    .eq('is_correct', true);
+  
+  if (correctAnswers && correctAnswers.length > 0) {
+    for (const ans of correctAnswers) {
+      const pts = ans.points_earned || 0;
+      if (pts > 0) {
+        const { data: p } = await supabase.from('participants').select('score').eq('id', ans.participant_id).single();
+        if (p) await supabase.from('participants').update({ score: (p.score || 0) + pts }).eq('id', ans.participant_id);
+      }
+    }
+  }
+
   const { data, error } = await supabase.from('quizzes').update({ status: 'showing_results' }).eq('id', quizId).select().single()
   if (error) throw error; return { data }
 }
@@ -589,37 +606,53 @@ export const getQuizResults = async (quizId) => {
   return {
     data: {
       quiz_id: quizId, question: quiz.question, correct_option: quiz.options[quiz.correct_index], correct_index: quiz.correct_index, total_answers: answers.length, correct_count: correctAnswers.length, 
-      winners: correctAnswers.map(a => ({ id: a.participants?.id, nickname: a.participants?.nickname || 'Unknown', avatar: a.participants?.avatar_url || null, points: quiz.points })),
+      winners: correctAnswers.map(a => ({ 
+        id: a.participants?.id, 
+        nickname: a.participants?.nickname || 'Unknown', 
+        avatar: a.participants?.avatar_url || null, 
+        points: a.points_earned || quiz.points  // punti reali con bonus velocità
+      })),
       points: quiz.points
     }
   }
 }
 
 export const answerQuiz = async (data) => {
-  const participant = getParticipantFromToken()
+  const participant = getParticipantFromToken();
+  const clientAnsweredAt = data.answered_at || Date.now(); // timestamp dal client
+
   const { data: quiz, error: quizError } = await supabase.from('quizzes').select('correct_index, points, started_at').eq('id', data.quiz_id).single();
   if (quizError) throw quizError;
+
   const isCorrect = quiz.correct_index === data.answer_index;
   let pointsEarned = 0;
-  if (isCorrect) {
-    const basePoints = quiz.points || 10;
-    let timeBonus = 0;
-    if (quiz.started_at) {
-      const elapsedMs = Date.now() - new Date(quiz.started_at).getTime();
-      const elapsedSec = Math.max(0, elapsedMs / 1000);
-      if (elapsedSec < 30) {
-        timeBonus = Math.round(basePoints * (1 - elapsedSec / 30));
-      }
+
+  if (isCorrect && quiz.started_at) {
+    const quizStartedAt = new Date(quiz.started_at).getTime();
+    const serverNow = Date.now();
+    // Tolleranza: il timestamp del client non può essere nel futuro o troppo nel passato
+    const clampedAnsweredAt = Math.min(clientAnsweredAt, serverNow + 500); // max 500ms in futuro
+    const elapsedMs = Math.max(0, clampedAnsweredAt - quizStartedAt);
+    const elapsedSec = elapsedMs / 1000;
+    const maxSec = 15;
+    if (elapsedSec <= maxSec) {
+      // Formula continua: 100 punti a 0 sec, 0 punti a 15 sec
+      pointsEarned = Math.max(0, Math.round(100 * (1 - elapsedSec / maxSec)));
     }
-    pointsEarned = (quiz.points || 10) + timeBonus;
+    // Minimo 5 punti se risponde giusto entro il tempo
+    if (pointsEarned === 0 && elapsedSec <= maxSec) pointsEarned = 5;
   }
-  const { data: ans, error } = await supabase.from('quiz_answers').insert({ quiz_id: data.quiz_id, participant_id: participant.participant_id, answer_index: data.answer_index, is_correct: isCorrect }).select().single()
-  if (error) { if (error.code==='23505') throw new Error('Già risposto'); throw error; }
-  if (isCorrect) {
-      const { data: p } = await supabase.from('participants').select('score').eq('id', participant.participant_id).single();
-      if (p) { await supabase.from('participants').update({ score: (p.score || 0) + pointsEarned }).eq('id', participant.participant_id); }
-  }
-  return { data: { ...ans, points_earned: pointsEarned } }
+
+  const { data: ans, error } = await supabase.from('quiz_answers').insert({
+    quiz_id: data.quiz_id,
+    participant_id: participant.participant_id,
+    answer_index: data.answer_index,
+    is_correct: isCorrect,
+    points_earned: pointsEarned
+  }).select().single();
+  if (error) { if (error.code === '23505') throw new Error('Già risposto'); throw error; }
+  // I punti NON vengono assegnati ora — vengono assegnati quando la regia clicca "Mostra Risultati"
+  return { data: { ...ans, points_earned: pointsEarned } };
 }
 
 export const getActiveQuiz = async () => {

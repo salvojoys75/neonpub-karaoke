@@ -1383,6 +1383,22 @@ const ScoreMode = ({ perf, pubCode }) => {
 
 const QuizMode = ({ quiz, result }) => {
     const prevStatusRef = useRef(null);
+    const [timeLeft, setTimeLeft] = useState(null);
+
+    useEffect(() => {
+        if (quiz?.status === 'active' && quiz?.started_at) {
+            const update = () => {
+                const elapsed = (Date.now() - new Date(quiz.started_at).getTime()) / 1000;
+                const remaining = Math.max(0, 15 - elapsed);
+                setTimeLeft(remaining);
+            };
+            update();
+            const t = setInterval(update, 100);
+            return () => clearInterval(t);
+        } else {
+            setTimeLeft(null);
+        }
+    }, [quiz?.status, quiz?.started_at]);
 
     useEffect(() => {
         const prev = prevStatusRef.current;
@@ -1567,6 +1583,24 @@ const QuizMode = ({ quiz, result }) => {
                              <h2 style={{fontSize: 'clamp(2rem, 4vw, 4rem)'}} className="font-black text-white uppercase italic">TEMPO SCADUTO!</h2>
                          </div>
                     ) : (
+                        <>
+                        {timeLeft !== null && (
+                            <div className="flex items-center gap-3 justify-center">
+                                <div className="w-full max-w-xl h-3 bg-white/10 rounded-full overflow-hidden">
+                                    <div className="h-full rounded-full transition-all duration-100"
+                                        style={{
+                                            width: `${(timeLeft / 15) * 100}%`,
+                                            background: timeLeft > 7 ? '#22c55e' : timeLeft > 4 ? '#f59e0b' : '#ef4444',
+                                            boxShadow: timeLeft <= 4 ? '0 0 20px rgba(239,68,68,0.8)' : 'none'
+                                        }}
+                                    />
+                                </div>
+                                <span className="font-black text-3xl tabular-nums" style={{
+                                    color: timeLeft > 7 ? '#22c55e' : timeLeft > 4 ? '#f59e0b' : '#ef4444',
+                                    textShadow: timeLeft <= 4 ? '0 0 20px rgba(239,68,68,0.8)' : 'none'
+                                }}>{Math.ceil(timeLeft)}</span>
+                            </div>
+                        )}
                         <div className="grid grid-cols-2 gap-3 flex-1 min-h-0">
                             {quiz.options.map((opt, i) => (
                                 <div key={i} className="glass-panel border-l-[8px] border-fuchsia-600 px-4 rounded-r-2xl flex items-center gap-4 text-left overflow-hidden">
@@ -1577,6 +1611,7 @@ const QuizMode = ({ quiz, result }) => {
                                 </div>
                             ))}
                         </div>
+                        </>
                     )}
                 </div>
             )}
