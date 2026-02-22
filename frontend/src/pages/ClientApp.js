@@ -187,6 +187,24 @@ export default function ClientApp() {
     }
   };
 
+  const compressImage = (dataUrl, maxSize = 1280, quality = 0.80) =>
+    new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+        if (width > height) {
+          if (width > maxSize) { height = Math.round(height * maxSize / width); width = maxSize; }
+        } else {
+          if (height > maxSize) { width = Math.round(width * maxSize / height); height = maxSize; }
+        }
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = dataUrl;
+    });
+
   const handleSelfieCapture = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -199,7 +217,8 @@ export default function ClientApp() {
     if (!selfiePreview) return;
     setSelfieUploading(true);
     try {
-      await api.submitSelfie(selfiePreview, user?.nickname);
+      const compressed = await compressImage(selfiePreview);
+      await api.submitSelfie(compressed, user?.nickname);
       setSelfieSent(true);
       toast.success("📸 Selfie inviato alla regia!");
       setTimeout(() => {

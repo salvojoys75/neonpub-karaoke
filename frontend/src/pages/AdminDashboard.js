@@ -341,7 +341,7 @@ export default function AdminDashboard() {
       setQueue(qRes.data || []);
       setCurrentPerformance(perfRes.data);
       setPendingMessages(msgRes.data || []);
-      // Selfie in attesa
+      // Selfie in attesa (pulizia automatica gestita da pg_cron sul DB ogni ora)
       try {
         const selfieRes = await api.getPendingSelfies();
         setPendingSelfies(selfieRes.data || []);
@@ -1418,7 +1418,12 @@ export default function AdminDashboard() {
              <div className="text-yellow-500 font-bold text-sm flex gap-2 items-center bg-yellow-900/10 px-3 py-1 rounded-full border border-yellow-900/30">
                  <Gem className="w-4 h-4"/>{profile?.credits || 0}
              </div>
-             <Button variant="outline" size="sm" onClick={handleOpenDisplay} className="bg-cyan-900/20 text-cyan-400 border-cyan-800"><Tv className="w-4 h-4 mr-2" /> DISPLAY</Button>
+             <Button variant="outline" size="sm" onClick={handleOpenDisplay} className="bg-cyan-900/20 text-cyan-400 border-cyan-800 relative">
+                 <Tv className="w-4 h-4 mr-2" /> DISPLAY
+                 {pendingSelfies.length > 0 && (
+                   <span className="absolute -top-1 -right-1 w-4 h-4 bg-pink-500 rounded-full text-[10px] font-bold flex items-center justify-center animate-pulse">{pendingSelfies.length}</span>
+                 )}
+             </Button>
              <Button variant="ghost" size="sm" onClick={() => { if(confirm("Tornare al menu eventi?")) { localStorage.removeItem("discojoys_pub_code"); setPubCode(null); setAppState("setup"); loadActiveEvents(); } }}><LogOut className="w-4 h-4" /></Button>
          </div>
       </header>
@@ -1440,7 +1445,7 @@ export default function AdminDashboard() {
                      </TabsTrigger>
                      <TabsTrigger value="messages" className="text-xs px-1 relative data-[state=active]:bg-green-900/30" title="Messaggi">
                         <MessageSquare className="w-5 h-5 text-green-400" />
-                        {(pendingMessages.length > 0 || pendingSelfies.length > 0) && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>}
+                        {pendingMessages.length > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>}
                      </TabsTrigger>
 
                      <TabsTrigger value="settings" className="text-xs px-1 data-[state=active]:bg-zinc-700/30" title="Impostazioni">
@@ -1810,28 +1815,6 @@ export default function AdminDashboard() {
                            </div>
                        )) : <p className="text-xs text-zinc-600 italic">Nessun messaggio approvato</p>}
 
-                       {/* ── SELFIE IN ATTESA ── */}
-                       <div className="border-t border-white/10 mt-6 pt-4">
-                           <h3 className="text-xs font-bold text-pink-400 uppercase mb-3">📸 Selfie in Attesa ({pendingSelfies.length})</h3>
-                           {pendingSelfies.length === 0 ? (
-                               <p className="text-xs text-zinc-600 italic text-center py-3">Nessun selfie in attesa</p>
-                           ) : pendingSelfies.map(selfie => (
-                               <div key={selfie.id} className="bg-zinc-800 rounded-xl overflow-hidden border border-zinc-700 mb-3">
-                                   <img src={selfie.image_data} alt={selfie.nickname} className="w-full max-h-48 object-cover" />
-                                   <div className="p-3">
-                                       <p className="font-bold text-sm text-white mb-2">📸 {selfie.nickname}</p>
-                                       <div className="flex gap-2">
-                                           <Button size="sm" variant="ghost" className="flex-1 text-red-500 hover:bg-red-900/20" onClick={async () => { await api.rejectSelfie(selfie.id); loadData(); }}>
-                                               <X className="w-4 h-4 mr-1" /> Rifiuta
-                                           </Button>
-                                           <Button size="sm" className="flex-1 bg-green-600 hover:bg-green-500" onClick={async () => { await api.approveSelfie(selfie.id, selfie.image_data, selfie.nickname); toast.success("📸 Selfie inviato al display!"); loadData(); }}>
-                                               <Check className="w-4 h-4 mr-1" /> Invia Display
-                                           </Button>
-                                       </div>
-                                   </div>
-                               </div>
-                           ))}
-                       </div>
                    </div>
                )}
 
@@ -2118,6 +2101,34 @@ export default function AdminDashboard() {
                <span className="text-xs font-mono text-zinc-500">PROGRAMMA LIVE</span>
                <Button size="sm" variant="ghost" onClick={handleToggleMute} className={isMuted?'text-red-500':'text-zinc-400'}>{isMuted ? <VolumeX className="w-4 h-4"/> : <Volume2 className="w-4 h-4"/>}</Button>
             </div>
+
+            {/* ── SELFIE IN ATTESA — barra compatta sopra il contenuto ── */}
+            {pendingSelfies.length > 0 && (
+              <div className="border-b border-pink-900/40 bg-pink-950/20 px-4 py-2 flex items-center gap-3 overflow-x-auto shrink-0">
+                <span className="text-xs font-bold text-pink-400 uppercase tracking-wider whitespace-nowrap flex items-center gap-1 shrink-0">
+                  <Camera className="w-3.5 h-3.5"/> Selfie ({pendingSelfies.length})
+                </span>
+                <div className="flex gap-2 items-center">
+                  {pendingSelfies.map(selfie => (
+                    <div key={selfie.id} className="flex items-center gap-2 bg-zinc-900 border border-pink-800/40 rounded-lg px-2 py-1 shrink-0">
+                      <img src={selfie.image_data} alt={selfie.nickname}
+                        className="w-10 h-10 rounded object-cover border border-zinc-700 shrink-0 cursor-pointer"
+                        onClick={() => window.open(selfie.image_data, '_blank')}
+                      />
+                      <span className="text-xs text-white font-bold max-w-[80px] truncate">{selfie.nickname}</span>
+                      <Button size="icon" variant="ghost" className="h-6 w-6 text-red-500 hover:bg-red-900/20 shrink-0"
+                        onClick={async () => { await api.rejectSelfie(selfie.id); loadData(); }}>
+                        <X className="w-3 h-3"/>
+                      </Button>
+                      <Button size="icon" className="h-6 w-6 bg-green-600 hover:bg-green-500 shrink-0"
+                        onClick={async () => { await api.approveSelfie(selfie.id, selfie.image_data, selfie.nickname); toast.success("📸 Selfie inviato!"); loadData(); }}>
+                        <Check className="w-3 h-3"/>
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="flex-1 p-6 flex items-center justify-center bg-gradient-to-b from-zinc-900 to-black">
                {eventState.active_module === 'karaoke' && (
                   <div className="w-full max-w-3xl text-center">
