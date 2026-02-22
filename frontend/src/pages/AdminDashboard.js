@@ -69,6 +69,7 @@ export default function AdminDashboard() {
   const [pendingSelfies, setPendingSelfies] = useState([]);
   const [approvedMessages, setApprovedMessages] = useState([]);
   const [isMuted, setIsMuted] = useState(false);
+  const [approvedSelfies, setApprovedSelfies] = useState([]); // selfie inviati al display, da poter rimuovere
   const [timeRemaining, setTimeRemaining] = useState(null);
   
   const [libraryTab, setLibraryTab] = useState("karaoke"); 
@@ -790,7 +791,7 @@ export default function AdminDashboard() {
         if(action==='resume') await api.resumePerformance(currentPerformance.id);
         if(action==='restart') await api.restartPerformance(currentPerformance.id);
         if(action==='end_vote') await api.endPerformance(currentPerformance.id);
-        if(action==='skip_next') { if(window.confirm("Chiudere senza voto?")) { await api.stopAndNext(currentPerformance.id); toast.info("Chiuso senza voto"); } }
+        if(action==='skip_next') { if(window.confirm("Chiudere senza voto?")) { await api.stopAndNext(currentPerformance.id); supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'start_sottofondo' } }).catch(() => {}); toast.info("Chiuso senza voto"); } }
         if(action==='close_vote') { await api.closeVoting(currentPerformance.id); toast.success("Votazione conclusa!"); }
         loadData();
       } catch(e) { toast.error("Errore comando: " + e.message); }
@@ -1815,6 +1816,40 @@ export default function AdminDashboard() {
                            </div>
                        )) : <p className="text-xs text-zinc-600 italic">Nessun messaggio approvato</p>}
 
+                       {/* ── SELFIE SUL DISPLAY ── */}
+                       {approvedSelfies.length > 0 && (
+                           <div className="border-t border-white/10 mt-4 pt-4">
+                               <div className="flex items-center justify-between mb-3">
+                                   <h3 className="text-xs font-bold text-pink-400 uppercase">📸 Selfie sul Display ({approvedSelfies.length})</h3>
+                                   <Button size="sm" variant="ghost" className="h-6 text-[10px] text-zinc-500 hover:text-red-400"
+                                       onClick={() => {
+                                           supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'clear_all_selfies' } }).catch(() => {});
+                                           setApprovedSelfies([]);
+                                       }}>
+                                       Rimuovi tutti
+                                   </Button>
+                               </div>
+                               <div className="flex flex-wrap gap-2">
+                                   {approvedSelfies.map(s => (
+                                       <div key={s.id} className="relative group">
+                                           <img src={s.url} alt={s.nickname} className="w-16 h-16 rounded-lg object-cover border border-zinc-700"/>
+                                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 rounded-lg transition flex items-center justify-center">
+                                               <Button size="icon" variant="ghost"
+                                                   className="h-7 w-7 text-red-400 opacity-0 group-hover:opacity-100 transition"
+                                                   onClick={() => {
+                                                       supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'clear_selfie', selfieId: s.id } }).catch(() => {});
+                                                       setApprovedSelfies(prev => prev.filter(x => x.id !== s.id));
+                                                   }}>
+                                                   <X className="w-4 h-4"/>
+                                               </Button>
+                                           </div>
+                                           <p className="text-[9px] text-zinc-500 text-center truncate max-w-[64px] mt-0.5">{s.nickname}</p>
+                                       </div>
+                                   ))}
+                               </div>
+                           </div>
+                       )}
+
                    </div>
                )}
 
@@ -2122,7 +2157,7 @@ export default function AdminDashboard() {
                           <X className="w-3 h-3"/>
                         </Button>
                         <Button size="icon" className="h-7 w-7 bg-green-600 hover:bg-green-500 flex-1"
-                          onClick={async () => { await api.approveSelfie(selfie.id, selfie.image_data, selfie.nickname); toast.success("📸 Selfie inviato!"); loadData(); }}>
+                          onClick={async () => { const sid = selfie.id; await api.approveSelfie(sid, selfie.image_data, selfie.nickname); setApprovedSelfies(prev => [...prev, { id: sid, url: selfie.image_data, nickname: selfie.nickname }]); toast.success("📸 Selfie inviato!"); loadData(); }}>
                           <Check className="w-3 h-3"/>
                         </Button>
                       </div>

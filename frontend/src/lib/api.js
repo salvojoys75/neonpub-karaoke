@@ -1168,17 +1168,18 @@ export const getPendingSelfies = async () => {
 };
 
 export const approveSelfie = async (selfieId, imageDataUrl, nickname) => {
-  const { error } = await supabase
-    .from('pending_selfies')
-    .update({ status: 'approved' })
-    .eq('id', selfieId);
-  if (error) throw error;
-  // Invia al display via broadcast
+  // Invia subito al display via broadcast
   await supabase.channel('tv_ctrl').send({
     type: 'broadcast',
     event: 'control',
-    payload: { command: 'selfie', url: imageDataUrl, nickname: nickname },
+    payload: { command: 'selfie', selfieId: selfieId, url: imageDataUrl, nickname: nickname },
   });
+  // Cancella definitivamente dal DB — non serve tenerlo
+  const { error } = await supabase
+    .from('pending_selfies')
+    .delete()
+    .eq('id', selfieId);
+  if (error) throw error;
   return { data: 'ok' };
 };
 

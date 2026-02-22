@@ -924,18 +924,18 @@ const AdminMessageOverlay = ({ message }) => {
     );
 };
 
-const Sidebar = ({ pubCode, queue, leaderboard, selfie, messages }) => {
+const Sidebar = ({ pubCode, queue, leaderboard, selfies, messages }) => {
   const [slotIndex, setSlotIndex] = React.useState(0);
 
-  // Ricostruisce la lista di slot ogni render
+  // Slot = tutti i selfie + tutti i messaggi, in ordine
   const slots = React.useMemo(() => {
     const list = [];
-    if (selfie) list.push({ type: 'selfie' });
+    (selfies || []).forEach((s, i) => list.push({ type: 'selfie', index: i }));
     (messages || []).forEach((m, i) => list.push({ type: 'message', index: i }));
     return list;
-  }, [selfie, messages]);
+  }, [selfies, messages]);
 
-  // Timer fisso 5 secondi — non dipende da slots per non resettarsi
+  // Timer fisso 5 secondi
   React.useEffect(() => {
     const timer = setInterval(() => {
       setSlotIndex(prev => prev + 1);
@@ -943,18 +943,21 @@ const Sidebar = ({ pubCode, queue, leaderboard, selfie, messages }) => {
     return () => clearInterval(timer);
   }, []);
 
-  // Selfie nuovo → salta subito allo slot selfie (indice 0)
-  const prevSelfieUrl = React.useRef(null);
+  // Nuovo selfie arrivato → salta subito a mostrarlo
+  const prevSelfieCount = React.useRef(0);
   React.useEffect(() => {
-    if (selfie?.url && selfie.url !== prevSelfieUrl.current) {
-      prevSelfieUrl.current = selfie.url;
-      setSlotIndex(0);
+    const count = (selfies || []).length;
+    if (count > prevSelfieCount.current) {
+      // Trova l'indice del nuovo selfie negli slot
+      const newSelfieSlotIdx = slots.findIndex(s => s.type === 'selfie' && s.index === count - 1);
+      if (newSelfieSlotIdx >= 0) setSlotIndex(newSelfieSlotIdx);
     }
-  }, [selfie?.url]);
+    prevSelfieCount.current = count;
+  }, [selfies?.length]);
 
   const currentSlot = slots.length > 0 ? slots[slotIndex % slots.length] : null;
-  const showSelfie  = currentSlot?.type === 'selfie' && !!selfie;
-  const currentMsg  = currentSlot?.type === 'message' ? (messages || [])[currentSlot.index] : null;
+  const currentSelfie = currentSlot?.type === 'selfie' ? (selfies || [])[currentSlot.index] : null;
+  const currentMsg    = currentSlot?.type === 'message' ? (messages || [])[currentSlot.index] : null;
 
   return (
   <div className="dj-sidebar absolute z-[90] flex flex-col gap-[1.5vh]">
@@ -974,17 +977,17 @@ const Sidebar = ({ pubCode, queue, leaderboard, selfie, messages }) => {
       <div className="glass-panel rounded-3xl flex flex-col overflow-hidden relative flex-1"
            key={slotIndex}
            style={{ animation: 'fadeIn 0.4s ease' }}>
-          {showSelfie ? (
+          {currentSelfie ? (
               <>
                   <div className="bg-gradient-to-r from-pink-500 to-fuchsia-600 px-4 py-3 flex items-center gap-2 border-b border-white/10 shrink-0">
                       <span className="text-[2vh]">📸</span>
-                      <span className="font-black text-white text-[1.8vh] uppercase tracking-wider truncate">{selfie.nickname}</span>
+                      <span className="font-black text-white text-[1.8vh] uppercase tracking-wider truncate">{currentSelfie.nickname}</span>
                   </div>
                   <div className="flex-1 relative overflow-hidden">
-                      <img src={selfie.url} alt={selfie.nickname} className="w-full h-full object-cover" />
+                      <img src={currentSelfie.url} alt={currentSelfie.nickname} className="w-full h-full object-cover" />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
                       <div className="absolute bottom-3 left-3 right-3">
-                          <p className="text-white font-black text-[2vh] drop-shadow-lg">📸 {selfie.nickname}</p>
+                          <p className="text-white font-black text-[2vh] drop-shadow-lg">📸 {currentSelfie.nickname}</p>
                       </div>
                   </div>
               </>
@@ -1606,28 +1609,8 @@ export default function PubDisplay() {
     const [newReaction, setNewReaction] = useState(null);
     const [standby, setStandby]     = useState(true); // schermata di attesa iniziale
     const [lobbyState, setLobbyState] = useState(null); // { type: 'karaoke'|'quiz', data: {} }
-    const [activeSelfie, setActiveSelfie] = useState(null); // { url, nickname }
-    const shownSelfieIds = useRef(new Set());
-
-    // -- Polling selfie approvati dal DB
-    useEffect(() => {
-        if (!pubCode) return;
-        const pollSelfies = async () => {
-            const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
-            if (!event) return;
-            const { data } = await supabase.from('pending_selfies')
-                .select('*').eq('event_id', event.id).eq('status', 'approved')
-                .order('created_at', { ascending: false }).limit(1).maybeSingle();
-            if (data && !shownSelfieIds.current.has(data.id)) {
-                shownSelfieIds.current.add(data.id);
-                setActiveSelfie({ url: data.image_data, nickname: data.nickname });
-                await supabase.from('pending_selfies').delete().eq('id', data.id);
-                setTimeout(() => setActiveSelfie(null), 15000);
-            }
-        };
-        const interval = setInterval(pollSelfies, 2000);
-        return () => clearInterval(interval);
-    }, [pubCode]);
+    // sidebarSelfies: array permanente, sparisce solo con clear_selfie dalla dashboard
+    const [sidebarSelfies, setSidebarSelfies] = useState([]);
 
     // Reset lobby quando parte attività reale
     useEffect(() => {
@@ -1730,8 +1713,14 @@ export default function PubDisplay() {
                     triggerManualRef.current?.(p.payload.key);
                 }
                 if (p.payload.command === 'selfie') {
-                    setActiveSelfie({ url: p.payload.url, nickname: p.payload.nickname });
-                    setTimeout(() => setActiveSelfie(null), 15000);
+                    // Aggiunge il selfie alla sidebar — resta finché non viene cancellato
+                    setSidebarSelfies(prev => [...prev, { id: p.payload.selfieId || Date.now(), url: p.payload.url, nickname: p.payload.nickname }]);
+                }
+                if (p.payload.command === 'clear_selfie') {
+                    setSidebarSelfies(prev => prev.filter(s => s.id !== p.payload.selfieId));
+                }
+                if (p.payload.command === 'clear_all_selfies') {
+                    setSidebarSelfies([]);
                 }
             })
             .subscribe((status) => {
@@ -1908,7 +1897,7 @@ export default function PubDisplay() {
                 {Content}
             </div>
 
-            <Sidebar pubCode={pubCode} queue={queue} leaderboard={leaderboard} selfie={activeSelfie} messages={recentMessages} />
+            <Sidebar pubCode={pubCode} queue={queue} leaderboard={leaderboard} selfies={sidebarSelfies} messages={recentMessages} />
         </div>
     );
 }
