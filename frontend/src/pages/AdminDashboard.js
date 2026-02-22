@@ -791,7 +791,7 @@ export default function AdminDashboard() {
         if(action==='resume') await api.resumePerformance(currentPerformance.id);
         if(action==='restart') await api.restartPerformance(currentPerformance.id);
         if(action==='end_vote') await api.endPerformance(currentPerformance.id);
-        if(action==='skip_next') { if(window.confirm("Chiudere senza voto?")) { await api.stopAndNext(currentPerformance.id); supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'start_sottofondo' } }).catch(() => {}); toast.info("Chiuso senza voto"); } }
+        if(action==='skip_next') { if(window.confirm("Chiudere senza voto?")) { await api.stopAndNext(currentPerformance.id); setTimeout(() => { supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'start_sottofondo' } }).catch(() => {}); }, 2000); toast.info("Chiuso senza voto"); } }
         if(action==='close_vote') { await api.closeVoting(currentPerformance.id); toast.success("Votazione conclusa!"); }
         loadData();
       } catch(e) { toast.error("Errore comando: " + e.message); }

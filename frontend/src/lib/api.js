@@ -50,7 +50,7 @@ export const getDisplayData = async (pubCode) => {
   if (currentPerformance && currentPerformance.status === 'ended') {
       const endedAt = new Date(currentPerformance.ended_at);
       const now = new Date();
-      if ((now - endedAt) > 15 * 1000) { 
+      if ((now - endedAt) > 3 * 1000) { 
           currentPerformance = null;
       }
   }
