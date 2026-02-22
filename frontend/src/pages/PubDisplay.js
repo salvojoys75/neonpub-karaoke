@@ -927,38 +927,36 @@ const AdminMessageOverlay = ({ message }) => {
 };
 
 const Sidebar = ({ pubCode, queue, leaderboard, selfie, messages }) => {
-  const [bottomSlot, setBottomSlot] = React.useState({ type: 'message', index: 0 });
-  const slotRef = React.useRef({ type: 'message', index: 0 });
+  const [slotIndex, setSlotIndex] = React.useState(0);
 
+  // Ricostruisce la lista di slot ogni render
+  const slots = React.useMemo(() => {
+    const list = [];
+    if (selfie) list.push({ type: 'selfie' });
+    (messages || []).forEach((m, i) => list.push({ type: 'message', index: i }));
+    return list;
+  }, [selfie, messages]);
+
+  // Timer fisso 5 secondi — non dipende da slots per non resettarsi
   React.useEffect(() => {
-    const advance = () => {
-      const msgs = messages || [];
-      const hasSelfie = !!selfie;
-      // Costruisce la lista degli slot disponibili
-      const slots = [];
-      if (hasSelfie) slots.push({ type: 'selfie' });
-      msgs.forEach((_, i) => slots.push({ type: 'message', index: i }));
-      if (slots.length === 0) { setBottomSlot({ type: 'empty' }); return; }
-      // Trova indice corrente nell'array slots
-      const cur = slotRef.current;
-      let curIdx = slots.findIndex(s => s.type === cur.type && s.index === cur.index);
-      if (curIdx < 0) curIdx = 0;
-      const next = slots[(curIdx + 1) % slots.length];
-      slotRef.current = next;
-      setBottomSlot({ ...next });
-    };
-    const timer = setInterval(advance, 5000);
+    const timer = setInterval(() => {
+      setSlotIndex(prev => prev + 1);
+    }, 5000);
     return () => clearInterval(timer);
-  }, [messages, selfie]);
+  }, []);
 
-  // Selfie nuovo → mostralo subito
+  // Selfie nuovo → salta subito allo slot selfie (indice 0)
+  const prevSelfieUrl = React.useRef(null);
   React.useEffect(() => {
-    if (selfie) { slotRef.current = { type: 'selfie' }; setBottomSlot({ type: 'selfie' }); }
+    if (selfie?.url && selfie.url !== prevSelfieUrl.current) {
+      prevSelfieUrl.current = selfie.url;
+      setSlotIndex(0);
+    }
   }, [selfie?.url]);
 
-  const msgs = messages || [];
-  const showSelfie  = bottomSlot.type === 'selfie' && !!selfie;
-  const currentMsg  = bottomSlot.type === 'message' && msgs[bottomSlot.index || 0];
+  const currentSlot = slots.length > 0 ? slots[slotIndex % slots.length] : null;
+  const showSelfie  = currentSlot?.type === 'selfie' && !!selfie;
+  const currentMsg  = currentSlot?.type === 'message' ? (messages || [])[currentSlot.index] : null;
 
   return (
   <div className="dj-sidebar absolute z-[90] flex flex-col gap-[1.5vh]">
@@ -976,8 +974,8 @@ const Sidebar = ({ pubCode, queue, leaderboard, selfie, messages }) => {
 
       {/* MESSAGGI + SELFIE — si alternano ogni 5 sec */}
       <div className="glass-panel rounded-3xl flex flex-col overflow-hidden relative flex-1"
-           key={`${bottomSlot.type}-${bottomSlot.index}`}
-           style={{ animation: 'fadeIn 0.5s ease' }}>
+           key={slotIndex}
+           style={{ animation: 'fadeIn 0.4s ease' }}>
           {showSelfie ? (
               <>
                   <div className="bg-gradient-to-r from-pink-500 to-fuchsia-600 px-4 py-3 flex items-center gap-2 border-b border-white/10 shrink-0">
