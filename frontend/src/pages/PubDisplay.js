@@ -974,40 +974,6 @@ const Sidebar = ({ pubCode, queue, leaderboard, selfie, messages }) => {
           </div>
       </div>
 
-      {/* PROSSIMO IN CODA */}
-      <div className="glass-panel rounded-3xl flex flex-col overflow-hidden relative shrink-0">
-          <div className="bg-gradient-to-r from-fuchsia-600 to-purple-600 px-4 py-3 flex items-center justify-between border-b border-white/10">
-              <div className="flex items-center gap-2">
-                  <Disc className="w-[2vh] h-[2vh] text-white animate-spin" style={{animationDuration: '3s'}} />
-                  <span className="font-black text-white text-[1.8vh] uppercase tracking-wider">Prossimo</span>
-              </div>
-              {queue && queue.length > 0 && (
-                  <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-              )}
-          </div>
-          <div className="p-3">
-              {queue && queue.length > 0 ? (
-                  <div className="bg-white/5 backdrop-blur-sm px-4 py-3 rounded-2xl border border-white/10 flex items-center gap-3">
-                      {queue[0].user_avatar ? (
-                          <img src={queue[0].user_avatar} alt={queue[0].user_nickname}
-                              className="w-[5vh] h-[5vh] rounded-full border-2 border-fuchsia-500 object-cover shrink-0 shadow-lg" />
-                      ) : (
-                          <div className="w-[5vh] h-[5vh] rounded-full bg-gradient-to-br from-fuchsia-600 to-purple-600 flex items-center justify-center text-white font-black text-[2vh] shadow-lg shrink-0">
-                              {queue[0].user_nickname?.charAt(0)?.toUpperCase() || '?'}
-                          </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                          <div className="text-white font-bold text-[1.6vh] truncate">{queue[0].user_nickname}</div>
-                          <div className="text-white/60 text-[1.2vh] truncate">{queue[0].title || queue[0].song_title || '—'}</div>
-                      </div>
-                      <Music className="w-[2vh] h-[2vh] text-fuchsia-400 shrink-0" />
-                  </div>
-              ) : (
-                  <div className="text-white/30 text-center py-4 italic text-[1.3vh]">Nessuna canzone in coda</div>
-              )}
-          </div>
-      </div>
-
       {/* MESSAGGI + SELFIE — si alternano ogni 5 sec */}
       <div className="glass-panel rounded-3xl flex flex-col overflow-hidden relative flex-1"
            key={`${bottomSlot.type}-${bottomSlot.index}`}
