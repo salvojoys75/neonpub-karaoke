@@ -804,7 +804,7 @@ const STYLES = `
     --glass-bg: rgba(15, 15, 20, 0.7);
     --glass-border: rgba(255, 255, 255, 0.1);
     --sidebar-w: 24vw;
-    --topbar-h: 7vh;
+    --topbar-h: 10vh;
     --karaoke-bar-h: 10vh;
   }
 
@@ -854,48 +854,58 @@ const STYLES = `
 // COMPONENTI ORIGINALI (invariati)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted }) => {
-  const messagesString = messages && messages.length > 0 ? messages.map(m => `${m.nickname}: ${m.text}`).join('   •   ') : '';
+const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted, queue }) => {
+  // Costruisce stringa scaletta: prossimi in coda
+  const queueString = queue && queue.length > 0
+    ? queue.map((q, i) => `${i + 1}. ${q.user_nickname}  —  ${q.title || q.song_title || '?'}`).join('     •     ')
+    : '';
+  const tickerText = queueString || '🎤 Nessuna canzone in coda — prenota dal telefono!';
+  const tickerDuration = Math.max(20, (tickerText.length / 80) * 25) + 's';
+
   return (
   <div className="dj-topbar absolute top-0 left-0 right-0 z-[100] flex items-center justify-between px-8 bg-gradient-to-b from-black/90 via-black/60 to-transparent">
       <div className="flex items-center gap-5">
           {logoUrl ? (
-            <img src={logoUrl} alt="Logo" className="h-[5vh] w-[5vh] rounded-xl border-2 border-white/20 shadow-lg object-contain bg-black p-1" />
+            <img src={logoUrl} alt="Logo" className="h-[6vh] w-[6vh] rounded-xl border-2 border-white/20 shadow-lg object-contain bg-black p-1" />
           ) : (
-            <div className="h-[5vh] w-[5vh] rounded-xl bg-fuchsia-600 flex items-center justify-center border-2 border-white/20 shadow-lg font-black text-[2vh]">DJ</div>
+            <div className="h-[6vh] w-[6vh] rounded-xl bg-fuchsia-600 flex items-center justify-center border-2 border-white/20 shadow-lg font-black text-[2.5vh]">DJ</div>
           )}
           <div>
-              <h1 className="text-[2.5vh] font-black text-white tracking-wider drop-shadow-md uppercase">{pubName || "DISCOJOYS"}</h1>
+              <h1 className="text-[3vh] font-black text-white tracking-wider drop-shadow-md uppercase">{pubName || "DISCOJOYS"}</h1>
               <div className="flex items-center gap-3">
-                  <span className="bg-red-600 px-2 py-0.5 rounded text-[1vh] font-bold tracking-widest uppercase animate-pulse shadow-[0_0_10px_red]">LIVE</span>
-                  {isMuted && <span className="text-white bg-red-900 px-2 py-0.5 rounded text-[1vh] font-bold tracking-widest border border-red-500">AUDIO OFF</span>}
+                  <span className="bg-red-600 px-2 py-0.5 rounded text-[1.1vh] font-bold tracking-widest uppercase animate-pulse shadow-[0_0_10px_red]">LIVE</span>
+                  {isMuted && <span className="text-white bg-red-900 px-2 py-0.5 rounded text-[1.1vh] font-bold tracking-widest border border-red-500">AUDIO OFF</span>}
               </div>
           </div>
       </div>
-      <div className="flex-1 mx-8 h-[4.5vh] glass-panel rounded-full flex items-center px-4 overflow-hidden relative">
-          {messagesString ? (
-             <div className="ticker-wrap">
-                 <div className="ticker-content text-white text-[1.8vh] font-medium flex items-center gap-8">
-                     <MessageSquare className="w-[2vh] h-[2vh] text-fuchsia-400 inline-block shrink-0"/>
-                     <span>{messagesString}</span>
-                     <span className="ml-8">{messagesString}</span>
-                 </div>
-             </div>
-          ) : (
-             <div className="ticker-wrap">
-                 <div className="ticker-content text-white/40 text-[1.4vh] font-medium uppercase tracking-widest flex items-center gap-8">
-                     <span>🎵 Prenota la tua canzone</span>
-                     <span>📸 Carica il tuo avatar</span>
-                     <span>🏆 Scala la classifica</span>
-                     <span>📱 Scansiona il QR Code</span>
-                 </div>
-             </div>
-          )}
+      {/* SCALETTA SCORREVOLE */}
+      <div className="flex-1 mx-8 h-[6vh] glass-panel rounded-full flex items-center px-5 overflow-hidden relative border border-fuchsia-500/30">
+          <div className="shrink-0 flex items-center gap-2 mr-4 pr-4 border-r border-white/20">
+              <Mic2 className="w-[2.2vh] h-[2.2vh] text-fuchsia-400 shrink-0" />
+              <span className="text-fuchsia-300 text-[1.6vh] font-black uppercase tracking-widest whitespace-nowrap">In scaletta</span>
+          </div>
+          <div className="ticker-wrap flex-1 overflow-hidden">
+              {queueString ? (
+                <div className="ticker-content text-white text-[2vh] font-bold flex items-center gap-6"
+                     style={{ animation: `ticker ${tickerDuration} linear infinite` }}>
+                    <span>{queueString}</span>
+                    <span className="ml-12">{queueString}</span>
+                </div>
+              ) : (
+                <div className="ticker-content text-white/40 text-[1.6vh] font-medium uppercase tracking-widest flex items-center gap-8"
+                     style={{ animation: `ticker 30s linear infinite` }}>
+                    <span>🎵 Prenota la tua canzone</span>
+                    <span>📸 Carica il tuo avatar</span>
+                    <span>🏆 Scala la classifica</span>
+                    <span>📱 Scansiona il QR Code</span>
+                </div>
+              )}
+          </div>
       </div>
       <div className="flex flex-col items-end">
           <div className="glass-panel px-4 py-2 rounded-xl flex items-center gap-3">
-              <Users className="w-[2vh] h-[2vh] text-fuchsia-400"/> 
-              <span className="text-[2.5vh] font-mono font-bold">{onlineCount}</span>
+              <Users className="w-[2.2vh] h-[2.2vh] text-fuchsia-400"/> 
+              <span className="text-[2.8vh] font-mono font-bold">{onlineCount}</span>
           </div>
       </div>
   </div>
@@ -916,13 +926,47 @@ const AdminMessageOverlay = ({ message }) => {
     );
 };
 
-const Sidebar = ({ pubCode, queue, leaderboard, selfie }) => (
+const Sidebar = ({ pubCode, queue, leaderboard, selfie, messages }) => {
+  const [bottomSlot, setBottomSlot] = React.useState({ type: 'message', index: 0 });
+  const slotRef = React.useRef({ type: 'message', index: 0 });
+
+  React.useEffect(() => {
+    const advance = () => {
+      const msgs = messages || [];
+      const hasSelfie = !!selfie;
+      // Costruisce la lista degli slot disponibili
+      const slots = [];
+      if (hasSelfie) slots.push({ type: 'selfie' });
+      msgs.forEach((_, i) => slots.push({ type: 'message', index: i }));
+      if (slots.length === 0) { setBottomSlot({ type: 'empty' }); return; }
+      // Trova indice corrente nell'array slots
+      const cur = slotRef.current;
+      let curIdx = slots.findIndex(s => s.type === cur.type && s.index === cur.index);
+      if (curIdx < 0) curIdx = 0;
+      const next = slots[(curIdx + 1) % slots.length];
+      slotRef.current = next;
+      setBottomSlot({ ...next });
+    };
+    const timer = setInterval(advance, 5000);
+    return () => clearInterval(timer);
+  }, [messages, selfie]);
+
+  // Selfie nuovo → mostralo subito
+  React.useEffect(() => {
+    if (selfie) { slotRef.current = { type: 'selfie' }; setBottomSlot({ type: 'selfie' }); }
+  }, [selfie?.url]);
+
+  const msgs = messages || [];
+  const showSelfie  = bottomSlot.type === 'selfie' && !!selfie;
+  const currentMsg  = bottomSlot.type === 'message' && msgs[bottomSlot.index || 0];
+
+  return (
   <div className="dj-sidebar absolute z-[90] flex flex-col gap-[1.5vh]">
       {/* QR CODE */}
       <div className="glass-panel px-4 py-3 rounded-2xl flex items-center gap-4 relative overflow-hidden shrink-0">
           <div className="absolute inset-0 bg-fuchsia-600/5 blur-xl"></div>
           <div className="bg-white p-2 rounded-xl shadow-2xl relative z-10 shrink-0">
-              <QRCodeSVG value={`${window.location.origin}/join/${pubCode}`} size={Math.round(window.innerWidth * 0.07)} level="M" />
+              <QRCodeSVG value={`${window.location.origin}/join/${pubCode}`} size={Math.round(window.innerWidth * 0.1)} level="M" />
           </div>
           <div className="relative z-10 flex flex-col">
               <div className="text-[2vw] font-black text-white tracking-widest font-mono drop-shadow-xl">{pubCode}</div>
@@ -964,76 +1008,51 @@ const Sidebar = ({ pubCode, queue, leaderboard, selfie }) => (
           </div>
       </div>
 
-      {/* CLASSIFICA o SELFIE — si scambiano quando arriva un selfie approvato */}
-      <div className="glass-panel rounded-3xl flex flex-col overflow-hidden relative flex-1">
-          {selfie ? (
-              /* ── SELFIE MODE ── */
+      {/* MESSAGGI + SELFIE — si alternano ogni 5 sec */}
+      <div className="glass-panel rounded-3xl flex flex-col overflow-hidden relative flex-1"
+           key={`${bottomSlot.type}-${bottomSlot.index}`}
+           style={{ animation: 'fadeIn 0.5s ease' }}>
+          {showSelfie ? (
               <>
                   <div className="bg-gradient-to-r from-pink-500 to-fuchsia-600 px-4 py-3 flex items-center gap-2 border-b border-white/10 shrink-0">
                       <span className="text-[2vh]">📸</span>
                       <span className="font-black text-white text-[1.8vh] uppercase tracking-wider truncate">{selfie.nickname}</span>
                   </div>
                   <div className="flex-1 relative overflow-hidden">
-                      <img
-                          src={selfie.url}
-                          alt={selfie.nickname}
-                          className="w-full h-full object-cover"
-                          style={{ animation: 'fadeIn 0.5s ease' }}
-                      />
+                      <img src={selfie.url} alt={selfie.nickname} className="w-full h-full object-cover" />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
                       <div className="absolute bottom-3 left-3 right-3">
                           <p className="text-white font-black text-[2vh] drop-shadow-lg">📸 {selfie.nickname}</p>
                       </div>
                   </div>
               </>
-          ) : (
-              /* ── CLASSIFICA MODE ── */
+          ) : currentMsg ? (
               <>
-                  <div className="bg-gradient-to-r from-yellow-500 to-orange-500 px-6 py-4 flex items-center justify-between border-b border-white/10 shrink-0">
-                      <div className="flex items-center gap-3">
-                          <Trophy className="w-6 h-6 text-white" />
-                          <span className="font-black text-white text-xl uppercase tracking-wider">Classifica</span>
-                      </div>
+                  <div className="bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-3 flex items-center gap-2 border-b border-white/10 shrink-0">
+                      <MessageSquare className="w-[2vh] h-[2vh] text-white shrink-0" />
+                      <span className="font-black text-white text-[1.8vh] uppercase tracking-wider truncate">{currentMsg.nickname}</span>
                   </div>
-                  <div className="p-4 space-y-2 overflow-hidden">
-                      {leaderboard && leaderboard.length > 0 ? (
-                          leaderboard.slice(0, 10).map((player, i) => (
-                              <div key={player.id || i} className={`flex items-center gap-3 p-3 rounded-xl ${
-                                  i === 0 ? 'bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/30' :
-                                  i === 1 ? 'bg-white/5 border border-gray-400/20' :
-                                  i === 2 ? 'bg-white/5 border border-amber-600/20' :
-                                  'bg-white/5'
-                              }`}>
-                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm shrink-0 ${
-                                      i === 0 ? 'bg-yellow-500 text-black' :
-                                      i === 1 ? 'bg-gray-400 text-black' :
-                                      i === 2 ? 'bg-amber-700 text-white' :
-                                      'bg-white/10 text-white'
-                                  }`}>
-                                      {i+1}
-                                  </div>
-                                  {player.avatar_url ? (
-                                      <img src={player.avatar_url} alt={player.nickname} className="w-10 h-10 rounded-full border-2 border-yellow-500/50 object-cover shrink-0 shadow-md" />
-                                  ) : (
-                                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-fuchsia-600 to-purple-600 flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-md">
-                                          {player.nickname?.charAt(0)?.toUpperCase() || '?'}
-                                      </div>
-                                  )}
-                                  <div className="flex-1 min-w-0">
-                                      <div className="text-white font-bold text-sm truncate">{player.nickname}</div>
-                                  </div>
-                                  <div className="font-mono text-cyan-400 font-bold text-sm">{player.score || 0}</div>
-                              </div>
-                          ))
-                      ) : (
-                          <div className="text-white/30 text-center py-8 italic text-sm">Classifica vuota</div>
-                      )}
+                  <div className="flex-1 flex items-center justify-center p-5">
+                      <p className="text-white text-[2.4vh] font-bold text-center leading-snug"
+                         style={{ textShadow: '0 0 20px rgba(6,182,212,0.5)' }}>
+                          💬 {currentMsg.text}
+                      </p>
+                  </div>
+              </>
+          ) : (
+              <>
+                  <div className="bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-3 flex items-center gap-2 border-b border-white/10 shrink-0">
+                      <MessageSquare className="w-[2vh] h-[2vh] text-white shrink-0" />
+                      <span className="font-black text-white text-[1.8vh] uppercase tracking-wider">Messaggi</span>
+                  </div>
+                  <div className="flex-1 flex items-center justify-center p-5">
+                      <p className="text-white/30 text-center italic text-[1.4vh]">I messaggi degli utenti appariranno qui</p>
                   </div>
               </>
           )}
       </div>
   </div>
-);
+);};
 
 const KaraokeMode = ({ perf, isMuted }) => (
     <div className="w-full h-full relative">
@@ -1908,7 +1927,7 @@ export default function PubDisplay() {
             {/* 🎬 MEDIA OVERLAY — sopra tutto, sotto solo le reazioni */}
             <MediaOverlay overlay={overlay} onDismiss={dismissOverlay} pubData={data} />
 
-            <TopBar pubName={pub.name} logoUrl={pub.logo_url} onlineCount={leaderboard?.length || 0} messages={recentMessages} isMuted={isMuted} />
+            <TopBar pubName={pub.name} logoUrl={pub.logo_url} onlineCount={leaderboard?.length || 0} messages={recentMessages} isMuted={isMuted} queue={queue} />
             <AdminMessageOverlay message={admin_message} />
 
             {/* ESTRAZIONE — parte immediatamente, ExtractionMode gestisce tutto */}
@@ -1927,7 +1946,7 @@ export default function PubDisplay() {
                 {Content}
             </div>
 
-            <Sidebar pubCode={pubCode} queue={queue} leaderboard={leaderboard} selfie={activeSelfie} />
+            <Sidebar pubCode={pubCode} queue={queue} leaderboard={leaderboard} selfie={activeSelfie} messages={recentMessages} />
         </div>
     );
 }
