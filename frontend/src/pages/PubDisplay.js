@@ -824,11 +824,11 @@ const STYLES = `
   }
 
   @keyframes ticker { 
-    0% { transform: translateX(100%); } 
-    100% { transform: translateX(-100%); } 
+    0% { transform: translateX(0); } 
+    100% { transform: translateX(-50%); } 
   }
   .ticker-wrap { width: 100%; overflow: hidden; }
-  .ticker-content { display: inline-block; white-space: nowrap; animation: ticker 25s linear infinite; }
+  .ticker-content { display: inline-flex; white-space: nowrap; }
 
   @keyframes gradient-move {
     0% { background-position: 0% 50%; }
@@ -886,18 +886,16 @@ const TopBar = ({ pubName, logoUrl, onlineCount, messages, isMuted, queue }) => 
           </div>
           <div className="ticker-wrap flex-1 overflow-hidden">
               {queueString ? (
-                <div className="ticker-content text-white text-[2vh] font-bold flex items-center gap-6"
+                <div className="ticker-content text-white text-[2vh] font-bold items-center gap-0"
                      style={{ animation: `ticker ${tickerDuration} linear infinite` }}>
-                    <span>{queueString}</span>
-                    <span className="ml-12">{queueString}</span>
+                    <span className="px-8">{queueString}</span>
+                    <span className="px-8">{queueString}</span>
                 </div>
               ) : (
-                <div className="ticker-content text-white/40 text-[1.6vh] font-medium uppercase tracking-widest flex items-center gap-8"
-                     style={{ animation: `ticker 30s linear infinite` }}>
-                    <span>🎵 Prenota la tua canzone</span>
-                    <span>📸 Carica il tuo avatar</span>
-                    <span>🏆 Scala la classifica</span>
-                    <span>📱 Scansiona il QR Code</span>
+                <div className="ticker-content text-white/40 text-[1.6vh] font-medium uppercase tracking-widest items-center gap-0"
+                     style={{ animation: `ticker 40s linear infinite` }}>
+                    <span className="px-8">🎵 Prenota la tua canzone &nbsp;&nbsp;•&nbsp;&nbsp; 📸 Carica il tuo avatar &nbsp;&nbsp;•&nbsp;&nbsp; 🏆 Scala la classifica &nbsp;&nbsp;•&nbsp;&nbsp; 📱 Scansiona il QR Code</span>
+                    <span className="px-8">🎵 Prenota la tua canzone &nbsp;&nbsp;•&nbsp;&nbsp; 📸 Carica il tuo avatar &nbsp;&nbsp;•&nbsp;&nbsp; 🏆 Scala la classifica &nbsp;&nbsp;•&nbsp;&nbsp; 📱 Scansiona il QR Code</span>
                 </div>
               )}
           </div>

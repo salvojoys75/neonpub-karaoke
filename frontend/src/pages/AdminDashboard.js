@@ -2102,28 +2102,30 @@ export default function AdminDashboard() {
                <Button size="sm" variant="ghost" onClick={handleToggleMute} className={isMuted?'text-red-500':'text-zinc-400'}>{isMuted ? <VolumeX className="w-4 h-4"/> : <Volume2 className="w-4 h-4"/>}</Button>
             </div>
 
-            {/* ── SELFIE IN ATTESA — barra compatta sopra il contenuto ── */}
+            {/* ── SELFIE IN ATTESA — barra sopra il contenuto ── */}
             {pendingSelfies.length > 0 && (
-              <div className="border-b border-pink-900/40 bg-pink-950/20 px-4 py-2 flex items-center gap-3 overflow-x-auto shrink-0">
+              <div className="border-b border-pink-900/40 bg-pink-950/20 px-4 py-3 flex items-center gap-3 overflow-x-auto shrink-0">
                 <span className="text-xs font-bold text-pink-400 uppercase tracking-wider whitespace-nowrap flex items-center gap-1 shrink-0">
                   <Camera className="w-3.5 h-3.5"/> Selfie ({pendingSelfies.length})
                 </span>
-                <div className="flex gap-2 items-center">
+                <div className="flex gap-3 items-center">
                   {pendingSelfies.map(selfie => (
-                    <div key={selfie.id} className="flex items-center gap-2 bg-zinc-900 border border-pink-800/40 rounded-lg px-2 py-1 shrink-0">
+                    <div key={selfie.id} className="flex flex-col gap-1 bg-zinc-900 border border-pink-800/40 rounded-xl p-2 shrink-0">
                       <img src={selfie.image_data} alt={selfie.nickname}
-                        className="w-10 h-10 rounded object-cover border border-zinc-700 shrink-0 cursor-pointer"
+                        className="w-24 h-24 rounded-lg object-cover border border-zinc-700 cursor-pointer hover:opacity-90 transition"
                         onClick={() => window.open(selfie.image_data, '_blank')}
                       />
-                      <span className="text-xs text-white font-bold max-w-[80px] truncate">{selfie.nickname}</span>
-                      <Button size="icon" variant="ghost" className="h-6 w-6 text-red-500 hover:bg-red-900/20 shrink-0"
-                        onClick={async () => { await api.rejectSelfie(selfie.id); loadData(); }}>
-                        <X className="w-3 h-3"/>
-                      </Button>
-                      <Button size="icon" className="h-6 w-6 bg-green-600 hover:bg-green-500 shrink-0"
-                        onClick={async () => { await api.approveSelfie(selfie.id, selfie.image_data, selfie.nickname); toast.success("📸 Selfie inviato!"); loadData(); }}>
-                        <Check className="w-3 h-3"/>
-                      </Button>
+                      <span className="text-[11px] text-white font-bold text-center max-w-[96px] truncate">{selfie.nickname}</span>
+                      <div className="flex gap-1">
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500 hover:bg-red-900/20 flex-1"
+                          onClick={async () => { await api.rejectSelfie(selfie.id); loadData(); }}>
+                          <X className="w-3 h-3"/>
+                        </Button>
+                        <Button size="icon" className="h-7 w-7 bg-green-600 hover:bg-green-500 flex-1"
+                          onClick={async () => { await api.approveSelfie(selfie.id, selfie.image_data, selfie.nickname); toast.success("📸 Selfie inviato!"); loadData(); }}>
+                          <Check className="w-3 h-3"/>
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
