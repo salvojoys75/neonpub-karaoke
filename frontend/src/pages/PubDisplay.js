@@ -112,6 +112,7 @@ function getActiveMode(data) {
   if (isMillionaire) return 'millionaire';
   if (isKaraoke || isVoting) return 'karaoke';
   if (isScore)  return 'score';
+if (data.active_band?.status === 'active') return 'band';
   return 'idle';
 }
 

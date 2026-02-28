@@ -274,7 +274,7 @@ export default function ClientApp() {
         )}
         {activeTab === "songs" && (<div className="space-y-4"><h2 className="text-xl font-bold">Le Mie Richieste</h2>{myRequests.map(song => (<div key={song.id} className="glass rounded-xl p-4"><p className="font-medium">{song.title}</p><div className="flex justify-between mt-1"><p className="text-sm text-zinc-500">{song.artist}</p><span className={`text-xs uppercase px-2 py-1 rounded ${song.status==='queued' ? 'bg-green-500/20 text-green-400' : 'bg-zinc-800 text-zinc-500'}`}>{song.status}</span></div></div>))}</div>)}
 {activeTab === "band" && (
-  <BandModeClient pubCode={user?.pub_code} participant={user} />
+  <BandModeClient pubCode={localStorage.getItem('discojoys_pub_code')} participant={user} />
 )}
         {/* ── TAB ARCADE ── */}
         {activeTab === "arcade" && (
