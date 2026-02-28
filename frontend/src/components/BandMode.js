@@ -23,22 +23,8 @@ const HIT_WINDOW   = 0.18;  // ±180ms per un hit valido
 const GOOD_WINDOW  = 0.09;  // ±90ms per "GOOD"
 const PERF_WINDOW  = 0.045; // ±45ms per "PERFECT"
 const NOTE_LEAD    = 3.0;   // secondi in anticipo visibili
-const NOTE_SPEED   = 220;   // px per secondo (canvas height / NOTE_LEAD)
 const COLORS       = ['#ff3b5c', '#00d4ff', '#39ff84'];
 const LANE_LABELS  = ['LANE 0', 'LANE 1', 'LANE 2'];
-
-// ─── HELPER: volume fade ─────────────────────────────────────────────────────
-function fadeVolume(audioEl, from, to, durationMs) {
-  const steps = 20;
-  const interval = durationMs / steps;
-  const delta = (to - from) / steps;
-  let current = from;
-  const id = setInterval(() => {
-    current = Math.max(0, Math.min(1, current + delta));
-    if (audioEl) audioEl.volume = current;
-    if ((delta > 0 && current >= to) || (delta < 0 && current <= to)) clearInterval(id);
-  }, interval);
-}
 
 // ─── COMPONENTE ──────────────────────────────────────────────────────────────
 export default function BandMode({ session, pubCode, chart: chartProp }) {
@@ -84,74 +70,83 @@ export default function BandMode({ session, pubCode, chart: chartProp }) {
   }, []);
 
   // ── 3. Avvia canzone e broadcast su Supabase ─────────────────────────────
-const startSong = useCallback(async () => {
-  if (!chart || gameState === 'playing') return;
-  setupAudio();
-  const ctx = audioCtxRef.current;
-  if (ctx.state === 'suspended') await ctx.resume();
+  const startSong = useCallback(async () => {
+    if (!chart || gameState === 'playing') return;
+    setupAudio();
+    const ctx = audioCtxRef.current;
+    if (ctx.state === 'suspended') await ctx.resume();
 
-  notesRef.current = chart.map((n, i) => ({ ...n, id: i, hit: false, missed: false }));
+    notesRef.current = chart.map((n, i) => ({ ...n, id: i, hit: false, missed: false }));
 
-  // Precarica entrambi e aspetta che siano pronti
-  const waitReady = (el) => new Promise(resolve => {
-    el.currentTime = 0;
-    if (el.readyState >= 3) { resolve(); return; }
-    el.addEventListener('canplaythrough', resolve, { once: true });
-    el.load();
-  });
+    // Helper per attendere il caricamento
+    const waitReady = (el) => new Promise(resolve => {
+      el.currentTime = 0;
+      if (el.readyState >= 3) { resolve(); return; }
+      el.addEventListener('canplaythrough', resolve, { once: true });
+      el.load();
+    });
 
-  await Promise.all([
-    waitReady(baseRef.current),
-    waitReady(organRef.current),
-if (!baseRef.current._connected) {
-  const src = audioCtxRef.current.createMediaElementSource(baseRef.current);
-  src.connect(audioCtxRef.current.destination);
-  baseRef.current._connected = true;
-}
-if (!organRef.current._connected) {
-  const src = audioCtxRef.current.createMediaElementSource(organRef.current);
-  src.connect(organGainRef.current);
-  organRef.current._connected = true;
-}
-  ]);
+    // Aspetta che entrambi i file siano pronti
+    await Promise.all([
+      waitReady(baseRef.current),
+      waitReady(organRef.current),
+    ]);
 
-  // Partenza simultanea perfetta
-  const serverNow = Date.now();
-  await Promise.all([
-    baseRef.current.play(),
-    organRef.current.play(),
-  ]);
-
-  startTimeRef.current = serverNow;
-  setGameState('playing');
-  setScore(0);
-  setCombo(0);
-
-  // Broadcast DOPO che audio è partito, con timestamp preciso
-  await channelRef.current?.send({
-    type: 'broadcast',
-    event: 'band_start',
-    payload: {
-      song: session?.song || 'deepdown',
-      chart: chart,
-      serverTime: serverNow,
+    // Connetti i nodi audio solo una volta
+    if (!baseRef.current._connected) {
+      const src = ctx.createMediaElementSource(baseRef.current);
+      src.connect(ctx.destination);
+      baseRef.current._connected = true;
     }
-  });
+    if (!organRef.current._connected) {
+      const src = ctx.createMediaElementSource(organRef.current);
+      src.connect(organGainRef.current);
+      organRef.current._connected = true;
+    }
 
-  startLoop();
-}, [chart, gameState, setupAudio, session, startLoop]);
+    // Partenza simultanea
+    const serverNow = Date.now();
+    await Promise.all([
+      baseRef.current.play(),
+      organRef.current.play(),
+    ]);
+
+    startTimeRef.current = ctx.currentTime; // Usa currentTime del contesto audio per sync preciso
+    setGameState('playing');
+    setScore(0);
+    setCombo(0);
+
+    // Broadcast DOPO che audio è partito
+    await channelRef.current?.send({
+      type: 'broadcast',
+      event: 'band_start',
+      payload: {
+        song: session?.song || 'deepdown',
+        chart: chart,
+        serverTime: serverNow,
+      }
+    });
+
+    startLoop();
+  }, [chart, gameState, setupAudio, session]); // startLoop rimosso dalle dipendenze per evitare cicli, definito sotto
 
   // ── 4. Game loop: disegna canvas + controlla miss ─────────────────────────
   const startLoop = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
+    
+    // Resize interno per nitidezza
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+    
     const W = canvas.width, H = canvas.height;
     const lW = W / 3;
     const hitY = H * 0.82; // zona di colpo
 
     function draw() {
-      if (!audioCtxRef.current || !startTimeRef.current) return;
+      if (!audioCtxRef.current || startTimeRef.current === null) return;
       const elapsed = audioCtxRef.current.currentTime - startTimeRef.current;
 
       ctx.clearRect(0, 0, W, H);
@@ -178,21 +173,25 @@ if (!organRef.current._connected) {
       for (const note of notesRef.current) {
         if (note.hit || note.missed) continue;
         const timeToHit = note.time - elapsed;
+        
+        // Se troppo presto, salta (ottimizzazione)
         if (timeToHit > NOTE_LEAD + 0.2) continue;
+        
+        // Missed? (passata la finestra utile)
         if (timeToHit < -HIT_WINDOW - 0.1) {
           note.missed = true;
           setCombo(0);
           continue;
         }
 
+        // Calcola Y
         const y = hitY - (timeToHit / NOTE_LEAD) * hitY;
         const cx = note.lane * lW + lW / 2;
         const col = COLORS[note.lane];
 
-        // Glow
+        // Disegna nota
         ctx.shadowColor = col;
         ctx.shadowBlur = 18;
-        // Diamante
         ctx.fillStyle = col;
         ctx.beginPath();
         ctx.moveTo(cx, y - 14);
@@ -232,7 +231,7 @@ if (!organRef.current._connected) {
       if (organGainRef.current && gameState === 'playing') {
         const gain = organGainRef.current.gain;
         const now = audioCtxRef.current?.currentTime || 0;
-        // Porta il volume a 1 e fai decadere
+        // Porta il volume su e fai decadere
         gain.cancelScheduledValues(now);
         gain.setValueAtTime(Math.min(1, gain.value + 0.35), now);
         gain.exponentialRampToValueAtTime(0.01, now + 2.5);
@@ -277,8 +276,9 @@ if (!organRef.current._connected) {
   useEffect(() => {
     return () => {
       cancelAnimationFrame(animRef.current);
-      baseRef.current?.pause();
-      organRef.current?.pause();
+      if (baseRef.current) baseRef.current.pause();
+      if (organRef.current) organRef.current.pause();
+      if (audioCtxRef.current) audioCtxRef.current.close();
     };
   }, []);
 
@@ -291,25 +291,27 @@ if (!organRef.current._connected) {
       fontFamily: "'JetBrains Mono', monospace", color: '#fff',
     }}>
       {/* ── Colonna sinistra: canvas note ── */}
-      <div style={{ position: 'relative', overflow: 'hidden' }}>
+      <div style={{ position: 'relative', overflow: 'hidden', display: 'flex' }}>
         <canvas
           ref={canvasRef}
-          width={900} height={600}
-          style={{ width: '100%', height: '100%' }}
+          style={{ width: '100%', height: '100%', display: 'block' }}
         />
 
         {/* Feedback hit flottanti */}
         {hitFeedback.map(f => (
           <div key={f.id} style={{
             position: 'absolute',
-            left: `${f.lane * 33.3 + 10}%`,
+            left: `${f.lane * 33.3 + 16.6}%`,
             top: '70%',
+            transform: 'translateX(-50%)',
             color: f.color,
             fontSize: '18px',
             fontWeight: 900,
             textShadow: `0 0 20px ${f.color}`,
             animation: 'hitPop 0.9s ease forwards',
             pointerEvents: 'none',
+            textAlign: 'center',
+            zIndex: 10
           }}>
             {f.text}
             <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontWeight: 400 }}>
@@ -325,6 +327,7 @@ if (!organRef.current._connected) {
             display: 'flex', flexDirection: 'column',
             alignItems: 'center', justifyContent: 'center',
             background: 'rgba(0,0,0,0.75)',
+            zIndex: 20
           }}>
             <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.4)', marginBottom: '16px', letterSpacing: '0.3em', textTransform: 'uppercase' }}>
               {chart.length} note caricate
@@ -351,6 +354,7 @@ if (!organRef.current._connected) {
       <div style={{
         background: '#0d0d18', borderLeft: '1px solid rgba(255,255,255,0.07)',
         padding: '24px 16px', display: 'flex', flexDirection: 'column', gap: '24px',
+        zIndex: 5
       }}>
         {/* Score totale */}
         <div style={{ textAlign: 'center' }}>
@@ -381,7 +385,7 @@ if (!organRef.current._connected) {
         </div>
 
         {/* Players */}
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, overflowY: 'auto' }}>
           <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', letterSpacing: '0.3em', marginBottom: '12px' }}>GIOCATORI</div>
           {Object.entries(players).length === 0 && (
             <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.2)', textAlign: 'center', marginTop: '24px' }}>
@@ -408,14 +412,14 @@ if (!organRef.current._connected) {
       </div>
 
       {/* Audio elements (hidden) */}
-      <audio ref={baseRef}   src={`/audio/${song}/base.mp3`}   preload="auto" />
-      <audio ref={organRef}  src={`/audio/${song}/organo.mp3`} preload="auto" />
+      <audio ref={baseRef}   src={`/audio/${song}/base.mp3`}   preload="auto" crossOrigin="anonymous" />
+      <audio ref={organRef}  src={`/audio/${song}/organo.mp3`} preload="auto" crossOrigin="anonymous" />
 
       <style>{`
         @keyframes hitPop {
-          0%   { opacity: 1; transform: translateY(0) scale(1.2); }
-          60%  { opacity: 1; transform: translateY(-30px) scale(1); }
-          100% { opacity: 0; transform: translateY(-60px) scale(0.8); }
+          0%   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.2); }
+          60%  { opacity: 1; transform: translateX(-50%) translateY(-30px) scale(1); }
+          100% { opacity: 0; transform: translateX(-50%) translateY(-60px) scale(0.8); }
         }
       `}</style>
     </div>
