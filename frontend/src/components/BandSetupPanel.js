@@ -1,28 +1,9 @@
-/**
- * BandSetupPanel.js
- * 
- * Pannello Admin per gestire il Band Mode:
- * 1. Seleziona canzone (legge il manifest.json)
- * 2. Vede gli strumenti disponibili per quella canzone
- * 3. Assegna ogni strumento a un partecipante connesso
- * 4. Invia band_setup via Supabase broadcast
- * 5. Lancia band_start quando tutto è pronto
- * 
- * Props:
- *   pubCode      {string}   - codice del pub/evento
- *   songPool     {Array}    - lista canzoni dal pool (con campo `folder` o `slug`)
- *   participants {Array}    - lista partecipanti connessi [{ id, nickname, avatar_url }]
- *   onClose      {Function} - chiudi il pannello
- */
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { Music, Play, X, Users, RefreshCw, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-// Metadati strumenti (fallback se il manifest non li specifica)
+// Metadati strumenti
 const INSTRUMENT_META = {
   keys:   { label: 'Tastiera',  icon: '🎹', color: '#00d4ff' },
   drums:  { label: 'Batteria',  icon: '🥁', color: '#ff3b5c' },
@@ -31,24 +12,42 @@ const INSTRUMENT_META = {
   guitar: { label: 'Chitarra',  icon: '🎸', color: '#ff8c00' },
 };
 
-const START_DELAY = 4000; // ms
+const START_DELAY = 4000;
 
-export default function BandSetupPanel({ pubCode, songPool = [], participants = [], onClose }) {
+// Props: pubCode, participants, onClose
+// songPool NON serve più — le canzoni vengono da /audio/band_songs.json
+export default function BandSetupPanel({ pubCode, participants = [], onClose }) {
+  // ── Canzoni disponibili (da band_songs.json) ────────────────────────────
+  const [bandSongs,      setBandSongs]      = useState([]);
+  const [loadingSongs,   setLoadingSongs]   = useState(true);
+
   // ── Stato selezione canzone ─────────────────────────────────────────────
-  const [selectedSong,   setSelectedSong]   = useState(null);  // oggetto canzone dal pool
-  const [manifest,       setManifest]       = useState(null);  // contenuto manifest.json
+  const [selectedSong,    setSelectedSong]    = useState(null);
+  const [manifest,        setManifest]        = useState(null);
   const [loadingManifest, setLoadingManifest] = useState(false);
-  const [manifestError,  setManifestError]  = useState(null);
+  const [manifestError,   setManifestError]   = useState(null);
 
-  // ── Stato assegnazioni: { instrumentId: { userId, nickname } | null } ──
+  // ── Stato assegnazioni ──────────────────────────────────────────────────
   const [assignments, setAssignments] = useState({});
 
   // ── Stato broadcast ─────────────────────────────────────────────────────
-  const [setupSent,    setSetupSent]    = useState(false);
-  const [gameStarted,  setGameStarted]  = useState(false);
-  const [sending,      setSending]      = useState(false);
+  const [setupSent,   setSetupSent]   = useState(false);
+  const [gameStarted, setGameStarted] = useState(false);
+  const [sending,     setSending]     = useState(false);
 
   const channelRef = useRef(null);
+
+  // ── Carica band_songs.json all'apertura ────────────────────────────────
+  useEffect(() => {
+    fetch('/audio/band_songs.json')
+      .then(r => {
+        if (!r.ok) throw new Error('band_songs.json non trovato');
+        return r.json();
+      })
+      .then(data => setBandSongs(data || []))
+      .catch(() => setBandSongs([]))
+      .finally(() => setLoadingSongs(false));
+  }, []);
 
   // ── Connetti al canale Supabase ─────────────────────────────────────────
   useEffect(() => {
@@ -64,7 +63,7 @@ export default function BandSetupPanel({ pubCode, songPool = [], participants = 
   useEffect(() => {
     if (!selectedSong) { setManifest(null); return; }
 
-    const folder = selectedSong.folder || selectedSong.slug || selectedSong.title?.toLowerCase().replace(/\s+/g,'');
+    const folder = selectedSong.id;
     setLoadingManifest(true);
     setManifestError(null);
     setAssignments({});
@@ -119,7 +118,7 @@ export default function BandSetupPanel({ pubCode, songPool = [], participants = 
     if (!manifest || assignmentCount === 0) return;
     setSending(true);
 
-    const folder = selectedSong.folder || selectedSong.slug || selectedSong.title?.toLowerCase().replace(/\s+/g,'');
+    const folder = selectedSong.id;
 
     const assignmentsList = Object.entries(assignments)
       .filter(([, v]) => v !== null)
@@ -154,7 +153,7 @@ export default function BandSetupPanel({ pubCode, songPool = [], participants = 
     if (!setupSent || !manifest) return;
     setSending(true);
 
-    const folder = selectedSong.folder || selectedSong.slug || selectedSong.title?.toLowerCase().replace(/\s+/g,'');
+    const folder = selectedSong.id;
     const assignmentsList = Object.entries(assignments)
       .filter(([, v]) => v !== null)
       .map(([instrumentId, v]) => ({ instrument: instrumentId, userId: v.userId, nickname: v.nickname }));
@@ -223,7 +222,7 @@ export default function BandSetupPanel({ pubCode, songPool = [], participants = 
         <select
           value={selectedSong?.id || ''}
           onChange={e => {
-            const s = songPool.find(s => String(s.id) === e.target.value);
+            const s = bandSongs.find(s => s.id === e.target.value);
             setSelectedSong(s || null);
           }}
           style={{
@@ -239,8 +238,10 @@ export default function BandSetupPanel({ pubCode, songPool = [], participants = 
             cursor: 'pointer',
           }}
         >
-          <option value="">— Seleziona canzone —</option>
-          {songPool.map(s => (
+          <option value="">
+            {loadingSongs ? '⏳ Carico canzoni...' : bandSongs.length === 0 ? '⚠️ Nessuna canzone trovata' : '— Seleziona canzone —'}
+          </option>
+          {bandSongs.map(s => (
             <option key={s.id} value={s.id}>
               {s.title} — {s.artist}
             </option>

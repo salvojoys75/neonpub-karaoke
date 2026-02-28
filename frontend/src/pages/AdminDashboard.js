@@ -2846,11 +2846,10 @@ const [showBandSetup, setShowBandSetup] = useState(false);
         onClick={e => { if (e.target === e.currentTarget) setShowBandSetup(false); }}
       >
         <BandSetupPanel
-          pubCode={pubCode}
-          songPool={songPool}
-          participants={onlineParticipants}
-          onClose={() => setShowBandSetup(false)}
-        />
+  pubCode={pubCode}
+  participants={onlineParticipants}
+  onClose={() => setShowBandSetup(false)}
+/>
       </div>
     )}
     </div>
