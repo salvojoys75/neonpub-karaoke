@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 
 // ── SYNC CONFIG ──
-const NETWORK_LATENCY_COMPENSATION = 250; // Compensiamo 250ms di viaggio del messaggio
+// Compensiamo il tempo che il messaggio ci mette ad arrivare dal server (es. 250ms)
+const NETWORK_LATENCY_COMPENSATION = 250; 
 // ─────────────────
 
 const HIT_WINDOW  = 0.18;
@@ -13,8 +14,8 @@ const COLORS      = ['#ff3b5c', '#00d4ff', '#39ff84'];
 const POINTS      = { perfect: 100, good: 60, hit: 30 };
 
 export default function BandModeClient({ pubCode, participant }) {
-  const [gameState, setGameState] = useState('waiting');
-  const [countdown, setCountdown] = useState(null);
+  const [gameState, setGameState] = useState('waiting'); // waiting | playing
+  const [countdown, setCountdown] = useState(null);      // Per visualizzare -3, -2...
   const [score, setScore]         = useState(0);
   const [combo, setCombo]         = useState(0);
   const [feedback, setFeedback]   = useState(null);
@@ -30,7 +31,9 @@ export default function BandModeClient({ pubCode, participant }) {
 
   const nickname = participant?.nickname || 'Player';
 
-  // Calcola tempo trascorso. Se negativo = COUNTDOWN
+  // Calcola tempo trascorso. 
+  // Se restituisce un numero negativo (es. -3.5), siamo nel countdown.
+  // Se positivo, la canzone è iniziata.
   const getElapsed = useCallback(() => {
     if (!startTimeRef.current) return -999;
     return (Date.now() - startTimeRef.current) / 1000;
@@ -52,7 +55,7 @@ export default function BandModeClient({ pubCode, participant }) {
       const elapsed = getElapsed();
       ctx.clearRect(0, 0, cW, cH);
 
-      // ── FASE COUNTDOWN ──
+      // ── FASE COUNTDOWN (Tempo Negativo) ──
       if (elapsed < 0) {
         const sec = Math.ceil(Math.abs(elapsed));
         setCountdown(sec > 0 ? sec : "GO!");
@@ -86,7 +89,7 @@ export default function BandModeClient({ pubCode, participant }) {
       ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
       ctx.beginPath(); ctx.moveTo(0, hitY); ctx.lineTo(cW, hitY); ctx.stroke(); ctx.setLineDash([]);
       
-      // Cerchi
+      // Cerchi tasti
       for (let l = 0; l < 3; l++) {
         const cx = l * lW + lW / 2;
         ctx.strokeStyle = COLORS[l] + '55'; ctx.lineWidth = 2;
@@ -97,7 +100,11 @@ export default function BandModeClient({ pubCode, participant }) {
       for (const note of notesRef.current) {
         if (note.hit || note.missed) continue;
         const tti = note.time - elapsed;
+        
+        // Disegna solo note visibili
         if (tti > NOTE_LEAD + 0.1) continue;
+        
+        // Miss logic
         if (tti < -HIT_WINDOW - 0.05) { note.missed = true; comboRef.current = 0; setCombo(0); continue; }
 
         const y = (1 - tti / NOTE_LEAD) * hitY;
@@ -113,11 +120,14 @@ export default function BandModeClient({ pubCode, participant }) {
     animRef.current = requestAnimationFrame(draw);
   }, [getElapsed, countdown]);
 
-  // ── Start Game ──
+  // ── Start Game Logic ──
   const startGame = useCallback((chart, delay) => {
-    // SYNC FIX: Impostiamo lo start time nel futuro RELATIVO al device corrente
-    // delay arriva come 4000. Togliamo 250ms per compensare il tempo di rete
+    // SYNC FIX: Impostiamo l'orario di inizio nel futuro (es. tra 4 sec)
+    // Sottraiamo la latenza stimata per essere più precisi
     const adjustedDelay = Math.max(0, delay - NETWORK_LATENCY_COMPENSATION);
+    
+    // startTimeRef.current diventa un timestamp nel futuro.
+    // Finché Date.now() < startTimeRef, getElapsed() sarà negativo -> Countdown
     startTimeRef.current = Date.now() + adjustedDelay;
     
     notesRef.current = chart.map((n, i) => ({ ...n, id: i, hit: false, missed: false }));
@@ -130,7 +140,9 @@ export default function BandModeClient({ pubCode, participant }) {
   const handleHit = useCallback(async (lane) => {
     if (gameState !== 'playing') return;
     const elapsed = getElapsed();
-    if (elapsed < 0) return; // Blocco hit durante countdown
+    
+    // Impedisci di premere note se il countdown non è finito (elapsed negativo)
+    if (elapsed < 0) return; 
 
     let best = null, bestDist = Infinity;
     for (const note of notesRef.current) {
@@ -157,10 +169,11 @@ export default function BandModeClient({ pubCode, participant }) {
     }
   }, [gameState, getElapsed, nickname]);
 
+  // ── Supabase Listener ──
   useEffect(() => {
     const ch = supabase.channel(`band_game_${pubCode}`, { config: { broadcast: { self: true } } });
     ch.on('broadcast', { event: 'band_start' }, ({ payload }) => {
-      // Riceviamo il DELAY (es. 4000), non l'orario
+      // Riceviamo la chart e il ritardo (es. 4000ms)
       startGame(payload.chart, payload.startDelay);
     });
     ch.subscribe();
@@ -170,11 +183,14 @@ export default function BandModeClient({ pubCode, participant }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#08080f', fontFamily: "'JetBrains Mono', monospace", overflow: 'hidden', userSelect: 'none', WebkitUserSelect: 'none' }}>
+      {/* Top Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 16px', background: '#0d0d18', borderBottom: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
         <div style={{ fontSize: '18px', fontWeight: 900, color: '#ffd100' }}>{score.toLocaleString()}</div>
         {combo > 1 && <div style={{ fontSize: '13px', fontWeight: 900, color: '#39ff84', textShadow: '0 0 10px #39ff84' }}>x{combo}</div>}
         <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>{gameState === 'playing' ? '● LIVE' : '⏳ attesa...'}</div>
       </div>
+      
+      {/* Canvas Area */}
       <div style={{ flex: '0 0 28vh', position: 'relative' }}>
         <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
         {gameState === 'waiting' && (
@@ -185,6 +201,8 @@ export default function BandModeClient({ pubCode, participant }) {
         )}
         {feedback && <div style={{ position: 'absolute', left: `${feedback.lane * 33.3 + 16.6}%`, top: '55%', transform: 'translateX(-50%)', fontSize: '15px', fontWeight: 900, color: feedback.color, textShadow: `0 0 14px ${feedback.color}`, animation: 'feedPop 0.6s ease forwards', pointerEvents: 'none', whiteSpace: 'nowrap' }}>{feedback.text}</div>}
       </div>
+
+      {/* Buttons */}
       <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '4px', padding: '4px', background: '#050508' }}>
         {[0, 1, 2].map(l => (
           <button key={l} onPointerDown={e => { e.preventDefault(); setPressing(p => { const n = [...p]; n[l] = true; return n; }); handleHit(l); }} onPointerUp={() => setPressing(p => { const n = [...p]; n[l] = false; return n; })} onPointerCancel={() => setPressing(p => { const n = [...p]; n[l] = false; return n; })}

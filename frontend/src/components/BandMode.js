@@ -81,21 +81,20 @@ export default function BandMode({ session, pubCode, chart: chartProp }) {
       organRef.current._connected = true;
     }
 
-    // ── LOGICA DI SYNC MODIFICATA ──
-    // Invia ai telefoni: "Partite tra 4000ms da quando ricevete questo messaggio"
+    // Broadcast ai telefoni
     await channelRef.current?.send({
       type: 'broadcast',
       event: 'band_start',
       payload: {
         song: session?.song || 'deepdown',
         chart: chart,
-        startDelay: START_DELAY // Inviamo la durata, non l'orario assoluto
+        startDelay: START_DELAY 
       }
     });
 
     // Avvia countdown locale
     setGameState('countdown');
-    setCountdown(4); // Inizia da 4 visivamente per sync
+    setCountdown(4);
     
     let count = 4;
     const interval = setInterval(() => {
@@ -210,6 +209,9 @@ export default function BandMode({ session, pubCode, chart: chartProp }) {
   useEffect(() => {
     return () => { cancelAnimationFrame(animRef.current); clearTimeout(startTimerRef.current); baseRef.current?.pause(); organRef.current?.pause(); audioCtxRef.current?.close(); };
   }, []);
+
+  // ── FIX: DEFINIZIONE SONG MANCANTE REINSERITA QUI SOTTO ──
+  const song = session?.song || 'deepdown';
 
   return (
     <div style={{ width: '100%', height: '100%', background: '#08080f', display: 'grid', gridTemplateColumns: '1fr 280px', fontFamily: "'JetBrains Mono', monospace", color: '#fff' }}>
