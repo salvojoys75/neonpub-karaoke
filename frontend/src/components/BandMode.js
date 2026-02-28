@@ -81,57 +81,65 @@ export default function BandMode({ session, pubCode, chart: chartProp }) {
     gain.gain.value = 0;
     gain.connect(ctx.destination);
     organGainRef.current = gain;
-
-    // Collegare gli elementi audio al contesto
-    if (baseRef.current) {
-      const src = ctx.createMediaElementSource(baseRef.current);
-      src.connect(ctx.destination);
-    }
-    if (organRef.current) {
-      const src = ctx.createMediaElementSource(organRef.current);
-      src.connect(gain);
-    }
   }, []);
 
   // ── 3. Avvia canzone e broadcast su Supabase ─────────────────────────────
-  const startSong = useCallback(async () => {
-    if (!chart || gameState === 'playing') return;
-    setupAudio();
-    const ctx = audioCtxRef.current;
-    if (ctx.state === 'suspended') await ctx.resume();
+const startSong = useCallback(async () => {
+  if (!chart || gameState === 'playing') return;
+  setupAudio();
+  const ctx = audioCtxRef.current;
+  if (ctx.state === 'suspended') await ctx.resume();
 
-    // Azzera note
-    notesRef.current = chart.map((n, i) => ({ ...n, id: i, hit: false, missed: false }));
+  notesRef.current = chart.map((n, i) => ({ ...n, id: i, hit: false, missed: false }));
 
-    // Avvia entrambi gli audio
-    if (baseRef.current) {
-      baseRef.current.currentTime = 0;
-      await baseRef.current.play();
+  // Precarica entrambi e aspetta che siano pronti
+  const waitReady = (el) => new Promise(resolve => {
+    el.currentTime = 0;
+    if (el.readyState >= 3) { resolve(); return; }
+    el.addEventListener('canplaythrough', resolve, { once: true });
+    el.load();
+  });
+
+  await Promise.all([
+    waitReady(baseRef.current),
+    waitReady(organRef.current),
+if (!baseRef.current._connected) {
+  const src = audioCtxRef.current.createMediaElementSource(baseRef.current);
+  src.connect(audioCtxRef.current.destination);
+  baseRef.current._connected = true;
+}
+if (!organRef.current._connected) {
+  const src = audioCtxRef.current.createMediaElementSource(organRef.current);
+  src.connect(organGainRef.current);
+  organRef.current._connected = true;
+}
+  ]);
+
+  // Partenza simultanea perfetta
+  const serverNow = Date.now();
+  await Promise.all([
+    baseRef.current.play(),
+    organRef.current.play(),
+  ]);
+
+  startTimeRef.current = serverNow;
+  setGameState('playing');
+  setScore(0);
+  setCombo(0);
+
+  // Broadcast DOPO che audio è partito, con timestamp preciso
+  await channelRef.current?.send({
+    type: 'broadcast',
+    event: 'band_start',
+    payload: {
+      song: session?.song || 'deepdown',
+      chart: chart,
+      serverTime: serverNow,
     }
-    if (organRef.current) {
-      organRef.current.currentTime = 0;
-      await organRef.current.play();
-    }
+  });
 
-    startTimeRef.current = ctx.currentTime;
-    setGameState('playing');
-    setScore(0);
-    setCombo(0);
-
-    // Broadcast ai telefoni
-    await channelRef.current?.send({
-      type: 'broadcast',
-      event: 'band_start',
-      payload: {
-        song: session?.song || 'deepdown',
-        chart: chart,
-        serverTime: Date.now(),
-        audioCtxTime: ctx.currentTime,
-      }
-    });
-
-    startLoop();
-  }, [chart, gameState, setupAudio, session]);
+  startLoop();
+}, [chart, gameState, setupAudio, session, startLoop]);
 
   // ── 4. Game loop: disegna canvas + controlla miss ─────────────────────────
   const startLoop = useCallback(() => {
