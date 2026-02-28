@@ -2,338 +2,587 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 
 // ─── COSTANTI ────────────────────────────────────────────────────────────────
-const HIT_WINDOW   = 0.18;
-const GOOD_WINDOW  = 0.09;
-const PERF_WINDOW  = 0.045;
-const NOTE_LEAD    = 3.0;
-const COLORS       = ['#ff3b5c', '#00d4ff', '#39ff84'];
-const LANE_LABELS  = ['LANE 0', 'LANE 1', 'LANE 2'];
-const START_DELAY  = 4000; // 4 secondi totali di attesa prima che parta l'audio
-const DEFAULT_BPM  = 126;  // BPM di default se non specificato nel JSON (Deep Down è ~126)
+const PERF_WINDOW = 0.05;
+const GOOD_WINDOW = 0.10;
+const START_DELAY = 4000;
+const DEFAULT_BPM = 126;
 
-export default function BandMode({ session, pubCode, chart: chartProp }) {
-  const [chart, setChart]           = useState(chartProp || null);
-  const [gameState, setGameState]   = useState('waiting'); 
+// Colori per ogni strumento (stesso ordine dell'assignment)
+const INSTRUMENT_COLORS = {
+  keys:   '#00d4ff',
+  drums:  '#ff3b5c',
+  bass:   '#39ff84',
+  brass:  '#ffd100',
+  guitar: '#ff8c00',
+};
+
+const INSTRUMENT_ICONS = {
+  keys:   '🎹',
+  drums:  '🥁',
+  bass:   '🎸',
+  brass:  '🎺',
+  guitar: '🎸',
+};
+
+// ── Componente Spotlight (indicatore energia di un singolo strumentista) ──────
+function Spotlight({ player, instrument, color, icon, side }) {
+  const energyRef = useRef(0);
+  const canvasRef = useRef(null);
+  const animRef   = useRef(null);
+  const energyPropRef = useRef(player?.energy || 0);
+
+  // Aggiorna ref quando cambia prop
+  useEffect(() => {
+    energyPropRef.current = player?.energy || 0;
+  }, [player?.energy]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const DPR = window.devicePixelRatio || 1;
+    const W = canvas.offsetWidth;
+    const H = canvas.offsetHeight;
+    canvas.width  = W * DPR;
+    canvas.height = H * DPR;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(DPR, DPR);
+
+    let energy = 0;
+    let lastPerfect = 0;
+
+    function draw(ts) {
+      const target = energyPropRef.current;
+      // Decay naturale
+      energy += (target - energy) * 0.08;
+      if (energy < 0.01) energy = 0;
+      // Aggiorna anche il target verso 0 (decay)
+      energyPropRef.current = Math.max(0, energyPropRef.current - 0.008);
+
+      ctx.clearRect(0, 0, W, H);
+
+      const cx = W / 2;
+      const cy = H * 0.42;
+      const baseR = Math.min(W, H) * 0.22;
+
+      // Alone esterno pulsante
+      if (energy > 0.05) {
+        const glowR = baseR + energy * baseR * 1.2;
+        const grd = ctx.createRadialGradient(cx, cy, baseR * 0.5, cx, cy, glowR);
+        grd.addColorStop(0, color + Math.floor(energy * 180).toString(16).padStart(2,'0'));
+        grd.addColorStop(1, color + '00');
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.arc(cx, cy, glowR, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Cerchio principale
+      const alpha = 0.15 + energy * 0.7;
+      ctx.fillStyle = color + Math.floor(alpha * 255).toString(16).padStart(2,'0');
+      ctx.strokeStyle = color + Math.floor((0.4 + energy * 0.6) * 255).toString(16).padStart(2,'0');
+      ctx.lineWidth = 2 + energy * 4;
+      ctx.beginPath();
+      ctx.arc(cx, cy, baseR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Icona strumento
+      ctx.font = `${Math.floor(baseR * 0.9)}px serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.globalAlpha = 0.5 + energy * 0.5;
+      ctx.fillText(icon, cx, cy);
+      ctx.globalAlpha = 1;
+
+      // Barra energia verticale
+      const barW = 6;
+      const barH = H * 0.22;
+      const barX = side === 'left' ? W * 0.1 : W * 0.9 - barW;
+      const barY = H * 0.62;
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.beginPath(); ctx.roundRect(barX, barY, barW, barH, 3); ctx.fill();
+      const fillH = barH * energy;
+      if (fillH > 1) {
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 8;
+        ctx.beginPath(); ctx.roundRect(barX, barY + barH - fillH, barW, fillH, 3); ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+
+      animRef.current = requestAnimationFrame(draw);
+    }
+
+    animRef.current = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(animRef.current);
+  }, [color, icon, side]);
+
+  const nickname = player?.nickname || '---';
+  const score    = player?.score    || 0;
+  const combo    = player?.combo    || 0;
+
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      width: '100%',
+      height: '100%',
+      padding: '12px 8px',
+      gap: '6px',
+    }}>
+      {/* Canvas spotlight */}
+      <canvas ref={canvasRef} style={{ width: '100%', flex: '1 1 0', minHeight: 0 }} />
+
+      {/* Nome e strumento */}
+      <div style={{ textAlign: 'center', lineHeight: 1.2 }}>
+        <div style={{ fontSize: 'clamp(11px, 1.4vw, 18px)', fontWeight: 900, color: '#fff', textShadow: `0 0 12px ${color}` }}>
+          {nickname}
+        </div>
+        <div style={{ fontSize: 'clamp(9px, 1vw, 13px)', color: color, letterSpacing: '0.15em', marginTop: '2px' }}>
+          {instrument?.toUpperCase()}
+        </div>
+      </div>
+
+      {/* Score */}
+      <div style={{ fontSize: 'clamp(14px, 2vw, 28px)', fontWeight: 900, color, textShadow: `0 0 20px ${color}44` }}>
+        {score.toLocaleString()}
+      </div>
+
+      {/* Combo */}
+      {combo > 1 && (
+        <div style={{ fontSize: 'clamp(10px, 1.2vw, 16px)', fontWeight: 700, color: '#ffd100', textShadow: '0 0 10px #ffd10088' }}>
+          ×{combo} COMBO
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Componente Karaoke Centrale ───────────────────────────────────────────────
+function KaraokeDisplay({ lyrics, elapsed, songTitle, songArtist, gameState, countdown }) {
+  if (!lyrics || lyrics.length === 0) return null;
+
+  // Trova la riga attiva e la prossima
+  let activeLine = null;
+  let nextLine   = null;
+
+  for (let i = 0; i < lyrics.length; i++) {
+    const l = lyrics[i];
+    const end = l.time + (l.duration || 3);
+    if (elapsed >= l.time && elapsed < end) {
+      activeLine = l;
+      nextLine   = lyrics[i + 1] || null;
+      break;
+    }
+    if (elapsed < l.time) {
+      nextLine = l;
+      break;
+    }
+  }
+
+  // Progresso parola corrente (0-1)
+  const progress = activeLine
+    ? Math.min(1, (elapsed - activeLine.time) / (activeLine.duration || 3))
+    : 0;
+
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      width: '100%', height: '100%',
+      padding: '16px',
+      textAlign: 'center',
+    }}>
+      {/* Info canzone (sempre visibile sopra) */}
+      <div style={{ marginBottom: '8px' }}>
+        <div style={{ fontSize: 'clamp(10px, 1.1vw, 15px)', color: 'rgba(255,255,255,0.3)', letterSpacing: '0.3em' }}>
+          {songTitle} — {songArtist}
+        </div>
+      </div>
+
+      {gameState === 'countdown' && (
+        <div style={{ fontSize: 'clamp(80px, 14vw, 180px)', fontWeight: 900, color: '#fff', lineHeight: 1 }}>
+          {countdown}
+        </div>
+      )}
+
+      {gameState === 'playing' && (
+        <>
+          {/* Riga attiva con fill progress */}
+          <div style={{ position: 'relative', display: 'inline-block', marginBottom: '12px' }}>
+            {/* Testo base (grigio) */}
+            <div style={{
+              fontSize: 'clamp(28px, 5vw, 72px)',
+              fontWeight: 900,
+              color: 'rgba(255,255,255,0.18)',
+              letterSpacing: '0.04em',
+              lineHeight: 1.15,
+              fontFamily: "'JetBrains Mono', monospace",
+            }}>
+              {activeLine?.text || '♪'}
+            </div>
+            {/* Overlay fill (bianco brillante) */}
+            {activeLine && (
+              <div style={{
+                position: 'absolute', top: 0, left: 0,
+                overflow: 'hidden',
+                width: `${progress * 100}%`,
+                whiteSpace: 'nowrap',
+              }}>
+                <div style={{
+                  fontSize: 'clamp(28px, 5vw, 72px)',
+                  fontWeight: 900,
+                  color: '#fff',
+                  letterSpacing: '0.04em',
+                  lineHeight: 1.15,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  textShadow: '0 0 30px rgba(255,255,255,0.8), 0 0 60px rgba(255,255,255,0.4)',
+                }}>
+                  {activeLine.text}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Prossima riga (più piccola, sfumata) */}
+          {nextLine && (
+            <div style={{
+              fontSize: 'clamp(16px, 2.5vw, 36px)',
+              fontWeight: 700,
+              color: 'rgba(255,255,255,0.25)',
+              letterSpacing: '0.04em',
+              fontFamily: "'JetBrains Mono', monospace",
+            }}>
+              {nextLine.text}
+            </div>
+          )}
+
+          {/* Pausa musicale */}
+          {!activeLine && !nextLine && (
+            <div style={{ fontSize: 'clamp(20px, 3vw, 48px)', color: 'rgba(255,255,255,0.1)' }}>♪ ♫ ♪</div>
+          )}
+        </>
+      )}
+
+      {gameState === 'waiting' && (
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px',
+        }}>
+          <div style={{ fontSize: 'clamp(32px, 6vw, 80px)', fontWeight: 900, color: '#ffd100', textShadow: '0 0 40px rgba(255,209,0,0.6)' }}>
+            🎤 BAND TIME
+          </div>
+          <div style={{ fontSize: 'clamp(12px, 1.6vw, 22px)', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.25em' }}>
+            IN ATTESA DEL SEGNALE DI START
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Componente Principale BandMode (TV Display) ───────────────────────────────
+export default function BandMode({ session, pubCode }) {
+  const [gameState, setGameState]   = useState('waiting');
   const [countdown, setCountdown]   = useState(null);
-  const [score, setScore]           = useState(0);
-  const [combo, setCombo]           = useState(0);
-  const [hitFeedback, setHitFeedback] = useState([]);
-  const [players, setPlayers]       = useState({});
-  const [organLevel, setOrganLevel] = useState(0);
+  const [players, setPlayers]       = useState({});       // { nickname: { score, combo, energy, instrument } }
+  const [assignments, setAssignments] = useState([]);     // [{ nickname, instrument, userId }]
+  const [lyrics, setLyrics]         = useState([]);
+  const [elapsed, setElapsed]       = useState(0);
   const [connected, setConnected]   = useState(false);
+  const [songMeta, setSongMeta]     = useState({ title: '---', artist: '---' });
 
-  const baseRef    = useRef(null);
-  const organRef   = useRef(null);
-  const canvasRef  = useRef(null);
-  const startTimeRef = useRef(null);
-  const audioCtxRef  = useRef(null);
-  const notesRef     = useRef([]);
-  const animRef      = useRef(null);
-  const channelRef   = useRef(null);
-  const organGainRef = useRef(null);
+  const channelRef    = useRef(null);
+  const audioCtxRef   = useRef(null);
+  const baseRef       = useRef(null);
+  const startTimeRef  = useRef(null);
+  const animRef       = useRef(null);
   const startTimerRef = useRef(null);
-  const gameStateRef = useRef('waiting');
+  const gameStateRef  = useRef('waiting');
+  const playersRef    = useRef({});
 
   useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
+  useEffect(() => { playersRef.current = players; },    [players]);
 
-  // 1. Carica chart
+  const song = session?.song || 'deepdown';
+
+  // ── Carica manifest e lyrics ──────────────────────────────────────────────
   useEffect(() => {
-    if (chartProp) { setChart(chartProp); return; }
-    const song = session?.song || 'deepdown';
-    fetch(`/audio/${song}/chart_organo.json`)
+    fetch(`/audio/${song}/manifest.json`)
       .then(r => r.json())
-      .then(data => setChart(data))
-      .catch(() => console.warn('Chart non trovata'));
-  }, [session, chartProp]);
+      .then(m => setSongMeta({ title: m.title || song, artist: m.artist || '' }))
+      .catch(() => {});
 
-  // 2. Setup Audio
+    fetch(`/audio/${song}/lyrics.json`)
+      .then(r => r.json())
+      .then(setLyrics)
+      .catch(() => setLyrics([]));
+  }, [song]);
+
+  // ── Setup Audio ───────────────────────────────────────────────────────────
   const setupAudio = useCallback(() => {
     if (audioCtxRef.current) return;
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     audioCtxRef.current = ctx;
-    const gain = ctx.createGain();
-    gain.gain.value = 0; 
-    gain.connect(ctx.destination);
-    organGainRef.current = gain;
   }, []);
 
-  // ── FUNZIONE PER I CLICK DEL METRONOMO ──
   const playClick = (ctx, time, isHigh) => {
     const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    
-    // Frequenza: 1000Hz (acuto) per l'ultimo beat, 600Hz (grave) per gli altri
-    osc.frequency.value = isHigh ? 1200 : 800; 
-    
-    // Suono breve e percussivo
-    gain.gain.setValueAtTime(0.3, time);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
-    
-    osc.start(time);
-    osc.stop(time + 0.15);
+    const g   = ctx.createGain();
+    osc.connect(g); g.connect(ctx.destination);
+    osc.frequency.value = isHigh ? 1200 : 800;
+    g.gain.setValueAtTime(0.3, time);
+    g.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+    osc.start(time); osc.stop(time + 0.15);
   };
 
-  // 3. Start Sequence
-  const startSequence = useCallback(async () => {
-    if (!chart || gameStateRef.current !== 'waiting') return;
-    
+  // ── Loop elapsed ─────────────────────────────────────────────────────────
+  const startElapsedLoop = useCallback(() => {
+    function tick() {
+      if (!audioCtxRef.current || startTimeRef.current === null) {
+        animRef.current = requestAnimationFrame(tick);
+        return;
+      }
+      setElapsed(audioCtxRef.current.currentTime - startTimeRef.current);
+      animRef.current = requestAnimationFrame(tick);
+    }
+    animRef.current = requestAnimationFrame(tick);
+  }, []);
+
+  // ── Start Sequence (ricevuta da band_setup) ───────────────────────────────
+  const startSequence = useCallback(async (assignmentsData) => {
+    if (gameStateRef.current !== 'waiting') return;
     setupAudio();
     const ctx = audioCtxRef.current;
     if (ctx.state === 'suspended') await ctx.resume();
 
-    notesRef.current = chart.map((n, i) => ({ ...n, id: i, hit: false, missed: false }));
-
-    const waitReady = (el) => new Promise(resolve => {
-      el.currentTime = 0;
-      if (el.readyState >= 3) { resolve(); return; }
-      el.addEventListener('canplaythrough', resolve, { once: true });
-      el.load();
-    });
-
-    await Promise.all([waitReady(baseRef.current), waitReady(organRef.current)]);
-
-    // Connessione audio
-    if (!baseRef.current._connected) {
-      const src = ctx.createMediaElementSource(baseRef.current);
-      src.connect(ctx.destination);
-      baseRef.current._connected = true;
-    }
-    if (!organRef.current._connected) {
-      const src = ctx.createMediaElementSource(organRef.current);
-      src.connect(organGainRef.current);
-      organRef.current._connected = true;
-    }
-
-    // ── CALCOLO E PROGRAMMAZIONE CLICK A TEMPO ──
-    const bpm = chart.bpm || DEFAULT_BPM; 
-    const beatDuration = 60 / bpm; // Durata di un battito in secondi
+    const bpm = DEFAULT_BPM;
+    const beatDuration = 60 / bpm;
     const now = ctx.currentTime;
-    const musicStartTime = now + (START_DELAY / 1000); // Quando partirà la musica (tra 4 sec)
+    const musicStartTime = now + START_DELAY / 1000;
 
-    // Scheduliamo 4 click ESATTAMENTE prima che parta la musica
-    // Click 1: -4 beat
-    // Click 2: -3 beat
-    // Click 3: -2 beat
-    // Click 4: -1 beat (Tono alto "GO")
     for (let i = 0; i < 4; i++) {
-        const clickTime = musicStartTime - ((4 - i) * beatDuration);
-        // Suoniamo il click solo se il tempo calcolato è nel futuro (per sicurezza)
-        if (clickTime > now) {
-            playClick(ctx, clickTime, i === 3); // L'ultimo (i=3) è acuto
-        }
+      const clickTime = musicStartTime - (4 - i) * beatDuration;
+      if (clickTime > now) playClick(ctx, clickTime, i === 3);
     }
-    // ──────────────────────────────────────────────
 
-    // Invio segnale ai telefoni (Loro non sentono i click, aspettano solo il via)
-    await channelRef.current?.send({
-      type: 'broadcast',
-      event: 'band_start',
-      payload: {
-        song: session?.song || 'deepdown',
-        startDelay: START_DELAY 
+    // Prepara audio base
+    if (baseRef.current) {
+      baseRef.current.currentTime = 0;
+      if (!baseRef.current._connected) {
+        const src = ctx.createMediaElementSource(baseRef.current);
+        src.connect(ctx.destination);
+        baseRef.current._connected = true;
       }
-    });
+    }
 
     setGameState('countdown');
     setCountdown(4);
-    
     let count = 4;
-    const interval = setInterval(() => {
+    const iv = setInterval(() => {
       count--;
-      if (count > 0) {
-        setCountdown(count);
-      } else {
-        clearInterval(interval);
-        setCountdown("GO!");
-      }
+      if (count > 0) setCountdown(count);
+      else { clearInterval(iv); setCountdown('GO!'); }
     }, 1000);
 
-    // Timer per far partire la musica
     startTimerRef.current = setTimeout(async () => {
-      if(baseRef.current) baseRef.current.volume = 0.8;
-      
-      await Promise.all([
-        baseRef.current.play(),
-        organRef.current.play(),
-      ]);
+      if (baseRef.current) {
+        baseRef.current.volume = 0.85;
+        baseRef.current.play().catch(() => {});
+      }
       startTimeRef.current = ctx.currentTime;
       setGameState('playing');
-      setScore(0);
-      setCombo(0);
       setCountdown(null);
-      startLoop();
+      startElapsedLoop();
     }, START_DELAY);
 
-  }, [chart, setupAudio, session]);
+  }, [setupAudio, startElapsedLoop]);
 
-  // 4. Game Loop
-  const startLoop = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width; canvas.height = rect.height;
-    const W = canvas.width, H = canvas.height;
-    const lW = W / 3, hitY = H * 0.82;
-
-    function draw() {
-      if (!audioCtxRef.current || startTimeRef.current === null) return;
-      const elapsed = audioCtxRef.current.currentTime - startTimeRef.current;
-      ctx.clearRect(0, 0, W, H);
-
-      // Sfondo
-      for (let l = 0; l < 3; l++) {
-        ctx.fillStyle = l % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent';
-        ctx.fillRect(l * lW, 0, lW, H);
-        ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(l * lW, 0); ctx.lineTo(l * lW, H); ctx.stroke();
-      }
-      
-      // Hit Line
-      ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 2; ctx.setLineDash([8, 4]);
-      ctx.beginPath(); ctx.moveTo(0, hitY); ctx.lineTo(W, hitY); ctx.stroke(); ctx.setLineDash([]);
-
-      // Note
-      for (const note of notesRef.current) {
-        if (note.hit || note.missed) continue;
-        const timeToHit = note.time - elapsed;
-        if (timeToHit > NOTE_LEAD + 0.2) continue;
-        if (timeToHit < -HIT_WINDOW - 0.1) { note.missed = true; setCombo(0); continue; }
-
-        const y = hitY - (timeToHit / NOTE_LEAD) * hitY;
-        const cx = note.lane * lW + lW / 2;
-        const col = COLORS[note.lane];
-
-        ctx.shadowColor = col; ctx.shadowBlur = 18; ctx.fillStyle = col;
-        ctx.beginPath(); ctx.moveTo(cx, y - 14); ctx.lineTo(cx + 11, y); ctx.lineTo(cx, y + 14); ctx.lineTo(cx - 11, y);
-        ctx.closePath(); ctx.fill(); ctx.shadowBlur = 0;
-      }
-      
-      // Labels
-      for (let l = 0; l < 3; l++) {
-        ctx.fillStyle = COLORS[l] + '88'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
-        ctx.fillText(LANE_LABELS[l], l * lW + lW / 2, H - 8);
-      }
-      animRef.current = requestAnimationFrame(draw);
-    }
-    animRef.current = requestAnimationFrame(draw);
-  }, []);
-
-  // 5. Supabase Events
+  // ── Supabase ──────────────────────────────────────────────────────────────
   useEffect(() => {
-    const channel = supabase.channel(`band_game_${pubCode}`, { config: { broadcast: { self: false } } });
-    
+    const channel = supabase.channel(`band_game_${pubCode}`, {
+      config: { broadcast: { self: false } }
+    });
+
+    // Ricezione setup banda dalla dashboard
+    channel.on('broadcast', { event: 'band_setup' }, ({ payload }) => {
+      // payload = { song, assignments: [{ userId, nickname, instrument }], startDelay }
+      const ass = payload.assignments || [];
+      setAssignments(ass);
+
+      // Inizializza players
+      const init = {};
+      ass.forEach(a => {
+        init[a.nickname] = { score: 0, combo: 0, energy: 0, instrument: a.instrument };
+      });
+      setPlayers(init);
+      playersRef.current = init;
+    });
+
+    // START effettivo
+    channel.on('broadcast', { event: 'band_start' }, ({ payload }) => {
+      startSequence(payload.assignments || []);
+    });
+
+    // Hit dagli strumentisti
     channel.on('broadcast', { event: 'band_hit' }, ({ payload }) => {
       if (gameStateRef.current !== 'playing') return;
+      const { nickname, accuracy, points } = payload;
 
-      const { nickname, lane, accuracy, points } = payload;
-      
-      if (organGainRef.current) {
-        const gain = organGainRef.current.gain;
-        const now = audioCtxRef.current?.currentTime || 0;
-        gain.cancelScheduledValues(now);
-        gain.setValueAtTime(Math.min(1, gain.value + 0.35), now);
-        gain.exponentialRampToValueAtTime(0.01, now + 2.5);
-        setOrganLevel(v => Math.min(1, v + 0.35));
-      }
-
-      const text = accuracy < PERF_WINDOW ? '✨ PERFECT' : accuracy < GOOD_WINDOW ? '⚡ GOOD' : '✓ HIT';
-      const color = accuracy < PERF_WINDOW ? '#ffd100' : accuracy < GOOD_WINDOW ? '#39ff84' : '#00d4ff';
-      const feedId = Date.now() + Math.random();
-      
-      setHitFeedback(p => [...p.slice(-8), { id: feedId, text, lane, color, nickname }]);
-      setTimeout(() => setHitFeedback(p => p.filter(f => f.id !== feedId)), 900);
-      setScore(s => s + points); setCombo(c => c + 1);
-      setPlayers(p => { 
-        const pl = p[nickname] || { score: 0, combo: 0 }; 
-        return { ...p, [nickname]: { score: pl.score + points, combo: pl.combo + 1 } }; 
+      setPlayers(prev => {
+        const pl = prev[nickname] || { score: 0, combo: 0, energy: 0, instrument: '' };
+        return {
+          ...prev,
+          [nickname]: {
+            ...pl,
+            score:  pl.score + (points || 0),
+            combo:  pl.combo + 1,
+            // energy: picco massimo in base all'accuratezza
+            energy: Math.min(1, (pl.energy || 0) + (
+              accuracy < PERF_WINDOW ? 0.55 :
+              accuracy < GOOD_WINDOW ? 0.35 : 0.18
+            )),
+          }
+        };
       });
     });
 
+    // Miss
     channel.on('broadcast', { event: 'band_miss' }, ({ payload }) => {
       if (gameStateRef.current !== 'playing') return;
-      setPlayers(p => { 
-        const pl = p[payload.nickname] || { score: 0, combo: 0 }; 
-        return { ...p, [payload.nickname]: { ...pl, combo: 0 } }; 
+      const { nickname } = payload;
+      setPlayers(prev => {
+        const pl = prev[nickname];
+        if (!pl) return prev;
+        return { ...prev, [nickname]: { ...pl, combo: 0, energy: Math.max(0, pl.energy - 0.2) } };
       });
-      setCombo(0);
     });
 
-    channel.subscribe((status) => {
-      if (status === 'SUBSCRIBED') setConnected(true);
-      else setConnected(false);
-    });
-
+    channel.subscribe(status => setConnected(status === 'SUBSCRIBED'));
     channelRef.current = channel;
+
     return () => {
       supabase.removeChannel(channel);
+      cancelAnimationFrame(animRef.current);
+      clearTimeout(startTimerRef.current);
+      audioCtxRef.current?.close();
+      audioCtxRef.current = null;
     };
-  }, [pubCode]); 
+  }, [pubCode, startSequence]);
 
-  useEffect(() => {
-    return () => { 
-      cancelAnimationFrame(animRef.current); 
-      clearTimeout(startTimerRef.current); 
-      baseRef.current?.pause(); 
-      organRef.current?.pause(); 
-      audioCtxRef.current?.close(); 
-    };
-  }, []);
+  // ── Layout: dividi gli strumentisti in left/right ─────────────────────────
+  const leftPlayers  = assignments.slice(0, Math.ceil(assignments.length / 2));
+  const rightPlayers = assignments.slice(Math.ceil(assignments.length / 2));
 
-  const song = session?.song || 'deepdown';
+  const totalScore = Object.values(players).reduce((s, p) => s + (p.score || 0), 0);
 
   return (
-    <div style={{ width: '100%', height: '100%', background: '#08080f', display: 'grid', gridTemplateColumns: '1fr 280px', fontFamily: "'JetBrains Mono', monospace", color: '#fff' }}>
-      <div style={{ position: 'relative', overflow: 'hidden', display: 'flex' }}>
-        <canvas ref={canvasRef} style={{ width: '100%', height: '100%' }} />
-        
-        {/* Indicatore Connessione */}
-        <div style={{ position: 'absolute', top: 10, left: 10, display: 'flex', alignItems: 'center', gap: 6, zIndex: 50, background: 'rgba(0,0,0,0.5)', padding: '4px 8px', borderRadius: 4 }}>
-          <div style={{ width: 8, height: 8, borderRadius: '50%', background: connected ? '#39ff84' : '#ff3b5c' }} />
-          <span style={{ fontSize: 10, color: 'white' }}>{connected ? 'ONLINE' : 'OFFLINE'}</span>
-        </div>
+    <div style={{
+      width: '100%', height: '100%',
+      background: '#06060e',
+      display: 'grid',
+      gridTemplateColumns: leftPlayers.length > 0 ? '18% 1fr 18%' : '0 1fr 0',
+      gridTemplateRows: '1fr auto',
+      fontFamily: "'JetBrains Mono', monospace",
+      color: '#fff',
+      overflow: 'hidden',
+    }}>
 
-        {hitFeedback.map(f => (
-          <div key={f.id} style={{ position: 'absolute', left: `${f.lane * 33.3 + 16.6}%`, top: '70%', transform: 'translateX(-50%)', color: f.color, fontSize: '18px', fontWeight: 900, textShadow: `0 0 20px ${f.color}`, animation: 'hitPop 0.9s ease forwards', pointerEvents: 'none', textAlign: 'center', zIndex: 10 }}>
-            {f.text}<div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontWeight: 400 }}>{f.nickname}</div>
+      {/* ── COLONNA SINISTRA: strumentisti ─────────────────────────────── */}
+      <div style={{
+        display: 'flex', flexDirection: 'column',
+        borderRight: leftPlayers.length > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+        background: 'rgba(0,0,0,0.3)',
+        overflow: 'hidden',
+      }}>
+        {leftPlayers.map(a => (
+          <div key={a.nickname} style={{ flex: 1, borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+            <Spotlight
+              player={players[a.nickname]}
+              instrument={INSTRUMENT_ICONS[a.instrument] ? a.instrument : a.instrument}
+              color={INSTRUMENT_COLORS[a.instrument] || '#ffffff'}
+              icon={INSTRUMENT_ICONS[a.instrument] || '🎵'}
+              side="left"
+            />
           </div>
         ))}
-        {gameState === 'countdown' && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)', zIndex: 30 }}>
-            <div style={{ fontSize: '120px', fontWeight: 900, color: '#fff', animation: 'ping 1s infinite' }}>{countdown}</div>
+      </div>
+
+      {/* ── CENTRO: Karaoke ────────────────────────────────────────────── */}
+      <div style={{ position: 'relative', overflow: 'hidden' }}>
+        {/* Sfondo sfumato animato */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          background: 'radial-gradient(ellipse at 50% 60%, rgba(255,255,255,0.03) 0%, transparent 70%)',
+          pointerEvents: 'none',
+        }} />
+
+        {/* Score totale banda (piccolo, in alto) */}
+        {gameState === 'playing' && totalScore > 0 && (
+          <div style={{
+            position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
+            fontSize: 'clamp(10px, 1.2vw, 16px)', color: 'rgba(255,209,0,0.6)',
+            fontWeight: 900, letterSpacing: '0.2em',
+            zIndex: 5,
+          }}>
+            BANDA: {totalScore.toLocaleString()}
           </div>
         )}
-        {gameState === 'waiting' && chart && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.75)', zIndex: 20 }}>
-            <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.4)', marginBottom: '16px', letterSpacing: '0.3em' }}>{chart.length} NOTE CARICATE</div>
-            <button onClick={startSequence} disabled={!connected} style={{ padding: '18px 48px', fontSize: '22px', fontWeight: 900, background: connected ? '#ffd100' : '#555', color: '#000', border: 'none', borderRadius: '12px', cursor: connected ? 'pointer' : 'not-allowed', boxShadow: '0 0 40px rgba(255,209,0,0.5)' }}>
-              {connected ? '▶ START BAND' : 'CONNETTO...'}
-            </button>
+
+        <KaraokeDisplay
+          lyrics={lyrics}
+          elapsed={elapsed}
+          songTitle={songMeta.title}
+          songArtist={songMeta.artist}
+          gameState={gameState}
+          countdown={countdown}
+        />
+
+        {/* Hit feedback in overlay (angolo basso centro) */}
+        <div style={{ position: 'absolute', bottom: 24, left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: '16px', pointerEvents: 'none', zIndex: 10 }}>
+          {/* I feedback arrivano via setPlayers, il glow nei Spotlight li comunica */}
+        </div>
+      </div>
+
+      {/* ── COLONNA DESTRA: strumentisti ───────────────────────────────── */}
+      <div style={{
+        display: 'flex', flexDirection: 'column',
+        borderLeft: rightPlayers.length > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+        background: 'rgba(0,0,0,0.3)',
+        overflow: 'hidden',
+      }}>
+        {rightPlayers.map(a => (
+          <div key={a.nickname} style={{ flex: 1, borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+            <Spotlight
+              player={players[a.nickname]}
+              instrument={a.instrument}
+              color={INSTRUMENT_COLORS[a.instrument] || '#ffffff'}
+              icon={INSTRUMENT_ICONS[a.instrument] || '🎵'}
+              side="right"
+            />
           </div>
-        )}
+        ))}
       </div>
-      <div style={{ background: '#0d0d18', borderLeft: '1px solid rgba(255,255,255,0.07)', padding: '24px 16px', display: 'flex', flexDirection: 'column', gap: '24px', zIndex: 5 }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', letterSpacing: '0.3em' }}>SCORE</div>
-          <div style={{ fontSize: '42px', fontWeight: 900, color: '#ffd100', textShadow: '0 0 20px rgba(255,209,0,0.5)' }}>{score.toLocaleString()}</div>
-          {combo > 1 && <div style={{ fontSize: '13px', color: '#39ff84', fontWeight: 700 }}>x{combo} COMBO</div>}
+
+      {/* ── FOOTER: barra di stato ─────────────────────────────────────── */}
+      <div style={{
+        gridColumn: '1 / -1',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '6px 20px',
+        background: '#0a0a14',
+        borderTop: '1px solid rgba(255,255,255,0.05)',
+        fontSize: 'clamp(9px, 0.9vw, 12px)',
+        color: 'rgba(255,255,255,0.25)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ width: 7, height: 7, borderRadius: '50%', background: connected ? '#39ff84' : '#ff3b5c' }} />
+          {connected ? 'CONNESSO' : 'OFFLINE'}
         </div>
-        <div><div style={{ fontSize: '10px', color: '#00d4ff', letterSpacing: '0.3em', marginBottom: '8px' }}>ORGANO</div><div style={{ height: '8px', background: 'rgba(255,255,255,0.08)', borderRadius: '4px', overflow: 'hidden' }}><div style={{ height: '100%', width: `${organLevel * 100}%`, background: 'linear-gradient(to right, #00d4ff, #39ff84)', transition: 'width 0.1s' }} /></div></div>
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', letterSpacing: '0.3em', marginBottom: '12px' }}>GIOCATORI</div>
-          {Object.entries(players).sort(([,a],[,b]) => b.score - a.score).map(([nick, p]) => (
-            <div key={nick} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 12px', marginBottom: '6px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
-              <div><div style={{ fontSize: '13px', fontWeight: 700 }}>{nick}</div>{p.combo > 1 && <div style={{ fontSize: '10px', color: '#39ff84' }}>x{p.combo}</div>}</div>
-              <div style={{ fontSize: '15px', fontWeight: 900, color: '#ffd100' }}>{p.score}</div>
-            </div>
-          ))}
-        </div>
+        <div>{songMeta.title} — {songMeta.artist}</div>
+        <div>{assignments.length > 0 ? `${assignments.length} MUSICISTI` : 'IN ATTESA SETUP'}</div>
       </div>
+
       <audio ref={baseRef} src={`/audio/${song}/base.mp3`} preload="auto" crossOrigin="anonymous" />
-      <audio ref={organRef} src={`/audio/${song}/organo.mp3`} preload="auto" crossOrigin="anonymous" />
-      <style>{`@keyframes hitPop { 0% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.2); } 100% { opacity: 0; transform: translateX(-50%) translateY(-60px) scale(0.8); } } @keyframes ping { 0% { transform: scale(0.8); opacity: 0.5; } 100% { transform: scale(1.5); opacity: 0; } }`}</style>
     </div>
   );
 }

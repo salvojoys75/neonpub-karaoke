@@ -19,10 +19,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/componen
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
-import api, { createPub, updateEventSettings, uploadLogo } from "@/lib/api";
+import api, { createPub, updateEventSettings, uploadLogo, startBandSession, stopBandSession } from "@/lib/api";
 import ArcadePanel from '@/components/ArcadePanel';
 import MillionairePanel from '@/components/MillionairePanel';
 import TermsModal from '@/components/TermsModal';
+import BandSetupPanel from '@/components/BandSetupPanel';
 
 // Componente bottone elimina domanda con doppio step — evita cancellazioni accidentali
 function DeleteQuizQuestionButton({ question, onConfirm }) {
@@ -60,6 +61,7 @@ export default function AdminDashboard() {
   const [appState, setAppState] = useState("loading");
   const [profile, setProfile] = useState(null);
   const [pubCode, setPubCode] = useState(localStorage.getItem("discojoys_pub_code"));
+const [showBandSetup, setShowBandSetup] = useState(false);
   
   // --- STATI DASHBOARD ---
   const [eventState, setEventState] = useState({ active_module: 'karaoke', active_module_id: null });
@@ -1883,13 +1885,41 @@ export default function AdminDashboard() {
                    </div>
                )}
 {libraryTab === 'arcade' && (
-  <ArcadePanel 
-    quizCatalog={quizCatalog}
-    onRefresh={loadData}
-    onArcadeEnd={() => {
-      supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'start_sottofondo' } }).catch(() => {});
-    }}
-  />
+  <div className="space-y-3">
+
+    {/* BAND MODE */}
+    <div className="bg-yellow-950/30 border border-yellow-500/20 rounded-xl p-3">
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-2">
+          <span className="text-xl">🎸</span>
+          <div>
+            <div className="text-sm font-black text-yellow-400">BAND MODE</div>
+            <div className="text-[10px] text-zinc-500 tracking-widest">KARAOKE + STRUMENTI</div>
+          </div>
+        </div>
+        <Button
+          size="sm"
+          onClick={() => { loadOnlineParticipants(); setShowBandSetup(true); }}
+          className="bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/30 h-8 px-3 text-xs font-bold"
+        >
+          🎸 LANCIA
+        </Button>
+      </div>
+      <p className="text-[10px] text-zinc-600 leading-relaxed">
+        Chiama il cantante, assegna gli strumenti ai partecipanti e fai suonare la band.
+      </p>
+    </div>
+
+    {/* ARCADE (invariato) */}
+    <ArcadePanel
+      quizCatalog={quizCatalog}
+      onRefresh={loadData}
+      onArcadeEnd={() => {
+        supabase.channel('tv_ctrl').send({ type: 'broadcast', event: 'control', payload: { command: 'start_sottofondo' } }).catch(() => {});
+      }}
+    />
+
+  </div>
 )}
 {libraryTab === 'extraction' && (
                    <div className="space-y-4 pt-2">
@@ -2808,6 +2838,21 @@ export default function AdminDashboard() {
               </div>
           </DialogContent>
       </Dialog>
+    {/* BAND SETUP MODALE */}
+    {showBandSetup && (
+      <div
+        style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)',
+                 display:'flex', alignItems:'center', justifyContent:'center', zIndex:200 }}
+        onClick={e => { if (e.target === e.currentTarget) setShowBandSetup(false); }}
+      >
+        <BandSetupPanel
+          pubCode={pubCode}
+          songPool={songPool}
+          participants={onlineParticipants}
+          onClose={() => setShowBandSetup(false)}
+        />
+      </div>
+    )}
     </div>
   );
 }

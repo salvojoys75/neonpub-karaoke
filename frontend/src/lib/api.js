@@ -1193,6 +1193,66 @@ export const rejectSelfie = async (selfieId) => {
   return { data: 'ok' };
 };
 
+// ─── BAND MODE API ──────────────────────────────────────────────────────────
+
+export const startBandSession = async (songId, songTitle, assignments) => {
+  // assignments è un oggetto: { drums: 'uuid-partecipante', bass: 'uuid...', etc }
+  const event = await getAdminEvent();
+  
+  // Resetta altri moduli per sicurezza
+  await supabase.from('performances').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
+  await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
+  await supabase.from('arcade_games').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
+  await supabase.from('millionaire_games').update({ status: 'lost' }).eq('event_id', event.id).neq('status', 'lost');
+
+  // Aggiorna lo stato dell'evento per dire "Siamo in modalità Band"
+  // Salviamo le assegnazioni nel campo settings così il Display le può leggere se si ricarica
+  const currentSettings = event.settings || {};
+  
+  await supabase.from('events').update({ 
+    active_module: 'band',
+    settings: { 
+      ...currentSettings, 
+      band_session: { songId, songTitle, assignments, status: 'active' } 
+    }
+  }).eq('id', event.id);
+
+  // Invio segnale immediato a tutti (Telefoni e Display)
+  const channel = supabase.channel(`band_game_${event.code}`);
+  await channel.send({
+    type: 'broadcast',
+    event: 'band_start',
+    payload: {
+      song: songId, // es 'deepdown' (nome cartella)
+      songTitle: songTitle, // Titolo leggibile
+      assignments: assignments, // { drums: id_marco, bass: id_luca }
+      startDelay: 4000
+    }
+  });
+
+  return { success: true };
+};
+
+export const stopBandSession = async () => {
+  const event = await getAdminEvent();
+  
+  // Rimuoviamo la sessione band dai settings e torniamo al karaoke (o idle)
+  const currentSettings = event.settings || {};
+  const newSettings = { ...currentSettings };
+  delete newSettings.band_session;
+
+  await supabase.from('events').update({ 
+    active_module: 'karaoke', // O 'idle' se preferisci
+    settings: newSettings
+  }).eq('id', event.id);
+  
+  // Segnale di stop ai telefoni
+  const channel = supabase.channel(`band_game_${event.code}`);
+  await channel.send({ type: 'broadcast', event: 'band_stop', payload: {} });
+  
+  return { success: true };
+};
+
 
 export default {
     getDisplayData, sendReaction, getActiveArcadeGame, createPub, updateEventSettings, uploadLogo, getPub, joinPub, uploadAvatar, adminLogin, getMe,
@@ -1211,5 +1271,6 @@ export default {
     getSongCatalog, getSongCatalogMoods, getSongCatalogGenres, addSongToCatalog, updateSongInCatalog, deleteSongFromCatalog, importSongsToCatalog, addCatalogSongToPool, addCatalogCategoryToPool,
     createMillionaireGame, startMillionaireGame, answerMillionaire, retireMillionaire, useLifeline5050, useLifelinePass, startAudienceVote, submitAudienceVote, closeAudienceVote, getActiveMillionaireGame, endMillionaireGame,
     setQuizLobby,
-    submitSelfie, getPendingSelfies, approveSelfie, rejectSelfie
+    submitSelfie, getPendingSelfies, approveSelfie, rejectSelfie,
+    startBandSession, stopBandSession 
 };

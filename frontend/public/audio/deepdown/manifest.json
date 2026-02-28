@@ -1,0 +1,41 @@
+{
+  "id": "deepdown",
+  "title": "Deep Down",
+  "artist": "Milk & Sugar feat. Mary Pearce",
+  "bpm": 126,
+  "duration": 210,
+  "audio": {
+    "base": "base.mp3",
+    "vocals_guide": "vocals.mp3"
+  },
+  "lyrics": "lyrics.json",
+  "instruments": [
+    {
+      "id": "keys",
+      "label": "Tastiera",
+      "icon": "🎹",
+      "color": "#00d4ff",
+      "chart": "chart_keys.json",
+      "audio": "keys.mp3",
+      "lanes": ["Do", "Re", "Mi"]
+    },
+    {
+      "id": "drums",
+      "label": "Batteria",
+      "icon": "🥁",
+      "color": "#ff3b5c",
+      "chart": "chart_drums.json",
+      "audio": "drums.mp3",
+      "lanes": ["Cassa", "Rullante", "Piatto"]
+    },
+    {
+      "id": "bass",
+      "label": "Basso",
+      "icon": "🎸",
+      "color": "#39ff84",
+      "chart": "chart_bass.json",
+      "audio": "bass.mp3",
+      "lanes": ["L", "M", "H"]
+    }
+  ]
+}
