@@ -10,6 +10,7 @@ import KaraokePlayer from '@/components/KaraokePlayer';
 import FloatingReactions from '@/components/FloatingReactions';
 import ExtractionMode from '@/components/ExtractionMode';
 import MillionaireMode from '@/components/MillionaireMode';
+import BandMode from '@/components/BandMode';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SOUNDS — Web Audio API, nessun file esterno
@@ -1863,6 +1864,8 @@ export default function PubDisplay() {
     else if (isVoting)    Content = <VotingMode perf={perf} />;
     else if (isScore)     Content = <ScoreMode perf={perf} pubCode={pubCode} />;
     else if (isKaraoke)   Content = <KaraokeMode perf={perf} isMuted={isMuted} />;
+else if (data.active_band?.status === 'active')
+  Content = <BandMode session={data.active_band} pubCode={pubCode} />;
     else Content = <IdleMode pub={pub} />;
 
     return (
