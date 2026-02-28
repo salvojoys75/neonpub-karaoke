@@ -2,6 +2,11 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 
 // ── COSTANTI ─────────────────────────────────────────────────────────────────
+// ⚡ COMPENSAZIONE LATENZA: 
+// Sottraiamo ~350ms al countdown del telefono per compensare il tempo 
+// che il segnale "Start" impiega a viaggiare via internet.
+const OFFSET_LATENZA = 350; 
+
 const HIT_WINDOW  = 0.18;
 const GOOD_WINDOW = 0.09;
 const PERF_WINDOW = 0.045;
@@ -48,24 +53,29 @@ export default function BandModeClient({ pubCode, participant }) {
       const elapsed = getElapsed();
       ctx.clearRect(0, 0, cW, cH);
 
+      // FASE COUNTDOWN (Tempo Negativo)
       if (elapsed < 0) {
-        // Countdown
         const sec = Math.ceil(Math.abs(elapsed));
+        // Se siamo molto vicini allo zero (causa compensazione), mostriamo GO!
         const text = sec > 0 ? sec : "GO!";
+        
         for (let l = 0; l < 3; l++) {
           ctx.fillStyle = l % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent';
           ctx.fillRect(l * lW, 0, lW, cH);
           if (l > 0) { ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.beginPath(); ctx.moveTo(l*lW,0); ctx.lineTo(l*lW,cH); ctx.stroke(); }
         }
+        
         ctx.fillStyle = "white"; 
         ctx.font = "bold 80px monospace"; 
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(text, cW / 2, cH / 2);
+        
         animRef.current = requestAnimationFrame(draw);
         return;
       }
 
+      // FASE GIOCO
       for (let l = 0; l < 3; l++) {
         ctx.fillStyle = l % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent';
         ctx.fillRect(l * lW, 0, lW, cH);
@@ -73,24 +83,29 @@ export default function BandModeClient({ pubCode, participant }) {
       ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1;
       for (let l = 1; l < 3; l++) { ctx.beginPath(); ctx.moveTo(l * lW, 0); ctx.lineTo(l * lW, cH); ctx.stroke(); }
       
+      // Hit Line
       ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
       ctx.beginPath(); ctx.moveTo(0, hitY); ctx.lineTo(cW, hitY); ctx.stroke(); ctx.setLineDash([]);
       
+      // Cerchi tasti
       for (let l = 0; l < 3; l++) {
         const cx = l * lW + lW / 2;
         ctx.strokeStyle = COLORS[l] + '55'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(cx, hitY, 14, 0, Math.PI * 2); ctx.stroke();
       }
 
+      // Note
       for (const note of notesRef.current) {
         if (note.hit || note.missed) continue;
         const tti = note.time - elapsed;
+        
         if (tti > NOTE_LEAD + 0.1) continue;
         if (tti < -HIT_WINDOW - 0.05) { note.missed = true; comboRef.current = 0; setCombo(0); continue; }
 
         const y = (1 - tti / NOTE_LEAD) * hitY;
         const cx = note.lane * lW + lW / 2;
         const col = COLORS[note.lane];
+
         ctx.save(); ctx.shadowColor = col; ctx.shadowBlur = 14; ctx.fillStyle = col;
         ctx.beginPath(); ctx.moveTo(cx, y - 11); ctx.lineTo(cx + 9, y); ctx.lineTo(cx, y + 11); ctx.lineTo(cx - 9, y);
         ctx.closePath(); ctx.fill(); ctx.restore();
@@ -103,7 +118,15 @@ export default function BandModeClient({ pubCode, participant }) {
   // ── Start Game Logic ──────────────────────────────────────────────────────
   const startGame = useCallback((chartData, delay) => {
     const receptionTime = Date.now();
-    startTimeRef.current = receptionTime + delay; 
+    
+    // QUI APPLICHIAMO LA CORREZIONE:
+    // Riduciamo il delay del valore di OFFSET_LATENZA (es. 350ms)
+    // Così il telefono parte leggermente "nel futuro" rispetto a quando ha ricevuto il messaggio,
+    // allineandosi con il PC che è già partito 350ms fa.
+    const adjustedStart = receptionTime + delay - OFFSET_LATENZA;
+    
+    startTimeRef.current = adjustedStart; 
+    
     notesRef.current = chartData.map((n, i) => ({ ...n, id: i, hit: false, missed: false }));
     scoreRef.current = 0; comboRef.current = 0; setScore(0); setCombo(0);
     setGameState('playing');
@@ -114,7 +137,8 @@ export default function BandModeClient({ pubCode, participant }) {
   const handleHit = useCallback(async (lane) => {
     if (gameState !== 'playing') return;
     const elapsed = getElapsed();
-    if (elapsed < 0) return; 
+    // Permetti hit anche leggermente prima dello zero (grace period)
+    if (elapsed < -0.5) return; 
 
     let best = null, bestDist = Infinity;
     for (const note of notesRef.current) {
