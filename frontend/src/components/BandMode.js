@@ -7,7 +7,7 @@ const GOOD_WINDOW = 0.10;
 const START_DELAY = 4000;
 const DEFAULT_BPM = 126;
 
-// Colori per ogni strumento (stesso ordine dell'assignment)
+// Colori e icone strumenti
 const INSTRUMENT_COLORS = {
   keys:   '#00d4ff',
   drums:  '#ff3b5c',
@@ -24,14 +24,24 @@ const INSTRUMENT_ICONS = {
   guitar: '🎸',
 };
 
-// ── Componente Spotlight (indicatore energia di un singolo strumentista) ──────
-function Spotlight({ player, instrument, color, icon, side }) {
-  const energyRef = useRef(0);
-  const canvasRef = useRef(null);
-  const animRef   = useRef(null);
-  const energyPropRef = useRef(player?.energy || 0);
+// Nome file audio per ogni strumento (nella cartella della canzone)
+const INSTRUMENT_AUDIO = {
+  keys:   'organo.mp3',
+  drums:  'drums.mp3',
+  bass:   'bass.mp3',
+  brass:  'brass.mp3',
+  guitar: 'guitar.mp3',
+};
 
-  // Aggiorna ref quando cambia prop
+// Quanto rimane alto il volume dopo un hit prima del fade (secondi)
+const HIT_SUSTAIN = 0.5;
+
+// ── Spotlight ─────────────────────────────────────────────────────────────────
+function Spotlight({ player, instrument, color, icon, side }) {
+  const canvasRef      = useRef(null);
+  const animRef        = useRef(null);
+  const energyPropRef  = useRef(0);
+
   useEffect(() => {
     energyPropRef.current = player?.energy || 0;
   }, [player?.energy]);
@@ -48,71 +58,53 @@ function Spotlight({ player, instrument, color, icon, side }) {
     ctx.scale(DPR, DPR);
 
     let energy = 0;
-    let lastPerfect = 0;
 
-    function draw(ts) {
+    function draw() {
       const target = energyPropRef.current;
-      // Decay naturale
       energy += (target - energy) * 0.08;
       if (energy < 0.01) energy = 0;
-      // Aggiorna anche il target verso 0 (decay)
       energyPropRef.current = Math.max(0, energyPropRef.current - 0.008);
 
       ctx.clearRect(0, 0, W, H);
-
-      const cx = W / 2;
-      const cy = H * 0.42;
+      const cx = W / 2, cy = H * 0.42;
       const baseR = Math.min(W, H) * 0.22;
 
-      // Alone esterno pulsante
       if (energy > 0.05) {
         const glowR = baseR + energy * baseR * 1.2;
         const grd = ctx.createRadialGradient(cx, cy, baseR * 0.5, cx, cy, glowR);
         grd.addColorStop(0, color + Math.floor(energy * 180).toString(16).padStart(2,'0'));
         grd.addColorStop(1, color + '00');
         ctx.fillStyle = grd;
-        ctx.beginPath();
-        ctx.arc(cx, cy, glowR, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(cx, cy, glowR, 0, Math.PI * 2); ctx.fill();
       }
 
-      // Cerchio principale
       const alpha = 0.15 + energy * 0.7;
-      ctx.fillStyle = color + Math.floor(alpha * 255).toString(16).padStart(2,'0');
+      ctx.fillStyle   = color + Math.floor(alpha * 255).toString(16).padStart(2,'0');
       ctx.strokeStyle = color + Math.floor((0.4 + energy * 0.6) * 255).toString(16).padStart(2,'0');
       ctx.lineWidth = 2 + energy * 4;
-      ctx.beginPath();
-      ctx.arc(cx, cy, baseR, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx, cy, baseR, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
 
-      // Icona strumento
       ctx.font = `${Math.floor(baseR * 0.9)}px serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.globalAlpha = 0.5 + energy * 0.5;
       ctx.fillText(icon, cx, cy);
       ctx.globalAlpha = 1;
 
-      // Barra energia verticale
-      const barW = 6;
-      const barH = H * 0.22;
+      // Barra energia
+      const barW = 6, barH = H * 0.22;
       const barX = side === 'left' ? W * 0.1 : W * 0.9 - barW;
       const barY = H * 0.62;
       ctx.fillStyle = 'rgba(255,255,255,0.06)';
       ctx.beginPath(); ctx.roundRect(barX, barY, barW, barH, 3); ctx.fill();
       const fillH = barH * energy;
       if (fillH > 1) {
-        ctx.fillStyle = color;
-        ctx.shadowColor = color;
-        ctx.shadowBlur = 8;
+        ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 8;
         ctx.beginPath(); ctx.roundRect(barX, barY + barH - fillH, barW, fillH, 3); ctx.fill();
         ctx.shadowBlur = 0;
       }
 
       animRef.current = requestAnimationFrame(draw);
     }
-
     animRef.current = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(animRef.current);
   }, [color, icon, side]);
@@ -122,175 +114,82 @@ function Spotlight({ player, instrument, color, icon, side }) {
   const combo    = player?.combo    || 0;
 
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      width: '100%',
-      height: '100%',
-      padding: '12px 8px',
-      gap: '6px',
-    }}>
-      {/* Canvas spotlight */}
-      <canvas ref={canvasRef} style={{ width: '100%', flex: '1 1 0', minHeight: 0 }} />
-
-      {/* Nome e strumento */}
-      <div style={{ textAlign: 'center', lineHeight: 1.2 }}>
-        <div style={{ fontSize: 'clamp(11px, 1.4vw, 18px)', fontWeight: 900, color: '#fff', textShadow: `0 0 12px ${color}` }}>
-          {nickname}
-        </div>
-        <div style={{ fontSize: 'clamp(9px, 1vw, 13px)', color: color, letterSpacing: '0.15em', marginTop: '2px' }}>
-          {instrument?.toUpperCase()}
-        </div>
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', width:'100%', height:'100%', padding:'12px 8px', gap:'6px' }}>
+      <canvas ref={canvasRef} style={{ width:'100%', flex:'1 1 0', minHeight:0 }} />
+      <div style={{ textAlign:'center', lineHeight:1.2 }}>
+        <div style={{ fontSize:'clamp(11px,1.4vw,18px)', fontWeight:900, color:'#fff', textShadow:`0 0 12px ${color}` }}>{nickname}</div>
+        <div style={{ fontSize:'clamp(9px,1vw,13px)', color, letterSpacing:'0.15em', marginTop:'2px' }}>{instrument?.toUpperCase()}</div>
       </div>
-
-      {/* Score */}
-      <div style={{ fontSize: 'clamp(14px, 2vw, 28px)', fontWeight: 900, color, textShadow: `0 0 20px ${color}44` }}>
-        {score.toLocaleString()}
-      </div>
-
-      {/* Combo */}
-      {combo > 1 && (
-        <div style={{ fontSize: 'clamp(10px, 1.2vw, 16px)', fontWeight: 700, color: '#ffd100', textShadow: '0 0 10px #ffd10088' }}>
-          ×{combo} COMBO
-        </div>
-      )}
+      <div style={{ fontSize:'clamp(14px,2vw,28px)', fontWeight:900, color, textShadow:`0 0 20px ${color}44` }}>{score.toLocaleString()}</div>
+      {combo > 1 && <div style={{ fontSize:'clamp(10px,1.2vw,16px)', fontWeight:700, color:'#ffd100', textShadow:'0 0 10px #ffd10088' }}>×{combo} COMBO</div>}
     </div>
   );
 }
 
-// ── Componente Karaoke Centrale ───────────────────────────────────────────────
+// ── Karaoke Display ───────────────────────────────────────────────────────────
 function KaraokeDisplay({ lyrics, elapsed, songTitle, songArtist, gameState, countdown }) {
-  if (!lyrics || lyrics.length === 0) return null;
-
-  // Trova la riga attiva e la prossima
-  let activeLine = null;
-  let nextLine   = null;
-
+  let activeLine = null, nextLine = null;
   for (let i = 0; i < lyrics.length; i++) {
     const l = lyrics[i];
     const end = l.time + (l.duration || 3);
-    if (elapsed >= l.time && elapsed < end) {
-      activeLine = l;
-      nextLine   = lyrics[i + 1] || null;
-      break;
-    }
-    if (elapsed < l.time) {
-      nextLine = l;
-      break;
-    }
+    if (elapsed >= l.time && elapsed < end) { activeLine = l; nextLine = lyrics[i+1] || null; break; }
+    if (elapsed < l.time) { nextLine = l; break; }
   }
-
-  // Progresso parola corrente (0-1)
-  const progress = activeLine
-    ? Math.min(1, (elapsed - activeLine.time) / (activeLine.duration || 3))
-    : 0;
+  const progress = activeLine ? Math.min(1, (elapsed - activeLine.time) / (activeLine.duration || 3)) : 0;
 
   return (
-    <div style={{
-      display: 'flex', flexDirection: 'column',
-      alignItems: 'center', justifyContent: 'center',
-      width: '100%', height: '100%',
-      padding: '16px',
-      textAlign: 'center',
-    }}>
-      {/* Info canzone (sempre visibile sopra) */}
-      <div style={{ marginBottom: '8px' }}>
-        <div style={{ fontSize: 'clamp(10px, 1.1vw, 15px)', color: 'rgba(255,255,255,0.3)', letterSpacing: '0.3em' }}>
-          {songTitle} — {songArtist}
-        </div>
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', width:'100%', height:'100%', padding:'16px', textAlign:'center' }}>
+      <div style={{ marginBottom:'8px', fontSize:'clamp(10px,1.1vw,15px)', color:'rgba(255,255,255,0.3)', letterSpacing:'0.3em' }}>
+        {songTitle} — {songArtist}
       </div>
 
       {gameState === 'countdown' && (
-        <div style={{ fontSize: 'clamp(80px, 14vw, 180px)', fontWeight: 900, color: '#fff', lineHeight: 1 }}>
-          {countdown}
-        </div>
+        <div style={{ fontSize:'clamp(80px,14vw,180px)', fontWeight:900, color:'#fff', lineHeight:1 }}>{countdown}</div>
       )}
 
       {gameState === 'playing' && (
         <>
-          {/* Riga attiva con fill progress */}
-          <div style={{ position: 'relative', display: 'inline-block', marginBottom: '12px' }}>
-            {/* Testo base (grigio) */}
-            <div style={{
-              fontSize: 'clamp(28px, 5vw, 72px)',
-              fontWeight: 900,
-              color: 'rgba(255,255,255,0.18)',
-              letterSpacing: '0.04em',
-              lineHeight: 1.15,
-              fontFamily: "'JetBrains Mono', monospace",
-            }}>
+          <div style={{ position:'relative', display:'inline-block', marginBottom:'12px' }}>
+            <div style={{ fontSize:'clamp(28px,5vw,72px)', fontWeight:900, color:'rgba(255,255,255,0.18)', letterSpacing:'0.04em', lineHeight:1.15, fontFamily:"'JetBrains Mono',monospace" }}>
               {activeLine?.text || '♪'}
             </div>
-            {/* Overlay fill (bianco brillante) */}
             {activeLine && (
-              <div style={{
-                position: 'absolute', top: 0, left: 0,
-                overflow: 'hidden',
-                width: `${progress * 100}%`,
-                whiteSpace: 'nowrap',
-              }}>
-                <div style={{
-                  fontSize: 'clamp(28px, 5vw, 72px)',
-                  fontWeight: 900,
-                  color: '#fff',
-                  letterSpacing: '0.04em',
-                  lineHeight: 1.15,
-                  fontFamily: "'JetBrains Mono', monospace",
-                  textShadow: '0 0 30px rgba(255,255,255,0.8), 0 0 60px rgba(255,255,255,0.4)',
-                }}>
+              <div style={{ position:'absolute', top:0, left:0, overflow:'hidden', width:`${progress*100}%`, whiteSpace:'nowrap' }}>
+                <div style={{ fontSize:'clamp(28px,5vw,72px)', fontWeight:900, color:'#fff', letterSpacing:'0.04em', lineHeight:1.15, fontFamily:"'JetBrains Mono',monospace", textShadow:'0 0 30px rgba(255,255,255,0.8), 0 0 60px rgba(255,255,255,0.4)' }}>
                   {activeLine.text}
                 </div>
               </div>
             )}
           </div>
-
-          {/* Prossima riga (più piccola, sfumata) */}
           {nextLine && (
-            <div style={{
-              fontSize: 'clamp(16px, 2.5vw, 36px)',
-              fontWeight: 700,
-              color: 'rgba(255,255,255,0.25)',
-              letterSpacing: '0.04em',
-              fontFamily: "'JetBrains Mono', monospace",
-            }}>
+            <div style={{ fontSize:'clamp(16px,2.5vw,36px)', fontWeight:700, color:'rgba(255,255,255,0.25)', letterSpacing:'0.04em', fontFamily:"'JetBrains Mono',monospace" }}>
               {nextLine.text}
             </div>
           )}
-
-          {/* Pausa musicale */}
-          {!activeLine && !nextLine && (
-            <div style={{ fontSize: 'clamp(20px, 3vw, 48px)', color: 'rgba(255,255,255,0.1)' }}>♪ ♫ ♪</div>
-          )}
+          {!activeLine && !nextLine && <div style={{ fontSize:'clamp(20px,3vw,48px)', color:'rgba(255,255,255,0.1)' }}>♪ ♫ ♪</div>}
         </>
       )}
 
       {gameState === 'waiting' && (
-        <div style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px',
-        }}>
-          <div style={{ fontSize: 'clamp(32px, 6vw, 80px)', fontWeight: 900, color: '#ffd100', textShadow: '0 0 40px rgba(255,209,0,0.6)' }}>
-            🎤 BAND TIME
-          </div>
-          <div style={{ fontSize: 'clamp(12px, 1.6vw, 22px)', color: 'rgba(255,255,255,0.4)', letterSpacing: '0.25em' }}>
-            IN ATTESA DEL SEGNALE DI START
-          </div>
+        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'16px' }}>
+          <div style={{ fontSize:'clamp(32px,6vw,80px)', fontWeight:900, color:'#ffd100', textShadow:'0 0 40px rgba(255,209,0,0.6)' }}>🎤 BAND TIME</div>
+          <div style={{ fontSize:'clamp(12px,1.6vw,22px)', color:'rgba(255,255,255,0.4)', letterSpacing:'0.25em' }}>IN ATTESA DEL SEGNALE DI START</div>
         </div>
       )}
     </div>
   );
 }
 
-// ── Componente Principale BandMode (TV Display) ───────────────────────────────
+// ── BandMode principale (TV) ──────────────────────────────────────────────────
 export default function BandMode({ session, pubCode }) {
-  const [gameState, setGameState]   = useState('waiting');
-  const [countdown, setCountdown]   = useState(null);
-  const [players, setPlayers]       = useState({});       // { nickname: { score, combo, energy, instrument } }
-  const [assignments, setAssignments] = useState([]);     // [{ nickname, instrument, userId }]
-  const [lyrics, setLyrics]         = useState([]);
-  const [elapsed, setElapsed]       = useState(0);
-  const [connected, setConnected]   = useState(false);
-  const [songMeta, setSongMeta]     = useState({ title: '---', artist: '---' });
+  const [gameState,   setGameState]   = useState('waiting');
+  const [countdown,   setCountdown]   = useState(null);
+  const [players,     setPlayers]     = useState({});
+  const [assignments, setAssignments] = useState([]);
+  const [lyrics,      setLyrics]      = useState([]);
+  const [elapsed,     setElapsed]     = useState(0);
+  const [connected,   setConnected]   = useState(false);
+  const [songMeta,    setSongMeta]    = useState({ title: '---', artist: '---' });
 
   const channelRef    = useRef(null);
   const audioCtxRef   = useRef(null);
@@ -301,8 +200,11 @@ export default function BandMode({ session, pubCode }) {
   const gameStateRef  = useRef('waiting');
   const playersRef    = useRef({});
 
+  // Mappa { instrument -> { gainNode, audioElement } } per gestire il volume
+  const instrGainsRef = useRef({});
+
   useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
-  useEffect(() => { playersRef.current = players; },    [players]);
+  useEffect(() => { playersRef.current = players; }, [players]);
 
   const song = session?.song || 'deepdown';
 
@@ -312,20 +214,69 @@ export default function BandMode({ session, pubCode }) {
       .then(r => r.json())
       .then(m => setSongMeta({ title: m.title || song, artist: m.artist || '' }))
       .catch(() => {});
-
     fetch(`/audio/${song}/lyrics.json`)
       .then(r => r.json())
       .then(setLyrics)
       .catch(() => setLyrics([]));
   }, [song]);
 
-  // ── Setup Audio ───────────────────────────────────────────────────────────
-  const setupAudio = useCallback(() => {
+  // ── Setup AudioContext e connetti tutti gli strumenti assegnati ───────────
+  const setupAudio = useCallback(async (ass) => {
     if (audioCtxRef.current) return;
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     audioCtxRef.current = ctx;
+    if (ctx.state === 'suspended') await ctx.resume();
+
+    // Connetti base.mp3
+    if (baseRef.current && !baseRef.current._connected) {
+      const src = ctx.createMediaElementSource(baseRef.current);
+      src.connect(ctx.destination);
+      baseRef.current._connected = true;
+    }
+
+    // Per ogni strumento assegnato: crea un <audio> + gainNode
+    // Il gain parte a 0 e si alza solo quando arriva un band_hit
+    ass.forEach(a => {
+      const audioFile = INSTRUMENT_AUDIO[a.instrument];
+      if (!audioFile || instrGainsRef.current[a.instrument]) return;
+
+      const el = document.createElement('audio');
+      el.src          = `/audio/${song}/${audioFile}`;
+      el.crossOrigin  = 'anonymous';
+      el.preload      = 'auto';
+      el.loop         = false;
+      document.body.appendChild(el);
+
+      const gain = ctx.createGain();
+      gain.gain.value = 0; // parte muto
+
+      const src = ctx.createMediaElementSource(el);
+      src.connect(gain);
+      gain.connect(ctx.destination);
+
+      instrGainsRef.current[a.instrument] = { gain, el };
+    });
+  }, [song]);
+
+  // ── Alza volume strumento al hit poi fade out ─────────────────────────────
+  const triggerInstrumentHit = useCallback((instrument, accuracy) => {
+    const ctx  = audioCtxRef.current;
+    const data = instrGainsRef.current[instrument];
+    if (!ctx || !data) return;
+
+    // Volume in base all'accuratezza
+    const vol = accuracy < PERF_WINDOW ? 1.0 : accuracy < GOOD_WINDOW ? 0.75 : 0.5;
+    const g   = data.gain.gain;
+    const now = ctx.currentTime;
+
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(vol, now);
+    // Mantieni il volume per HIT_SUSTAIN secondi poi fade a 0
+    g.setValueAtTime(vol, now + HIT_SUSTAIN);
+    g.exponentialRampToValueAtTime(0.001, now + HIT_SUSTAIN + 0.8);
   }, []);
 
+  // ── Metronomo ─────────────────────────────────────────────────────────────
   const playClick = (ctx, time, isHigh) => {
     const osc = ctx.createOscillator();
     const g   = ctx.createGain();
@@ -336,44 +287,30 @@ export default function BandMode({ session, pubCode }) {
     osc.start(time); osc.stop(time + 0.15);
   };
 
-  // ── Loop elapsed ─────────────────────────────────────────────────────────
+  // ── Loop elapsed per karaoke ──────────────────────────────────────────────
   const startElapsedLoop = useCallback(() => {
     function tick() {
-      if (!audioCtxRef.current || startTimeRef.current === null) {
-        animRef.current = requestAnimationFrame(tick);
-        return;
-      }
-      setElapsed(audioCtxRef.current.currentTime - startTimeRef.current);
+      if (audioCtxRef.current && startTimeRef.current !== null)
+        setElapsed(audioCtxRef.current.currentTime - startTimeRef.current);
       animRef.current = requestAnimationFrame(tick);
     }
     animRef.current = requestAnimationFrame(tick);
   }, []);
 
-  // ── Start Sequence (ricevuta da band_setup) ───────────────────────────────
-  const startSequence = useCallback(async (assignmentsData) => {
+  // ── Start sequence ────────────────────────────────────────────────────────
+  const startSequence = useCallback(async (ass) => {
     if (gameStateRef.current !== 'waiting') return;
-    setupAudio();
+    await setupAudio(ass);
     const ctx = audioCtxRef.current;
-    if (ctx.state === 'suspended') await ctx.resume();
 
-    const bpm = DEFAULT_BPM;
+    const bpm          = DEFAULT_BPM;
     const beatDuration = 60 / bpm;
-    const now = ctx.currentTime;
-    const musicStartTime = now + START_DELAY / 1000;
+    const now          = ctx.currentTime;
+    const musicStart   = now + START_DELAY / 1000;
 
     for (let i = 0; i < 4; i++) {
-      const clickTime = musicStartTime - (4 - i) * beatDuration;
-      if (clickTime > now) playClick(ctx, clickTime, i === 3);
-    }
-
-    // Prepara audio base
-    if (baseRef.current) {
-      baseRef.current.currentTime = 0;
-      if (!baseRef.current._connected) {
-        const src = ctx.createMediaElementSource(baseRef.current);
-        src.connect(ctx.destination);
-        baseRef.current._connected = true;
-      }
+      const t = musicStart - (4 - i) * beatDuration;
+      if (t > now) playClick(ctx, t, i === 3);
     }
 
     setGameState('countdown');
@@ -386,16 +323,22 @@ export default function BandMode({ session, pubCode }) {
     }, 1000);
 
     startTimerRef.current = setTimeout(async () => {
+      // Fai partire base.mp3 e tutti i file strumenti (muti — il gain li gestisce)
       if (baseRef.current) {
+        baseRef.current.currentTime = 0;
         baseRef.current.volume = 0.85;
         baseRef.current.play().catch(() => {});
       }
+      Object.values(instrGainsRef.current).forEach(({ el }) => {
+        el.currentTime = 0;
+        el.play().catch(() => {});
+      });
+
       startTimeRef.current = ctx.currentTime;
       setGameState('playing');
       setCountdown(null);
       startElapsedLoop();
     }, START_DELAY);
-
   }, [setupAudio, startElapsedLoop]);
 
   // ── Supabase ──────────────────────────────────────────────────────────────
@@ -404,57 +347,46 @@ export default function BandMode({ session, pubCode }) {
       config: { broadcast: { self: false } }
     });
 
-    // Ricezione setup banda dalla dashboard
     channel.on('broadcast', { event: 'band_setup' }, ({ payload }) => {
-      // payload = { song, assignments: [{ userId, nickname, instrument }], startDelay }
       const ass = payload.assignments || [];
       setAssignments(ass);
-
-      // Inizializza players
       const init = {};
-      ass.forEach(a => {
-        init[a.nickname] = { score: 0, combo: 0, energy: 0, instrument: a.instrument };
-      });
+      ass.forEach(a => { init[a.nickname] = { score:0, combo:0, energy:0, instrument:a.instrument }; });
       setPlayers(init);
       playersRef.current = init;
     });
 
-    // START effettivo
     channel.on('broadcast', { event: 'band_start' }, ({ payload }) => {
-      startSequence(payload.assignments || []);
+      const ass = payload.assignments || [];
+      startSequence(ass);
     });
 
-    // Hit dagli strumentisti
+    // Hit: alza il volume dello strumento + aggiorna spotlight
     channel.on('broadcast', { event: 'band_hit' }, ({ payload }) => {
       if (gameStateRef.current !== 'playing') return;
-      const { nickname, accuracy, points } = payload;
+      const { nickname, instrument, accuracy, points } = payload;
+
+      // ← QUI il suono esce dalle casse del PC
+      triggerInstrumentHit(instrument, accuracy);
 
       setPlayers(prev => {
-        const pl = prev[nickname] || { score: 0, combo: 0, energy: 0, instrument: '' };
-        return {
-          ...prev,
-          [nickname]: {
-            ...pl,
-            score:  pl.score + (points || 0),
-            combo:  pl.combo + 1,
-            // energy: picco massimo in base all'accuratezza
-            energy: Math.min(1, (pl.energy || 0) + (
-              accuracy < PERF_WINDOW ? 0.55 :
-              accuracy < GOOD_WINDOW ? 0.35 : 0.18
-            )),
-          }
-        };
+        const pl = prev[nickname] || { score:0, combo:0, energy:0, instrument:'' };
+        return { ...prev, [nickname]: {
+          ...pl,
+          score:  pl.score + (points || 0),
+          combo:  pl.combo + 1,
+          energy: Math.min(1, (pl.energy||0) + (accuracy < PERF_WINDOW ? 0.55 : accuracy < GOOD_WINDOW ? 0.35 : 0.18)),
+        }};
       });
     });
 
-    // Miss
     channel.on('broadcast', { event: 'band_miss' }, ({ payload }) => {
       if (gameStateRef.current !== 'playing') return;
       const { nickname } = payload;
       setPlayers(prev => {
         const pl = prev[nickname];
         if (!pl) return prev;
-        return { ...prev, [nickname]: { ...pl, combo: 0, energy: Math.max(0, pl.energy - 0.2) } };
+        return { ...prev, [nickname]: { ...pl, combo:0, energy: Math.max(0, pl.energy - 0.2) } };
       });
     });
 
@@ -465,117 +397,54 @@ export default function BandMode({ session, pubCode }) {
       supabase.removeChannel(channel);
       cancelAnimationFrame(animRef.current);
       clearTimeout(startTimerRef.current);
+      // Rimuovi elementi audio strumenti dal DOM
+      Object.values(instrGainsRef.current).forEach(({ el }) => el.remove());
+      instrGainsRef.current = {};
       audioCtxRef.current?.close();
       audioCtxRef.current = null;
     };
-  }, [pubCode, startSequence]);
+  }, [pubCode, startSequence, triggerInstrumentHit]);
 
-  // ── Layout: dividi gli strumentisti in left/right ─────────────────────────
   const leftPlayers  = assignments.slice(0, Math.ceil(assignments.length / 2));
   const rightPlayers = assignments.slice(Math.ceil(assignments.length / 2));
-
-  const totalScore = Object.values(players).reduce((s, p) => s + (p.score || 0), 0);
+  const totalScore   = Object.values(players).reduce((s, p) => s + (p.score||0), 0);
 
   return (
-    <div style={{
-      width: '100%', height: '100%',
-      background: '#06060e',
-      display: 'grid',
-      gridTemplateColumns: leftPlayers.length > 0 ? '18% 1fr 18%' : '0 1fr 0',
-      gridTemplateRows: '1fr auto',
-      fontFamily: "'JetBrains Mono', monospace",
-      color: '#fff',
-      overflow: 'hidden',
-    }}>
+    <div style={{ width:'100%', height:'100%', background:'#06060e', display:'grid', gridTemplateColumns: leftPlayers.length > 0 ? '18% 1fr 18%' : '0 1fr 0', gridTemplateRows:'1fr auto', fontFamily:"'JetBrains Mono',monospace", color:'#fff', overflow:'hidden' }}>
 
-      {/* ── COLONNA SINISTRA: strumentisti ─────────────────────────────── */}
-      <div style={{
-        display: 'flex', flexDirection: 'column',
-        borderRight: leftPlayers.length > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
-        background: 'rgba(0,0,0,0.3)',
-        overflow: 'hidden',
-      }}>
+      {/* Sinistra */}
+      <div style={{ display:'flex', flexDirection:'column', borderRight: leftPlayers.length > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none', background:'rgba(0,0,0,0.3)', overflow:'hidden' }}>
         {leftPlayers.map(a => (
-          <div key={a.nickname} style={{ flex: 1, borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-            <Spotlight
-              player={players[a.nickname]}
-              instrument={INSTRUMENT_ICONS[a.instrument] ? a.instrument : a.instrument}
-              color={INSTRUMENT_COLORS[a.instrument] || '#ffffff'}
-              icon={INSTRUMENT_ICONS[a.instrument] || '🎵'}
-              side="left"
-            />
+          <div key={a.nickname} style={{ flex:1, borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
+            <Spotlight player={players[a.nickname]} instrument={a.instrument} color={INSTRUMENT_COLORS[a.instrument]||'#fff'} icon={INSTRUMENT_ICONS[a.instrument]||'🎵'} side="left" />
           </div>
         ))}
       </div>
 
-      {/* ── CENTRO: Karaoke ────────────────────────────────────────────── */}
-      <div style={{ position: 'relative', overflow: 'hidden' }}>
-        {/* Sfondo sfumato animato */}
-        <div style={{
-          position: 'absolute', inset: 0,
-          background: 'radial-gradient(ellipse at 50% 60%, rgba(255,255,255,0.03) 0%, transparent 70%)',
-          pointerEvents: 'none',
-        }} />
-
-        {/* Score totale banda (piccolo, in alto) */}
+      {/* Centro — Karaoke */}
+      <div style={{ position:'relative', overflow:'hidden' }}>
+        <div style={{ position:'absolute', inset:0, background:'radial-gradient(ellipse at 50% 60%, rgba(255,255,255,0.03) 0%, transparent 70%)', pointerEvents:'none' }} />
         {gameState === 'playing' && totalScore > 0 && (
-          <div style={{
-            position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
-            fontSize: 'clamp(10px, 1.2vw, 16px)', color: 'rgba(255,209,0,0.6)',
-            fontWeight: 900, letterSpacing: '0.2em',
-            zIndex: 5,
-          }}>
+          <div style={{ position:'absolute', top:12, left:'50%', transform:'translateX(-50%)', fontSize:'clamp(10px,1.2vw,16px)', color:'rgba(255,209,0,0.6)', fontWeight:900, letterSpacing:'0.2em', zIndex:5 }}>
             BANDA: {totalScore.toLocaleString()}
           </div>
         )}
-
-        <KaraokeDisplay
-          lyrics={lyrics}
-          elapsed={elapsed}
-          songTitle={songMeta.title}
-          songArtist={songMeta.artist}
-          gameState={gameState}
-          countdown={countdown}
-        />
-
-        {/* Hit feedback in overlay (angolo basso centro) */}
-        <div style={{ position: 'absolute', bottom: 24, left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: '16px', pointerEvents: 'none', zIndex: 10 }}>
-          {/* I feedback arrivano via setPlayers, il glow nei Spotlight li comunica */}
-        </div>
+        <KaraokeDisplay lyrics={lyrics} elapsed={elapsed} songTitle={songMeta.title} songArtist={songMeta.artist} gameState={gameState} countdown={countdown} />
       </div>
 
-      {/* ── COLONNA DESTRA: strumentisti ───────────────────────────────── */}
-      <div style={{
-        display: 'flex', flexDirection: 'column',
-        borderLeft: rightPlayers.length > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
-        background: 'rgba(0,0,0,0.3)',
-        overflow: 'hidden',
-      }}>
+      {/* Destra */}
+      <div style={{ display:'flex', flexDirection:'column', borderLeft: rightPlayers.length > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none', background:'rgba(0,0,0,0.3)', overflow:'hidden' }}>
         {rightPlayers.map(a => (
-          <div key={a.nickname} style={{ flex: 1, borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-            <Spotlight
-              player={players[a.nickname]}
-              instrument={a.instrument}
-              color={INSTRUMENT_COLORS[a.instrument] || '#ffffff'}
-              icon={INSTRUMENT_ICONS[a.instrument] || '🎵'}
-              side="right"
-            />
+          <div key={a.nickname} style={{ flex:1, borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
+            <Spotlight player={players[a.nickname]} instrument={a.instrument} color={INSTRUMENT_COLORS[a.instrument]||'#fff'} icon={INSTRUMENT_ICONS[a.instrument]||'🎵'} side="right" />
           </div>
         ))}
       </div>
 
-      {/* ── FOOTER: barra di stato ─────────────────────────────────────── */}
-      <div style={{
-        gridColumn: '1 / -1',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '6px 20px',
-        background: '#0a0a14',
-        borderTop: '1px solid rgba(255,255,255,0.05)',
-        fontSize: 'clamp(9px, 0.9vw, 12px)',
-        color: 'rgba(255,255,255,0.25)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <div style={{ width: 7, height: 7, borderRadius: '50%', background: connected ? '#39ff84' : '#ff3b5c' }} />
+      {/* Footer */}
+      <div style={{ gridColumn:'1 / -1', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'6px 20px', background:'#0a0a14', borderTop:'1px solid rgba(255,255,255,0.05)', fontSize:'clamp(9px,0.9vw,12px)', color:'rgba(255,255,255,0.25)' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:'6px' }}>
+          <div style={{ width:7, height:7, borderRadius:'50%', background: connected ? '#39ff84' : '#ff3b5c' }} />
           {connected ? 'CONNESSO' : 'OFFLINE'}
         </div>
         <div>{songMeta.title} — {songMeta.artist}</div>
