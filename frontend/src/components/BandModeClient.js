@@ -1,10 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 
-// ── SYNC CONFIG ──
-const NETWORK_LATENCY_COMPENSATION = 250; 
-// ─────────────────
-
+// ── COSTANTI ─────────────────────────────────────────────────────────────────
 const HIT_WINDOW  = 0.18;
 const GOOD_WINDOW = 0.09;
 const PERF_WINDOW = 0.045;
@@ -13,7 +10,7 @@ const COLORS      = ['#ff3b5c', '#00d4ff', '#39ff84'];
 const POINTS      = { perfect: 100, good: 60, hit: 30 };
 
 export default function BandModeClient({ pubCode, participant }) {
-  const [gameState, setGameState] = useState('waiting'); // waiting | playing
+  const [gameState, setGameState] = useState('waiting'); // waiting | loading | playing
   const [score, setScore]         = useState(0);
   const [combo, setCombo]         = useState(0);
   const [feedback, setFeedback]   = useState(null);
@@ -50,19 +47,18 @@ export default function BandModeClient({ pubCode, participant }) {
       const elapsed = getElapsed();
       ctx.clearRect(0, 0, cW, cH);
 
-      // ── FASE COUNTDOWN (Tempo Negativo) ──
+      // FASE COUNTDOWN (Tempo Negativo)
       if (elapsed < 0) {
         const sec = Math.ceil(Math.abs(elapsed));
         const text = sec > 0 ? sec : "GO!";
         
-        // Disegna sfondo statico
+        // Sfondo statico
         for (let l = 0; l < 3; l++) {
           ctx.fillStyle = l % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent';
           ctx.fillRect(l * lW, 0, lW, cH);
           if (l > 0) { ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.beginPath(); ctx.moveTo(l*lW,0); ctx.lineTo(l*lW,cH); ctx.stroke(); }
         }
         
-        // Disegna il numero direttamente (senza usare useState per evitare glitch)
         ctx.fillStyle = "white"; 
         ctx.font = "bold 80px monospace"; 
         ctx.textAlign = "center";
@@ -73,8 +69,7 @@ export default function BandModeClient({ pubCode, participant }) {
         return;
       }
 
-      // ── FASE GIOCO ──
-      // Sfondo
+      // FASE GIOCO
       for (let l = 0; l < 3; l++) {
         ctx.fillStyle = l % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent';
         ctx.fillRect(l * lW, 0, lW, cH);
@@ -114,18 +109,21 @@ export default function BandModeClient({ pubCode, participant }) {
     animRef.current = requestAnimationFrame(draw);
   }, [getElapsed]);
 
-  // ── Start Game Logic ──
-  const startGame = useCallback((chart, delay) => {
-    const adjustedDelay = Math.max(0, delay - NETWORK_LATENCY_COMPENSATION);
-    startTimeRef.current = Date.now() + adjustedDelay;
+  // ── Start Game Logic ──────────────────────────────────────────────────────
+  const startGame = useCallback((chartData, delay) => {
+    // Calcola il momento esatto in cui deve iniziare la canzone.
+    // Usiamo il tempo di ricezione del comando + il delay imposto dal PC.
+    // L'utente vedrà un countdown sincronizzato.
+    const receptionTime = Date.now();
+    startTimeRef.current = receptionTime + delay; 
     
-    notesRef.current = chart.map((n, i) => ({ ...n, id: i, hit: false, missed: false }));
+    notesRef.current = chartData.map((n, i) => ({ ...n, id: i, hit: false, missed: false }));
     scoreRef.current = 0; comboRef.current = 0; setScore(0); setCombo(0);
     setGameState('playing');
     startDrawLoop();
   }, [startDrawLoop]);
 
-  // ── Hit Handler ──
+  // ── Hit Handler ───────────────────────────────────────────────────────────
   const handleHit = useCallback(async (lane) => {
     if (gameState !== 'playing') return;
     const elapsed = getElapsed();
@@ -156,11 +154,31 @@ export default function BandModeClient({ pubCode, participant }) {
     }
   }, [gameState, getElapsed, nickname]);
 
+  // ── Supabase Listener ─────────────────────────────────────────────────────
   useEffect(() => {
     const ch = supabase.channel(`band_game_${pubCode}`, { config: { broadcast: { self: true } } });
-    ch.on('broadcast', { event: 'band_start' }, ({ payload }) => {
-      startGame(payload.chart, payload.startDelay);
+    
+    ch.on('broadcast', { event: 'band_start' }, async ({ payload }) => {
+      // 1. Il PC ha detto "Start!"
+      // 2. Mostriamo "Caricamento" mentre recuperiamo le note
+      setGameState('loading');
+      
+      try {
+        // 3. Recupero silenzioso dei dati (NON scarica file fisici)
+        const songName = payload.song || 'deepdown';
+        const res = await fetch(`/audio/${songName}/chart_organo.json`);
+        if (!res.ok) throw new Error("Chart non trovata");
+        const chartData = await res.json();
+        
+        // 4. Tutto pronto, avvia il gioco
+        startGame(chartData, payload.startDelay);
+      } catch (err) {
+        console.error("Errore caricamento chart:", err);
+        setFeedback({ text: 'ERRORE CARICAMENTO', color: 'red', lane: 1 });
+        setGameState('waiting');
+      }
     });
+
     ch.subscribe();
     channelRef.current = ch;
     return () => { supabase.removeChannel(ch); cancelAnimationFrame(animRef.current); };
@@ -168,25 +186,54 @@ export default function BandModeClient({ pubCode, participant }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#08080f', fontFamily: "'JetBrains Mono', monospace", overflow: 'hidden', userSelect: 'none', WebkitUserSelect: 'none' }}>
+      {/* Top Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 16px', background: '#0d0d18', borderBottom: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
         <div style={{ fontSize: '18px', fontWeight: 900, color: '#ffd100' }}>{score.toLocaleString()}</div>
         {combo > 1 && <div style={{ fontSize: '13px', fontWeight: 900, color: '#39ff84', textShadow: '0 0 10px #39ff84' }}>x{combo}</div>}
-        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>{gameState === 'playing' ? '● LIVE' : '⏳ attesa...'}</div>
+        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>{gameState === 'playing' ? '● LIVE' : gameState === 'loading' ? '⚡ CARICAMENTO...' : '⏳ ATTESA...'}</div>
       </div>
+      
+      {/* Game Area */}
       <div style={{ flex: '0 0 28vh', position: 'relative' }}>
         <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
-        {gameState === 'waiting' && (
+        
+        {/* Loader Screen */}
+        {(gameState === 'waiting' || gameState === 'loading') && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(8,8,15,0.9)' }}>
             <div style={{ width: '32px', height: '32px', border: '3px solid #ffd100', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite', marginBottom: '12px' }} />
-            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', letterSpacing: '0.25em' }}>IN ATTESA...</div>
+            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', letterSpacing: '0.25em' }}>
+              {gameState === 'loading' ? 'PREPARAZIONE GIOCO...' : 'IN ATTESA DEL PC...'}
+            </div>
           </div>
         )}
+
+        {/* Feedback Colpi */}
         {feedback && <div style={{ position: 'absolute', left: `${feedback.lane * 33.3 + 16.6}%`, top: '55%', transform: 'translateX(-50%)', fontSize: '15px', fontWeight: 900, color: feedback.color, textShadow: `0 0 14px ${feedback.color}`, animation: 'feedPop 0.6s ease forwards', pointerEvents: 'none', whiteSpace: 'nowrap' }}>{feedback.text}</div>}
       </div>
+
+      {/* Buttons Pad */}
       <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '4px', padding: '4px', background: '#050508' }}>
         {[0, 1, 2].map(l => (
-          <button key={l} onPointerDown={e => { e.preventDefault(); setPressing(p => { const n = [...p]; n[l] = true; return n; }); handleHit(l); }} onPointerUp={() => setPressing(p => { const n = [...p]; n[l] = false; return n; })} onPointerCancel={() => setPressing(p => { const n = [...p]; n[l] = false; return n; })}
-            style={{ background: pressing[l] ? `${COLORS[l]}40` : `${COLORS[l]}12`, border: `3px solid ${COLORS[l]}${pressing[l] ? 'ff' : '55'}`, borderRadius: '16px', color: COLORS[l], fontSize: '44px', fontWeight: 900, cursor: 'pointer', WebkitTapHighlightColor: 'transparent', touchAction: 'none', transition: 'background 0.06s, border-color 0.06s', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: pressing[l] ? `0 0 30px ${COLORS[l]}66` : 'none' }}>
+          <button key={l} 
+            onPointerDown={e => { e.preventDefault(); setPressing(p => { const n = [...p]; n[l] = true; return n; }); handleHit(l); }} 
+            onPointerUp={() => setPressing(p => { const n = [...p]; n[l] = false; return n; })} 
+            onPointerCancel={() => setPressing(p => { const n = [...p]; n[l] = false; return n; })}
+            style={{ 
+              background: pressing[l] ? `${COLORS[l]}40` : `${COLORS[l]}12`, 
+              border: `3px solid ${COLORS[l]}${pressing[l] ? 'ff' : '55'}`, 
+              borderRadius: '16px', 
+              color: COLORS[l], 
+              fontSize: '44px', 
+              fontWeight: 900, 
+              cursor: 'pointer', 
+              WebkitTapHighlightColor: 'transparent', 
+              touchAction: 'none', 
+              transition: 'background 0.06s, border-color 0.06s', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              boxShadow: pressing[l] ? `0 0 30px ${COLORS[l]}66` : 'none' 
+            }}>
             {['F', 'G', 'H'][l]}
           </button>
         ))}
