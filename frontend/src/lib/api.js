@@ -71,6 +71,7 @@ export const getDisplayData = async (pubCode) => {
       extraction_data: event.extraction_data,
       active_arcade: activeArcade.data,
       active_millionaire: activeMill.data || null,
+      active_band: event.active_band || null,
       active_selfie: null,
       approved_messages: approvedMsgs.data?.filter(m => m.participants?.nickname).map(m => ({text: m.text, nickname: m.participants?.nickname})) || [],
       quiz_lobby: event.settings?.quiz_lobby === true
