@@ -10,11 +10,12 @@ const COLORS      = ['#ff3b5c', '#00d4ff', '#39ff84'];
 const POINTS      = { perfect: 100, good: 60, hit: 30 };
 
 export default function BandModeClient({ pubCode, participant }) {
-  const [gameState, setGameState] = useState('waiting'); // waiting | loading | playing
+  const [gameState, setGameState] = useState('waiting');
   const [score, setScore]         = useState(0);
   const [combo, setCombo]         = useState(0);
   const [feedback, setFeedback]   = useState(null);
   const [pressing, setPressing]   = useState([false, false, false]);
+  const [connected, setConnected] = useState(false);
 
   const channelRef   = useRef(null);
   const notesRef     = useRef([]);
@@ -47,29 +48,24 @@ export default function BandModeClient({ pubCode, participant }) {
       const elapsed = getElapsed();
       ctx.clearRect(0, 0, cW, cH);
 
-      // FASE COUNTDOWN (Tempo Negativo)
       if (elapsed < 0) {
+        // Countdown
         const sec = Math.ceil(Math.abs(elapsed));
         const text = sec > 0 ? sec : "GO!";
-        
-        // Sfondo statico
         for (let l = 0; l < 3; l++) {
           ctx.fillStyle = l % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent';
           ctx.fillRect(l * lW, 0, lW, cH);
           if (l > 0) { ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.beginPath(); ctx.moveTo(l*lW,0); ctx.lineTo(l*lW,cH); ctx.stroke(); }
         }
-        
         ctx.fillStyle = "white"; 
         ctx.font = "bold 80px monospace"; 
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(text, cW / 2, cH / 2);
-        
         animRef.current = requestAnimationFrame(draw);
         return;
       }
 
-      // FASE GIOCO
       for (let l = 0; l < 3; l++) {
         ctx.fillStyle = l % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent';
         ctx.fillRect(l * lW, 0, lW, cH);
@@ -77,29 +73,24 @@ export default function BandModeClient({ pubCode, participant }) {
       ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1;
       for (let l = 1; l < 3; l++) { ctx.beginPath(); ctx.moveTo(l * lW, 0); ctx.lineTo(l * lW, cH); ctx.stroke(); }
       
-      // Hit Line
       ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
       ctx.beginPath(); ctx.moveTo(0, hitY); ctx.lineTo(cW, hitY); ctx.stroke(); ctx.setLineDash([]);
       
-      // Cerchi tasti
       for (let l = 0; l < 3; l++) {
         const cx = l * lW + lW / 2;
         ctx.strokeStyle = COLORS[l] + '55'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(cx, hitY, 14, 0, Math.PI * 2); ctx.stroke();
       }
 
-      // Note
       for (const note of notesRef.current) {
         if (note.hit || note.missed) continue;
         const tti = note.time - elapsed;
-        
         if (tti > NOTE_LEAD + 0.1) continue;
         if (tti < -HIT_WINDOW - 0.05) { note.missed = true; comboRef.current = 0; setCombo(0); continue; }
 
         const y = (1 - tti / NOTE_LEAD) * hitY;
         const cx = note.lane * lW + lW / 2;
         const col = COLORS[note.lane];
-
         ctx.save(); ctx.shadowColor = col; ctx.shadowBlur = 14; ctx.fillStyle = col;
         ctx.beginPath(); ctx.moveTo(cx, y - 11); ctx.lineTo(cx + 9, y); ctx.lineTo(cx, y + 11); ctx.lineTo(cx - 9, y);
         ctx.closePath(); ctx.fill(); ctx.restore();
@@ -111,12 +102,8 @@ export default function BandModeClient({ pubCode, participant }) {
 
   // ── Start Game Logic ──────────────────────────────────────────────────────
   const startGame = useCallback((chartData, delay) => {
-    // Calcola il momento esatto in cui deve iniziare la canzone.
-    // Usiamo il tempo di ricezione del comando + il delay imposto dal PC.
-    // L'utente vedrà un countdown sincronizzato.
     const receptionTime = Date.now();
     startTimeRef.current = receptionTime + delay; 
-    
     notesRef.current = chartData.map((n, i) => ({ ...n, id: i, hit: false, missed: false }));
     scoreRef.current = 0; comboRef.current = 0; setScore(0); setCombo(0);
     setGameState('playing');
@@ -159,18 +146,13 @@ export default function BandModeClient({ pubCode, participant }) {
     const ch = supabase.channel(`band_game_${pubCode}`, { config: { broadcast: { self: true } } });
     
     ch.on('broadcast', { event: 'band_start' }, async ({ payload }) => {
-      // 1. Il PC ha detto "Start!"
-      // 2. Mostriamo "Caricamento" mentre recuperiamo le note
+      console.log("RICEVUTO START!");
       setGameState('loading');
-      
       try {
-        // 3. Recupero silenzioso dei dati (NON scarica file fisici)
         const songName = payload.song || 'deepdown';
         const res = await fetch(`/audio/${songName}/chart_organo.json`);
         if (!res.ok) throw new Error("Chart non trovata");
         const chartData = await res.json();
-        
-        // 4. Tutto pronto, avvia il gioco
         startGame(chartData, payload.startDelay);
       } catch (err) {
         console.error("Errore caricamento chart:", err);
@@ -179,61 +161,43 @@ export default function BandModeClient({ pubCode, participant }) {
       }
     });
 
-    ch.subscribe();
+    ch.subscribe(status => {
+      setConnected(status === 'SUBSCRIBED');
+      console.log("Stato canale:", status);
+    });
+
     channelRef.current = ch;
     return () => { supabase.removeChannel(ch); cancelAnimationFrame(animRef.current); };
   }, [pubCode, startGame]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#08080f', fontFamily: "'JetBrains Mono', monospace", overflow: 'hidden', userSelect: 'none', WebkitUserSelect: 'none' }}>
-      {/* Top Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 16px', background: '#0d0d18', borderBottom: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
         <div style={{ fontSize: '18px', fontWeight: 900, color: '#ffd100' }}>{score.toLocaleString()}</div>
         {combo > 1 && <div style={{ fontSize: '13px', fontWeight: 900, color: '#39ff84', textShadow: '0 0 10px #39ff84' }}>x{combo}</div>}
-        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>{gameState === 'playing' ? '● LIVE' : gameState === 'loading' ? '⚡ CARICAMENTO...' : '⏳ ATTESA...'}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: connected ? '#39ff84' : '#ff3b5c' }} />
+            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>{gameState === 'playing' ? 'LIVE' : connected ? 'PRONTO' : 'OFFLINE'}</div>
+        </div>
       </div>
       
-      {/* Game Area */}
       <div style={{ flex: '0 0 28vh', position: 'relative' }}>
         <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
-        
-        {/* Loader Screen */}
         {(gameState === 'waiting' || gameState === 'loading') && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(8,8,15,0.9)' }}>
             <div style={{ width: '32px', height: '32px', border: '3px solid #ffd100', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite', marginBottom: '12px' }} />
             <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', letterSpacing: '0.25em' }}>
-              {gameState === 'loading' ? 'PREPARAZIONE GIOCO...' : 'IN ATTESA DEL PC...'}
+              {gameState === 'loading' ? 'PREPARAZIONE...' : 'IN ATTESA DEL PC...'}
             </div>
           </div>
         )}
-
-        {/* Feedback Colpi */}
         {feedback && <div style={{ position: 'absolute', left: `${feedback.lane * 33.3 + 16.6}%`, top: '55%', transform: 'translateX(-50%)', fontSize: '15px', fontWeight: 900, color: feedback.color, textShadow: `0 0 14px ${feedback.color}`, animation: 'feedPop 0.6s ease forwards', pointerEvents: 'none', whiteSpace: 'nowrap' }}>{feedback.text}</div>}
       </div>
 
-      {/* Buttons Pad */}
       <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '4px', padding: '4px', background: '#050508' }}>
         {[0, 1, 2].map(l => (
-          <button key={l} 
-            onPointerDown={e => { e.preventDefault(); setPressing(p => { const n = [...p]; n[l] = true; return n; }); handleHit(l); }} 
-            onPointerUp={() => setPressing(p => { const n = [...p]; n[l] = false; return n; })} 
-            onPointerCancel={() => setPressing(p => { const n = [...p]; n[l] = false; return n; })}
-            style={{ 
-              background: pressing[l] ? `${COLORS[l]}40` : `${COLORS[l]}12`, 
-              border: `3px solid ${COLORS[l]}${pressing[l] ? 'ff' : '55'}`, 
-              borderRadius: '16px', 
-              color: COLORS[l], 
-              fontSize: '44px', 
-              fontWeight: 900, 
-              cursor: 'pointer', 
-              WebkitTapHighlightColor: 'transparent', 
-              touchAction: 'none', 
-              transition: 'background 0.06s, border-color 0.06s', 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center', 
-              boxShadow: pressing[l] ? `0 0 30px ${COLORS[l]}66` : 'none' 
-            }}>
+          <button key={l} onPointerDown={e => { e.preventDefault(); setPressing(p => { const n = [...p]; n[l] = true; return n; }); handleHit(l); }} onPointerUp={() => setPressing(p => { const n = [...p]; n[l] = false; return n; })} onPointerCancel={() => setPressing(p => { const n = [...p]; n[l] = false; return n; })}
+            style={{ background: pressing[l] ? `${COLORS[l]}40` : `${COLORS[l]}12`, border: `3px solid ${COLORS[l]}${pressing[l] ? 'ff' : '55'}`, borderRadius: '16px', color: COLORS[l], fontSize: '44px', fontWeight: 900, cursor: 'pointer', WebkitTapHighlightColor: 'transparent', touchAction: 'none', transition: 'background 0.06s, border-color 0.06s', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: pressing[l] ? `0 0 30px ${COLORS[l]}66` : 'none' }}>
             {['F', 'G', 'H'][l]}
           </button>
         ))}
