@@ -8,7 +8,7 @@ const PERF_WINDOW  = 0.045;
 const NOTE_LEAD    = 3.0;
 const COLORS       = ['#ff3b5c', '#00d4ff', '#39ff84'];
 const LANE_LABELS  = ['LANE 0', 'LANE 1', 'LANE 2'];
-const START_DELAY  = 4000; // 4000ms = 4 secondi di countdown
+const START_DELAY  = 4000; // 4 secondi di countdown
 
 export default function BandMode({ session, pubCode, chart: chartProp }) {
   const [chart, setChart]           = useState(chartProp || null);
@@ -52,7 +52,7 @@ export default function BandMode({ session, pubCode, chart: chartProp }) {
     organGainRef.current = gain;
   }, []);
 
-  // 3. Start Sequence (Countdown Logic)
+  // 3. Start Sequence
   const startSequence = useCallback(async () => {
     if (!chart || gameState === 'playing' || gameState === 'countdown') return;
     setupAudio();
@@ -92,7 +92,7 @@ export default function BandMode({ session, pubCode, chart: chartProp }) {
       }
     });
 
-    // Avvia countdown locale
+    // Avvia countdown locale (Display)
     setGameState('countdown');
     setCountdown(4);
     
@@ -107,8 +107,11 @@ export default function BandMode({ session, pubCode, chart: chartProp }) {
       }
     }, 1000);
 
-    // Avvia l'audio esattamente dopo START_DELAY ms
+    // Timer preciso per start audio
     startTimerRef.current = setTimeout(async () => {
+      // ⬇️ VOLUME BASE AL 80% (-20%)
+      if(baseRef.current) baseRef.current.volume = 0.8;
+      
       await Promise.all([
         baseRef.current.play(),
         organRef.current.play(),
@@ -123,7 +126,7 @@ export default function BandMode({ session, pubCode, chart: chartProp }) {
 
   }, [chart, gameState, setupAudio, session]);
 
-  // 4. Game Loop (Visualizer)
+  // 4. Game Loop
   const startLoop = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -210,7 +213,6 @@ export default function BandMode({ session, pubCode, chart: chartProp }) {
     return () => { cancelAnimationFrame(animRef.current); clearTimeout(startTimerRef.current); baseRef.current?.pause(); organRef.current?.pause(); audioCtxRef.current?.close(); };
   }, []);
 
-  // ── FIX: DEFINIZIONE SONG MANCANTE REINSERITA QUI SOTTO ──
   const song = session?.song || 'deepdown';
 
   return (
