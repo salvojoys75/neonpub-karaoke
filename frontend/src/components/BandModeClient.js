@@ -1,414 +1,293 @@
 /**
- * BandMode.jsx — componente per PubDisplay
- *
- * Uso in PubDisplay.js:
- *   import BandMode from '@/components/BandMode';
- *   // Dentro getActiveMode(), aggiungi:
- *   if (data.active_band) return 'band';
- *   // Nel render, aggiungi:
- *   else if (isBand) Content = <BandMode session={data.active_band} pubCode={pubCode} />;
- *
- * File audio attesi in /public/audio/deepdown/:
- *   base.mp3, organo.mp3
- *
- * Chart atteso in /audio/deepdown/chart_organo.json
- * (oppure passalo come prop `chart`)
+ * BandModeClient.js — telefono giocatore
+ * Layout: canvas note piccolo in alto, 3 tasti enormi in basso
+ * Nessun bottone START — parte automaticamente dal display
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 
-// ─── COSTANTI ────────────────────────────────────────────────────────────────
-const HIT_WINDOW   = 0.18;  // ±180ms per un hit valido
-const GOOD_WINDOW  = 0.09;  // ±90ms per "GOOD"
-const PERF_WINDOW  = 0.045; // ±45ms per "PERFECT"
-const NOTE_LEAD    = 3.0;   // secondi in anticipo visibili
-const NOTE_SPEED   = 220;   // px per secondo (canvas height / NOTE_LEAD)
-const COLORS       = ['#ff3b5c', '#00d4ff', '#39ff84'];
-const LANE_LABELS  = ['LANE 0', 'LANE 1', 'LANE 2'];
+const HIT_WINDOW  = 0.18;
+const GOOD_WINDOW = 0.09;
+const PERF_WINDOW = 0.045;
+const NOTE_LEAD   = 3.0;
+const COLORS      = ['#ff3b5c', '#00d4ff', '#39ff84'];
+const POINTS      = { perfect: 100, good: 60, hit: 30 };
 
-// ─── HELPER: volume fade ─────────────────────────────────────────────────────
-function fadeVolume(audioEl, from, to, durationMs) {
-  const steps = 20;
-  const interval = durationMs / steps;
-  const delta = (to - from) / steps;
-  let current = from;
-  const id = setInterval(() => {
-    current = Math.max(0, Math.min(1, current + delta));
-    if (audioEl) audioEl.volume = current;
-    if ((delta > 0 && current >= to) || (delta < 0 && current <= to)) clearInterval(id);
-  }, interval);
-}
+export default function BandModeClient({ pubCode, participant }) {
+  const [gameState, setGameState] = useState('waiting'); // waiting | playing
+  const [score, setScore]         = useState(0);
+  const [combo, setCombo]         = useState(0);
+  const [feedback, setFeedback]   = useState(null); // { text, color, lane }
+  const [pressing, setPressing]   = useState([false, false, false]);
 
-// ─── COMPONENTE ──────────────────────────────────────────────────────────────
-export default function BandMode({ session, pubCode, chart: chartProp }) {
-  const [chart, setChart]           = useState(chartProp || null);
-  const [gameState, setGameState]   = useState('waiting'); // waiting | playing | ended
-  const [score, setScore]           = useState(0);
-  const [combo, setCombo]           = useState(0);
-  const [hitFeedback, setHitFeedback] = useState([]); // { id, text, lane, color }
-  const [players, setPlayers]       = useState({});   // nickname → { score, combo }
-  const [organLevel, setOrganLevel] = useState(0);    // 0-1 per UI
-
-  const baseRef    = useRef(null);
-  const organRef   = useRef(null);
-  const canvasRef  = useRef(null);
-  const startTimeRef = useRef(null); // audioCtx.currentTime al momento dello start
-  const audioCtxRef  = useRef(null);
-  const notesRef     = useRef([]);   // copia del chart con stato hit
-  const animRef      = useRef(null);
   const channelRef   = useRef(null);
-  const organGainRef = useRef(null); // GainNode per organo
+  const notesRef     = useRef([]);
+  const startTimeRef = useRef(null);
+  const canvasRef    = useRef(null);
+  const animRef      = useRef(null);
+  const scoreRef     = useRef(0);
+  const comboRef     = useRef(0);
 
-  // ── 1. Carica chart se non passato come prop ─────────────────────────────
-  useEffect(() => {
-    if (chartProp) { setChart(chartProp); return; }
-    const song = session?.song || 'deepdown';
-    fetch(`/audio/${song}/chart_organo.json`)
-      .then(r => r.json())
-      .then(data => setChart(data))
-      .catch(() => console.warn('Chart non trovata, usa prop'));
-  }, [session, chartProp]);
+  const nickname = participant?.nickname || 'Player';
 
-  // ── 2. Setup audio (Web Audio API per volume granulare) ──────────────────
-  const setupAudio = useCallback(() => {
-    if (audioCtxRef.current) return;
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    audioCtxRef.current = ctx;
-
-    // GainNode per organo (inizia a 0)
-    const gain = ctx.createGain();
-    gain.gain.value = 0;
-    gain.connect(ctx.destination);
-    organGainRef.current = gain;
-
-    // Collegare gli elementi audio al contesto
-    if (baseRef.current) {
-      const src = ctx.createMediaElementSource(baseRef.current);
-      src.connect(ctx.destination);
-    }
-    if (organRef.current) {
-      const src = ctx.createMediaElementSource(organRef.current);
-      src.connect(gain);
-    }
+  const getElapsed = useCallback(() => {
+    if (!startTimeRef.current) return 0;
+    return (Date.now() - startTimeRef.current) / 1000;
   }, []);
 
-  // ── 3. Avvia canzone e broadcast su Supabase ─────────────────────────────
-  const startSong = useCallback(async () => {
-    if (!chart || gameState === 'playing') return;
-    setupAudio();
-    const ctx = audioCtxRef.current;
-    if (ctx.state === 'suspended') await ctx.resume();
-
-    // Azzera note
-    notesRef.current = chart.map((n, i) => ({ ...n, id: i, hit: false, missed: false }));
-
-    // Avvia entrambi gli audio
-    if (baseRef.current) {
-      baseRef.current.currentTime = 0;
-      await baseRef.current.play();
-    }
-    if (organRef.current) {
-      organRef.current.currentTime = 0;
-      await organRef.current.play();
-    }
-
-    startTimeRef.current = ctx.currentTime;
-    setGameState('playing');
-    setScore(0);
-    setCombo(0);
-
-    // Broadcast ai telefoni
-    await channelRef.current?.send({
-      type: 'broadcast',
-      event: 'band_start',
-      payload: {
-        song: session?.song || 'deepdown',
-        chart: chart,
-        serverTime: Date.now(),
-        audioCtxTime: ctx.currentTime,
-      }
-    });
-
-    startLoop();
-  }, [chart, gameState, setupAudio, session]);
-
-  // ── 4. Game loop: disegna canvas + controlla miss ─────────────────────────
-  const startLoop = useCallback(() => {
+  // ── Draw loop ─────────────────────────────────────────────────────────────
+  const startDrawLoop = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const DPR = window.devicePixelRatio || 1;
+    const cW = canvas.offsetWidth;
+    const cH = canvas.offsetHeight;
+    canvas.width  = cW * DPR;
+    canvas.height = cH * DPR;
     const ctx = canvas.getContext('2d');
-    const W = canvas.width, H = canvas.height;
-    const lW = W / 3;
-    const hitY = H * 0.82; // zona di colpo
+    ctx.scale(DPR, DPR);
+
+    const lW  = cW / 3;
+    const hitY = cH * 0.82;
 
     function draw() {
-      if (!audioCtxRef.current || !startTimeRef.current) return;
-      const elapsed = audioCtxRef.current.currentTime - startTimeRef.current;
+      const elapsed = getElapsed();
+      ctx.clearRect(0, 0, cW, cH);
 
-      ctx.clearRect(0, 0, W, H);
-
-      // Sfondo per lane
-      for (let lane = 0; lane < 3; lane++) {
-        const x = lane * lW;
-        ctx.fillStyle = lane % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent';
-        ctx.fillRect(x, 0, lW, H);
-        // separatori
-        ctx.strokeStyle = 'rgba(255,255,255,0.07)';
-        ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+      // Sfondo lane alternate
+      for (let l = 0; l < 3; l++) {
+        ctx.fillStyle = l % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent';
+        ctx.fillRect(l * lW, 0, lW, cH);
       }
 
-      // Linea di colpo
-      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+      // Separatori
+      ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+      ctx.lineWidth = 1;
+      for (let l = 1; l < 3; l++) {
+        ctx.beginPath(); ctx.moveTo(l * lW, 0); ctx.lineTo(l * lW, cH); ctx.stroke();
+      }
+
+      // Linea hit
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
       ctx.lineWidth = 2;
-      ctx.setLineDash([8, 4]);
-      ctx.beginPath(); ctx.moveTo(0, hitY); ctx.lineTo(W, hitY); ctx.stroke();
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath(); ctx.moveTo(0, hitY); ctx.lineTo(cW, hitY); ctx.stroke();
       ctx.setLineDash([]);
+
+      // Cerchi hit zone
+      for (let l = 0; l < 3; l++) {
+        const cx = l * lW + lW / 2;
+        ctx.strokeStyle = COLORS[l] + '55';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(cx, hitY, 14, 0, Math.PI * 2); ctx.stroke();
+      }
 
       // Note
       for (const note of notesRef.current) {
         if (note.hit || note.missed) continue;
-        const timeToHit = note.time - elapsed;
-        if (timeToHit > NOTE_LEAD + 0.2) continue;
-        if (timeToHit < -HIT_WINDOW - 0.1) {
-          note.missed = true;
-          setCombo(0);
-          continue;
-        }
+        const tti = note.time - elapsed;
+        if (tti > NOTE_LEAD + 0.1) continue;
+        if (tti < -HIT_WINDOW - 0.05) { note.missed = true; comboRef.current = 0; setCombo(0); continue; }
 
-        const y = hitY - (timeToHit / NOTE_LEAD) * hitY;
+        const y = (1 - tti / NOTE_LEAD) * hitY;
         const cx = note.lane * lW + lW / 2;
         const col = COLORS[note.lane];
 
-        // Glow
-        ctx.shadowColor = col;
-        ctx.shadowBlur = 18;
-        // Diamante
+        ctx.save();
+        ctx.shadowColor = col; ctx.shadowBlur = 14;
         ctx.fillStyle = col;
         ctx.beginPath();
-        ctx.moveTo(cx, y - 14);
-        ctx.lineTo(cx + 11, y);
-        ctx.lineTo(cx, y + 14);
-        ctx.lineTo(cx - 11, y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.shadowBlur = 0;
-      }
-
-      // Label lane in basso
-      for (let lane = 0; lane < 3; lane++) {
-        const cx = lane * lW + lW / 2;
-        ctx.fillStyle = COLORS[lane] + '88';
-        ctx.font = 'bold 11px monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(LANE_LABELS[lane], cx, H - 8);
+        ctx.moveTo(cx, y - 11); ctx.lineTo(cx + 9, y);
+        ctx.lineTo(cx, y + 11); ctx.lineTo(cx - 9, y);
+        ctx.closePath(); ctx.fill();
+        ctx.restore();
       }
 
       animRef.current = requestAnimationFrame(draw);
     }
-
     animRef.current = requestAnimationFrame(draw);
-  }, []);
+  }, [getElapsed]);
 
-  // ── 5. Supabase channel: riceve hit dai telefoni ─────────────────────────
-  useEffect(() => {
-    const channel = supabase.channel(`band_game_${pubCode}`, {
-      config: { broadcast: { self: false } }
-    });
+  // ── Avvia da broadcast ────────────────────────────────────────────────────
+  const startGame = useCallback((chart, serverTime) => {
+    const latency = Date.now() - serverTime;
+    startTimeRef.current = serverTime + latency / 2;
+    notesRef.current = chart.map((n, i) => ({ ...n, id: i, hit: false, missed: false }));
+    scoreRef.current = 0; comboRef.current = 0;
+    setScore(0); setCombo(0);
+    setGameState('playing');
+    startDrawLoop();
+  }, [startDrawLoop]);
 
-    channel.on('broadcast', { event: 'band_hit' }, ({ payload }) => {
-      const { nickname, lane, accuracy, points } = payload;
+  // ── Hit ───────────────────────────────────────────────────────────────────
+  const handleHit = useCallback(async (lane) => {
+    if (gameState !== 'playing') return;
+    const elapsed = getElapsed();
 
-      // Aggiorna organo: ogni hit aggiunge volume temporaneamente
-      if (organGainRef.current && gameState === 'playing') {
-        const gain = organGainRef.current.gain;
-        const now = audioCtxRef.current?.currentTime || 0;
-        // Porta il volume a 1 e fai decadere
-        gain.cancelScheduledValues(now);
-        gain.setValueAtTime(Math.min(1, gain.value + 0.35), now);
-        gain.exponentialRampToValueAtTime(0.01, now + 2.5);
-        setOrganLevel(v => Math.min(1, v + 0.35));
-      }
+    let best = null, bestDist = Infinity;
+    for (const note of notesRef.current) {
+      if (note.hit || note.missed || note.lane !== lane) continue;
+      const d = Math.abs(note.time - elapsed);
+      if (d < HIT_WINDOW && d < bestDist) { best = note; bestDist = d; }
+    }
 
-      // Feedback visivo
-      const text = accuracy < PERF_WINDOW
-        ? '✨ PERFECT' : accuracy < GOOD_WINDOW
-        ? '⚡ GOOD' : '✓ HIT';
-      const color = accuracy < PERF_WINDOW ? '#ffd100'
-        : accuracy < GOOD_WINDOW ? '#39ff84' : '#00d4ff';
+    if (best) {
+      best.hit = true;
+      const isPerfect = bestDist < PERF_WINDOW;
+      const isGood    = bestDist < GOOD_WINDOW;
+      const label = isPerfect ? '✨ PERFECT!' : isGood ? '⚡ GOOD!' : '✓ HIT';
+      const color = isPerfect ? '#ffd100' : isGood ? '#39ff84' : '#00d4ff';
+      const pts   = isPerfect ? POINTS.perfect : isGood ? POINTS.good : POINTS.hit;
 
-      const feedId = Date.now() + Math.random();
-      setHitFeedback(prev => [...prev.slice(-8), { id: feedId, text, lane, color, nickname }]);
-      setTimeout(() => setHitFeedback(prev => prev.filter(f => f.id !== feedId)), 900);
+      scoreRef.current += pts; comboRef.current += 1;
+      setScore(scoreRef.current); setCombo(comboRef.current);
+      setFeedback({ text: label, color, lane });
+      setTimeout(() => setFeedback(null), 600);
 
-      // Score + players
-      setScore(s => s + points);
-      setCombo(c => c + 1);
-      setPlayers(prev => {
-        const p = prev[nickname] || { score: 0, combo: 0 };
-        return { ...prev, [nickname]: { score: p.score + points, combo: p.combo + 1 } };
+      await channelRef.current?.send({
+        type: 'broadcast', event: 'band_hit',
+        payload: { nickname, lane, accuracy: bestDist, points: pts },
       });
-    });
-
-    channel.on('broadcast', { event: 'band_miss' }, ({ payload }) => {
-      const { nickname } = payload;
-      setPlayers(prev => {
-        const p = prev[nickname] || { score: 0, combo: 0 };
-        return { ...prev, [nickname]: { ...p, combo: 0 } };
+    } else {
+      comboRef.current = 0; setCombo(0);
+      setFeedback({ text: '✗ MISS', color: '#ff3b5c88', lane });
+      setTimeout(() => setFeedback(null), 400);
+      await channelRef.current?.send({
+        type: 'broadcast', event: 'band_miss',
+        payload: { nickname, lane },
       });
-      setCombo(0);
-    });
+    }
+  }, [gameState, getElapsed, nickname]);
 
-    channel.subscribe();
-    channelRef.current = channel;
-    return () => supabase.removeChannel(channel);
-  }, [pubCode, gameState]);
-
-  // ── Cleanup ───────────────────────────────────────────────────────────────
+  // ── Supabase ──────────────────────────────────────────────────────────────
   useEffect(() => {
-    return () => {
-      cancelAnimationFrame(animRef.current);
-      baseRef.current?.pause();
-      organRef.current?.pause();
-    };
-  }, []);
+    const ch = supabase.channel(`band_game_${pubCode}`, {
+      config: { broadcast: { self: true } }
+    });
+    ch.on('broadcast', { event: 'band_start' }, ({ payload }) => {
+      startGame(payload.chart, payload.serverTime);
+    });
+    ch.subscribe();
+    channelRef.current = ch;
+    return () => { supabase.removeChannel(ch); cancelAnimationFrame(animRef.current); };
+  }, [pubCode, startGame]);
 
-  const song = session?.song || 'deepdown';
-
+  // ─── RENDER ───────────────────────────────────────────────────────────────
   return (
     <div style={{
-      width: '100%', height: '100%', background: '#08080f',
-      display: 'grid', gridTemplateColumns: '1fr 280px',
-      fontFamily: "'JetBrains Mono', monospace", color: '#fff',
+      display: 'flex', flexDirection: 'column',
+      height: '100vh', background: '#08080f',
+      fontFamily: "'JetBrains Mono', monospace",
+      overflow: 'hidden', userSelect: 'none', WebkitUserSelect: 'none',
     }}>
-      {/* ── Colonna sinistra: canvas note ── */}
-      <div style={{ position: 'relative', overflow: 'hidden' }}>
-        <canvas
-          ref={canvasRef}
-          width={900} height={600}
-          style={{ width: '100%', height: '100%' }}
-        />
 
-        {/* Feedback hit flottanti */}
-        {hitFeedback.map(f => (
-          <div key={f.id} style={{
-            position: 'absolute',
-            left: `${f.lane * 33.3 + 10}%`,
-            top: '70%',
-            color: f.color,
-            fontSize: '18px',
-            fontWeight: 900,
-            textShadow: `0 0 20px ${f.color}`,
-            animation: 'hitPop 0.9s ease forwards',
-            pointerEvents: 'none',
-          }}>
-            {f.text}
-            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontWeight: 400 }}>
-              {f.nickname}
-            </div>
+      {/* Score bar — sottile in cima */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        padding: '8px 16px', background: '#0d0d18',
+        borderBottom: '1px solid rgba(255,255,255,0.07)',
+        flexShrink: 0,
+      }}>
+        <div style={{ fontSize: '18px', fontWeight: 900, color: '#ffd100' }}>
+          {score.toLocaleString()}
+        </div>
+        {combo > 1 && (
+          <div style={{ fontSize: '13px', fontWeight: 900, color: '#39ff84', textShadow: '0 0 10px #39ff84' }}>
+            x{combo}
           </div>
-        ))}
+        )}
+        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>
+          {gameState === 'playing' ? '● LIVE' : '⏳ attesa...'}
+        </div>
+      </div>
 
-        {/* Bottone start */}
-        {gameState === 'waiting' && chart && (
+      {/* Canvas note — occupa ~30% schermo */}
+      <div style={{ flex: '0 0 28vh', position: 'relative' }}>
+        <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
+
+        {/* Schermata attesa sopra canvas */}
+        {gameState === 'waiting' && (
           <div style={{
             position: 'absolute', inset: 0,
             display: 'flex', flexDirection: 'column',
             alignItems: 'center', justifyContent: 'center',
-            background: 'rgba(0,0,0,0.75)',
+            background: 'rgba(8,8,15,0.9)',
           }}>
-            <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.4)', marginBottom: '16px', letterSpacing: '0.3em', textTransform: 'uppercase' }}>
-              {chart.length} note caricate
-            </div>
-            <button onClick={startSong} style={{
-              padding: '18px 48px', fontSize: '22px', fontWeight: 900,
-              background: '#ffd100', color: '#000', border: 'none',
-              borderRadius: '12px', cursor: 'pointer', letterSpacing: '0.15em',
-              boxShadow: '0 0 40px rgba(255,209,0,0.5)',
-            }}>
-              ▶ START
-            </button>
-          </div>
-        )}
-
-        {!chart && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.8)' }}>
-            <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '14px' }}>Caricamento chart...</p>
-          </div>
-        )}
-      </div>
-
-      {/* ── Colonna destra: score + players ── */}
-      <div style={{
-        background: '#0d0d18', borderLeft: '1px solid rgba(255,255,255,0.07)',
-        padding: '24px 16px', display: 'flex', flexDirection: 'column', gap: '24px',
-      }}>
-        {/* Score totale */}
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', letterSpacing: '0.3em', marginBottom: '4px' }}>SCORE</div>
-          <div style={{ fontSize: '42px', fontWeight: 900, color: '#ffd100', textShadow: '0 0 20px rgba(255,209,0,0.5)' }}>
-            {score.toLocaleString()}
-          </div>
-          {combo > 1 && (
-            <div style={{ fontSize: '13px', color: '#39ff84', fontWeight: 700 }}>
-              x{combo} COMBO
-            </div>
-          )}
-        </div>
-
-        {/* Volume organo */}
-        <div>
-          <div style={{ fontSize: '10px', color: '#00d4ff', letterSpacing: '0.3em', marginBottom: '8px' }}>ORGANO</div>
-          <div style={{ height: '8px', background: 'rgba(255,255,255,0.08)', borderRadius: '4px', overflow: 'hidden' }}>
             <div style={{
-              height: '100%', width: `${organLevel * 100}%`,
-              background: 'linear-gradient(to right, #00d4ff, #39ff84)',
-              borderRadius: '4px', transition: 'width 0.1s',
+              width: '32px', height: '32px',
+              border: '3px solid #ffd100', borderTopColor: 'transparent',
+              borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+              marginBottom: '12px',
             }} />
+            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', letterSpacing: '0.25em' }}>
+              IN ATTESA DEL VENUE...
+            </div>
           </div>
-          <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.2)', marginTop: '4px' }}>
-            colpisci le note per alzare il volume
-          </div>
-        </div>
+        )}
 
-        {/* Players */}
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', letterSpacing: '0.3em', marginBottom: '12px' }}>GIOCATORI</div>
-          {Object.entries(players).length === 0 && (
-            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.2)', textAlign: 'center', marginTop: '24px' }}>
-              In attesa che i telefoni si connettano...
-            </div>
-          )}
-          {Object.entries(players)
-            .sort(([,a],[,b]) => b.score - a.score)
-            .map(([nick, p]) => (
-            <div key={nick} style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: '10px 12px', marginBottom: '6px',
-              background: 'rgba(255,255,255,0.04)', borderRadius: '8px',
-              border: '1px solid rgba(255,255,255,0.06)',
-            }}>
-              <div>
-                <div style={{ fontSize: '13px', fontWeight: 700 }}>{nick}</div>
-                {p.combo > 1 && <div style={{ fontSize: '10px', color: '#39ff84' }}>x{p.combo}</div>}
-              </div>
-              <div style={{ fontSize: '15px', fontWeight: 900, color: '#ffd100' }}>{p.score}</div>
-            </div>
-          ))}
-        </div>
+        {/* Feedback al centro del canvas */}
+        {feedback && (
+          <div style={{
+            position: 'absolute',
+            left: `${feedback.lane * 33.3 + 16.6}%`,
+            top: '55%', transform: 'translateX(-50%)',
+            fontSize: '15px', fontWeight: 900,
+            color: feedback.color,
+            textShadow: `0 0 14px ${feedback.color}`,
+            animation: 'feedPop 0.6s ease forwards',
+            pointerEvents: 'none', whiteSpace: 'nowrap',
+          }}>
+            {feedback.text}
+          </div>
+        )}
       </div>
 
-      {/* Audio elements (hidden) */}
-      <audio ref={baseRef}   src={`/audio/${song}/base.mp3`}   preload="auto" />
-      <audio ref={organRef}  src={`/audio/${song}/organo.mp3`} preload="auto" />
+      {/* 3 TASTI ENORMI — occupano tutto il resto */}
+      <div style={{
+        flex: 1,
+        display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
+        gap: '4px', padding: '4px',
+        background: '#050508',
+      }}>
+        {[0, 1, 2].map(lane => (
+          <button
+            key={lane}
+            onPointerDown={e => {
+              e.preventDefault();
+              setPressing(p => { const n=[...p]; n[lane]=true; return n; });
+              handleHit(lane);
+            }}
+            onPointerUp={() => setPressing(p => { const n=[...p]; n[lane]=false; return n; })}
+            onPointerCancel={() => setPressing(p => { const n=[...p]; n[lane]=false; return n; })}
+            style={{
+              background: pressing[lane]
+                ? `${COLORS[lane]}40`
+                : `${COLORS[lane]}12`,
+              border: `3px solid ${COLORS[lane]}${pressing[lane] ? 'ff' : '55'}`,
+              borderRadius: '16px',
+              color: COLORS[lane],
+              fontSize: '44px',
+              fontWeight: 900,
+              cursor: 'pointer',
+              WebkitTapHighlightColor: 'transparent',
+              touchAction: 'none',
+              transition: 'background 0.06s, border-color 0.06s',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: pressing[lane] ? `0 0 30px ${COLORS[lane]}66` : 'none',
+            }}
+          >
+            {['F', 'G', 'H'][lane]}
+          </button>
+        ))}
+      </div>
 
       <style>{`
-        @keyframes hitPop {
-          0%   { opacity: 1; transform: translateY(0) scale(1.2); }
-          60%  { opacity: 1; transform: translateY(-30px) scale(1); }
-          100% { opacity: 0; transform: translateY(-60px) scale(0.8); }
+        @keyframes feedPop {
+          0%   { opacity: 1; transform: translateX(-50%) scale(1.2); }
+          100% { opacity: 0; transform: translateX(-50%) translateY(-25px) scale(0.9); }
         }
+        @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
     </div>
   );
