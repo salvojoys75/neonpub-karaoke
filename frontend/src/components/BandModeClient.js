@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 
-// ── COSTANTI ─────────────────────────────────────────────────────────────────
-// ⚡ COMPENSAZIONE LATENZA: 
-// Sottraiamo ~350ms al countdown del telefono per compensare il tempo 
-// che il segnale "Start" impiega a viaggiare via internet.
-const OFFSET_LATENZA = 350; 
+// ── CONFIGURAZIONE "PUB FRIENDLY" ───────────────────────────────────────────
+// 1. ANTICIPO: Aumentato a 400ms. Fa arrivare le note un pelino prima, 
+//    così il cervello umano (che ha i suoi tempi di reazione) le percepisce a tempo.
+const OFFSET_LATENZA = 400; 
 
-const HIT_WINDOW  = 0.18;
-const GOOD_WINDOW = 0.09;
-const PERF_WINDOW = 0.045;
-const NOTE_LEAD   = 3.0;
+// 2. TOLLERANZA (Il trucco per renderlo divertente):
+const HIT_WINDOW  = 0.20; // Era 0.18
+const GOOD_WINDOW = 0.10; // Era 0.09
+const PERF_WINDOW = 0.05; // Era 0.045
+
+const NOTE_LEAD   = 3.0;  // Tempo che la nota impiega a scendere (velocità)
 const COLORS      = ['#ff3b5c', '#00d4ff', '#39ff84'];
 const POINTS      = { perfect: 100, good: 60, hit: 30 };
 
@@ -53,41 +54,39 @@ export default function BandModeClient({ pubCode, participant }) {
       const elapsed = getElapsed();
       ctx.clearRect(0, 0, cW, cH);
 
-      // FASE COUNTDOWN (Tempo Negativo)
+      // FASE COUNTDOWN
       if (elapsed < 0) {
         const sec = Math.ceil(Math.abs(elapsed));
-        // Se siamo molto vicini allo zero (causa compensazione), mostriamo GO!
         const text = sec > 0 ? sec : "GO!";
-        
         for (let l = 0; l < 3; l++) {
           ctx.fillStyle = l % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent';
           ctx.fillRect(l * lW, 0, lW, cH);
           if (l > 0) { ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.beginPath(); ctx.moveTo(l*lW,0); ctx.lineTo(l*lW,cH); ctx.stroke(); }
         }
-        
         ctx.fillStyle = "white"; 
         ctx.font = "bold 80px monospace"; 
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(text, cW / 2, cH / 2);
-        
         animRef.current = requestAnimationFrame(draw);
         return;
       }
 
       // FASE GIOCO
+      // Sfondo
       for (let l = 0; l < 3; l++) {
         ctx.fillStyle = l % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent';
         ctx.fillRect(l * lW, 0, lW, cH);
       }
+      // Linee verticali
       ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1;
       for (let l = 1; l < 3; l++) { ctx.beginPath(); ctx.moveTo(l * lW, 0); ctx.lineTo(l * lW, cH); ctx.stroke(); }
       
-      // Hit Line
+      // Hit Line (La linea dove colpire)
       ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
       ctx.beginPath(); ctx.moveTo(0, hitY); ctx.lineTo(cW, hitY); ctx.stroke(); ctx.setLineDash([]);
       
-      // Cerchi tasti
+      // Cerchi tasti (Feedback visivo del tasto)
       for (let l = 0; l < 3; l++) {
         const cx = l * lW + lW / 2;
         ctx.strokeStyle = COLORS[l] + '55'; ctx.lineWidth = 2;
@@ -97,32 +96,39 @@ export default function BandModeClient({ pubCode, participant }) {
       // Note
       for (const note of notesRef.current) {
         if (note.hit || note.missed) continue;
-        const tti = note.time - elapsed;
+        const tti = note.time - elapsed; // Time To Impact
         
+        // Se la nota è troppo lontana, non disegnarla
         if (tti > NOTE_LEAD + 0.1) continue;
-        if (tti < -HIT_WINDOW - 0.05) { note.missed = true; comboRef.current = 0; setCombo(0); continue; }
+        
+        // MISS: Se la nota è scesa troppo oltre la linea (aumentato margine per evitare miss frustranti)
+        if (tti < -HIT_WINDOW - 0.1) { // 100ms extra di visualizzazione prima di sparire
+          note.missed = true; 
+          comboRef.current = 0; 
+          setCombo(0); 
+          continue; 
+        }
 
         const y = (1 - tti / NOTE_LEAD) * hitY;
         const cx = note.lane * lW + lW / 2;
         const col = COLORS[note.lane];
 
-        ctx.save(); ctx.shadowColor = col; ctx.shadowBlur = 14; ctx.fillStyle = col;
+        ctx.save(); 
+        ctx.shadowColor = col; ctx.shadowBlur = 14; ctx.fillStyle = col;
+        // Disegna rombo
         ctx.beginPath(); ctx.moveTo(cx, y - 11); ctx.lineTo(cx + 9, y); ctx.lineTo(cx, y + 11); ctx.lineTo(cx - 9, y);
-        ctx.closePath(); ctx.fill(); ctx.restore();
+        ctx.closePath(); ctx.fill(); 
+        ctx.restore();
       }
       animRef.current = requestAnimationFrame(draw);
     }
     animRef.current = requestAnimationFrame(draw);
   }, [getElapsed]);
 
-  // ── Start Game Logic ──────────────────────────────────────────────────────
+  // ── Start Logic ───────────────────────────────────────────────────────────
   const startGame = useCallback((chartData, delay) => {
     const receptionTime = Date.now();
-    
-    // QUI APPLICHIAMO LA CORREZIONE:
-    // Riduciamo il delay del valore di OFFSET_LATENZA (es. 350ms)
-    // Così il telefono parte leggermente "nel futuro" rispetto a quando ha ricevuto il messaggio,
-    // allineandosi con il PC che è già partito 350ms fa.
+    // Applica l'anticipo per sincronizzare col PC
     const adjustedStart = receptionTime + delay - OFFSET_LATENZA;
     
     startTimeRef.current = adjustedStart; 
@@ -133,44 +139,67 @@ export default function BandModeClient({ pubCode, participant }) {
     startDrawLoop();
   }, [startDrawLoop]);
 
-  // ── Hit Handler ───────────────────────────────────────────────────────────
+  // ── Hit Handler (Logica "Buonista") ───────────────────────────────────────
   const handleHit = useCallback(async (lane) => {
     if (gameState !== 'playing') return;
     const elapsed = getElapsed();
-    // Permetti hit anche leggermente prima dello zero (grace period)
-    if (elapsed < -0.5) return; 
+    
+    // Grace period iniziale: impedisce di missare se si preme troppo presto a canzone appena iniziata
+    if (elapsed < -1.0) return; 
 
     let best = null, bestDist = Infinity;
+    
+    // Cerca la nota più vicina in quella corsia
     for (const note of notesRef.current) {
       if (note.hit || note.missed || note.lane !== lane) continue;
+      
+      // Distanza temporale assoluta (non importa se prima o dopo)
       const d = Math.abs(note.time - elapsed);
-      if (d < HIT_WINDOW && d < bestDist) { best = note; bestDist = d; }
+      
+      // Se rientra nella GRANDE finestra di hit (0.30s), è candidata
+      if (d < HIT_WINDOW && d < bestDist) { 
+        best = note; 
+        bestDist = d; 
+      }
     }
 
     if (best) {
       best.hit = true;
-      const isPerfect = bestDist < PERF_WINDOW, isGood = bestDist < GOOD_WINDOW;
+      
+      // Calcolo punteggio con le nuove finestre larghe
+      const isPerfect = bestDist < PERF_WINDOW;
+      const isGood = bestDist < GOOD_WINDOW; // Include anche i perfect mancati di poco
+      
       const label = isPerfect ? '✨ PERFECT!' : isGood ? '⚡ GOOD!' : '✓ HIT';
       const color = isPerfect ? '#ffd100' : isGood ? '#39ff84' : '#00d4ff';
       const pts = isPerfect ? POINTS.perfect : isGood ? POINTS.good : POINTS.hit;
 
-      scoreRef.current += pts; comboRef.current += 1;
-      setScore(scoreRef.current); setCombo(comboRef.current);
-      setFeedback({ text: label, color, lane }); setTimeout(() => setFeedback(null), 600);
+      scoreRef.current += pts; 
+      comboRef.current += 1;
+      
+      setScore(scoreRef.current); 
+      setCombo(comboRef.current);
+      
+      setFeedback({ text: label, color, lane }); 
+      setTimeout(() => setFeedback(null), 600);
+      
+      // Invia al PC
       await channelRef.current?.send({ type: 'broadcast', event: 'band_hit', payload: { nickname, lane, accuracy: bestDist, points: pts } });
     } else {
-      comboRef.current = 0; setCombo(0);
-      setFeedback({ text: '✗ MISS', color: '#ff3b5c88', lane }); setTimeout(() => setFeedback(null), 400);
+      // Miss solo se non c'è NESSUNA nota vicina (evita miss accidentali se si preme a caso)
+      comboRef.current = 0; 
+      setCombo(0);
+      setFeedback({ text: '✗ MISS', color: '#ff3b5c88', lane }); 
+      setTimeout(() => setFeedback(null), 400);
       await channelRef.current?.send({ type: 'broadcast', event: 'band_miss', payload: { nickname, lane } });
     }
   }, [gameState, getElapsed, nickname]);
 
-  // ── Supabase Listener ─────────────────────────────────────────────────────
+  // ── Supabase ──────────────────────────────────────────────────────────────
   useEffect(() => {
     const ch = supabase.channel(`band_game_${pubCode}`, { config: { broadcast: { self: true } } });
     
     ch.on('broadcast', { event: 'band_start' }, async ({ payload }) => {
-      console.log("RICEVUTO START!");
       setGameState('loading');
       try {
         const songName = payload.song || 'deepdown';
@@ -187,7 +216,6 @@ export default function BandModeClient({ pubCode, participant }) {
 
     ch.subscribe(status => {
       setConnected(status === 'SUBSCRIBED');
-      console.log("Stato canale:", status);
     });
 
     channelRef.current = ch;
@@ -196,6 +224,7 @@ export default function BandModeClient({ pubCode, participant }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#08080f', fontFamily: "'JetBrains Mono', monospace", overflow: 'hidden', userSelect: 'none', WebkitUserSelect: 'none' }}>
+      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 16px', background: '#0d0d18', borderBottom: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
         <div style={{ fontSize: '18px', fontWeight: 900, color: '#ffd100' }}>{score.toLocaleString()}</div>
         {combo > 1 && <div style={{ fontSize: '13px', fontWeight: 900, color: '#39ff84', textShadow: '0 0 10px #39ff84' }}>x{combo}</div>}
@@ -205,6 +234,7 @@ export default function BandModeClient({ pubCode, participant }) {
         </div>
       </div>
       
+      {/* Canvas Area */}
       <div style={{ flex: '0 0 28vh', position: 'relative' }}>
         <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
         {(gameState === 'waiting' || gameState === 'loading') && (
@@ -218,6 +248,7 @@ export default function BandModeClient({ pubCode, participant }) {
         {feedback && <div style={{ position: 'absolute', left: `${feedback.lane * 33.3 + 16.6}%`, top: '55%', transform: 'translateX(-50%)', fontSize: '15px', fontWeight: 900, color: feedback.color, textShadow: `0 0 14px ${feedback.color}`, animation: 'feedPop 0.6s ease forwards', pointerEvents: 'none', whiteSpace: 'nowrap' }}>{feedback.text}</div>}
       </div>
 
+      {/* Tasti Grandi */}
       <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '4px', padding: '4px', background: '#050508' }}>
         {[0, 1, 2].map(l => (
           <button key={l} onPointerDown={e => { e.preventDefault(); setPressing(p => { const n = [...p]; n[l] = true; return n; }); handleHit(l); }} onPointerUp={() => setPressing(p => { const n = [...p]; n[l] = false; return n; })} onPointerCancel={() => setPressing(p => { const n = [...p]; n[l] = false; return n; })}

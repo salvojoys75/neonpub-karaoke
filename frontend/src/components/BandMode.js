@@ -8,7 +8,8 @@ const PERF_WINDOW  = 0.045;
 const NOTE_LEAD    = 3.0;
 const COLORS       = ['#ff3b5c', '#00d4ff', '#39ff84'];
 const LANE_LABELS  = ['LANE 0', 'LANE 1', 'LANE 2'];
-const START_DELAY  = 4000; 
+const START_DELAY  = 4000; // 4 secondi totali di attesa prima che parta l'audio
+const DEFAULT_BPM  = 126;  // BPM di default se non specificato nel JSON (Deep Down è ~126)
 
 export default function BandMode({ session, pubCode, chart: chartProp }) {
   const [chart, setChart]           = useState(chartProp || null);
@@ -19,9 +20,8 @@ export default function BandMode({ session, pubCode, chart: chartProp }) {
   const [hitFeedback, setHitFeedback] = useState([]);
   const [players, setPlayers]       = useState({});
   const [organLevel, setOrganLevel] = useState(0);
-  const [connected, setConnected]   = useState(false); // Feedback visivo connessione
+  const [connected, setConnected]   = useState(false);
 
-  // Refs per gestire lo stato senza riavviare la connessione
   const baseRef    = useRef(null);
   const organRef   = useRef(null);
   const canvasRef  = useRef(null);
@@ -32,9 +32,8 @@ export default function BandMode({ session, pubCode, chart: chartProp }) {
   const channelRef   = useRef(null);
   const organGainRef = useRef(null);
   const startTimerRef = useRef(null);
-  const gameStateRef = useRef('waiting'); // Importante per la stabilità
+  const gameStateRef = useRef('waiting');
 
-  // Sincronizza Ref con State
   useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
 
   // 1. Carica chart
@@ -58,18 +57,34 @@ export default function BandMode({ session, pubCode, chart: chartProp }) {
     organGainRef.current = gain;
   }, []);
 
+  // ── FUNZIONE PER I CLICK DEL METRONOMO ──
+  const playClick = (ctx, time, isHigh) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    // Frequenza: 1000Hz (acuto) per l'ultimo beat, 600Hz (grave) per gli altri
+    osc.frequency.value = isHigh ? 1200 : 800; 
+    
+    // Suono breve e percussivo
+    gain.gain.setValueAtTime(0.3, time);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+    
+    osc.start(time);
+    osc.stop(time + 0.15);
+  };
+
   // 3. Start Sequence
   const startSequence = useCallback(async () => {
     if (!chart || gameStateRef.current !== 'waiting') return;
     
-    // Setup immediato
     setupAudio();
     const ctx = audioCtxRef.current;
     if (ctx.state === 'suspended') await ctx.resume();
 
     notesRef.current = chart.map((n, i) => ({ ...n, id: i, hit: false, missed: false }));
 
-    // Preload Audio
     const waitReady = (el) => new Promise(resolve => {
       el.currentTime = 0;
       if (el.readyState >= 3) { resolve(); return; }
@@ -79,6 +94,7 @@ export default function BandMode({ session, pubCode, chart: chartProp }) {
 
     await Promise.all([waitReady(baseRef.current), waitReady(organRef.current)]);
 
+    // Connessione audio
     if (!baseRef.current._connected) {
       const src = ctx.createMediaElementSource(baseRef.current);
       src.connect(ctx.destination);
@@ -90,8 +106,27 @@ export default function BandMode({ session, pubCode, chart: chartProp }) {
       organRef.current._connected = true;
     }
 
-    // INVIO SEGNALE START (Ora sicuro perché il canale non si resetta)
-    console.log("INVIO START AL TELEFONO...");
+    // ── CALCOLO E PROGRAMMAZIONE CLICK A TEMPO ──
+    const bpm = chart.bpm || DEFAULT_BPM; 
+    const beatDuration = 60 / bpm; // Durata di un battito in secondi
+    const now = ctx.currentTime;
+    const musicStartTime = now + (START_DELAY / 1000); // Quando partirà la musica (tra 4 sec)
+
+    // Scheduliamo 4 click ESATTAMENTE prima che parta la musica
+    // Click 1: -4 beat
+    // Click 2: -3 beat
+    // Click 3: -2 beat
+    // Click 4: -1 beat (Tono alto "GO")
+    for (let i = 0; i < 4; i++) {
+        const clickTime = musicStartTime - ((4 - i) * beatDuration);
+        // Suoniamo il click solo se il tempo calcolato è nel futuro (per sicurezza)
+        if (clickTime > now) {
+            playClick(ctx, clickTime, i === 3); // L'ultimo (i=3) è acuto
+        }
+    }
+    // ──────────────────────────────────────────────
+
+    // Invio segnale ai telefoni (Loro non sentono i click, aspettano solo il via)
     await channelRef.current?.send({
       type: 'broadcast',
       event: 'band_start',
@@ -101,7 +136,6 @@ export default function BandMode({ session, pubCode, chart: chartProp }) {
       }
     });
 
-    // Avvia countdown locale
     setGameState('countdown');
     setCountdown(4);
     
@@ -116,6 +150,7 @@ export default function BandMode({ session, pubCode, chart: chartProp }) {
       }
     }, 1000);
 
+    // Timer per far partire la musica
     startTimerRef.current = setTimeout(async () => {
       if(baseRef.current) baseRef.current.volume = 0.8;
       
@@ -186,13 +221,11 @@ export default function BandMode({ session, pubCode, chart: chartProp }) {
     animRef.current = requestAnimationFrame(draw);
   }, []);
 
-  // 5. Supabase Events (CORRETTO: Dependency array pulito)
+  // 5. Supabase Events
   useEffect(() => {
-    console.log("Connessione canale Supabase...", pubCode);
     const channel = supabase.channel(`band_game_${pubCode}`, { config: { broadcast: { self: false } } });
     
     channel.on('broadcast', { event: 'band_hit' }, ({ payload }) => {
-      // Usa gameStateRef invece di gameState per evitare stale closures
       if (gameStateRef.current !== 'playing') return;
 
       const { nickname, lane, accuracy, points } = payload;
@@ -234,11 +267,10 @@ export default function BandMode({ session, pubCode, chart: chartProp }) {
     });
 
     channelRef.current = channel;
-    // NON rimuoviamo il canale finché il componente non viene smontato del tutto
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [pubCode]); // Rimosso gameState dalle dipendenze!
+  }, [pubCode]); 
 
   useEffect(() => {
     return () => { 
