@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { getServerTime } from '@/lib/api';
 
 // ─── COSTANTI ────────────────────────────────────────────────────────────────
 const PERF_WINDOW = 0.05;
@@ -305,8 +306,13 @@ export default function BandMode({ session, pubCode }) {
     await setupAudio(ass);
     const ctx = audioCtxRef.current;
 
-    // Ritardo effettivo: ms rimanenti fino a startAt (minimo 0)
-    const msDelay      = startAt ? Math.max(0, new Date(startAt).getTime() - Date.now()) : START_DELAY;
+    // Ritardo effettivo corretto via NTP: stesso approccio del telefono.
+    // getServerTime() misura l'offset tra clock locale e Postgres con 3 ping,
+    // così msDelay è corretto anche se il PC ha l'orologio sfasato.
+    let clockOffset = 0;
+    try { clockOffset = await getServerTime(); } catch { clockOffset = 0; }
+    const correctedNow = Date.now() + clockOffset;
+    const msDelay      = startAt ? Math.max(0, new Date(startAt).getTime() - correctedNow) : START_DELAY;
     const bpm          = DEFAULT_BPM;
     const beatDuration = 60 / bpm;
     const now          = ctx.currentTime;
