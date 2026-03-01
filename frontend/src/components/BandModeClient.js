@@ -3,7 +3,9 @@ import { supabase } from '@/lib/supabase';
 import { getEventState } from '@/lib/api';
 
 // ── CONFIGURAZIONE ────────────────────────────────────────────────────────────
-const OFFSET_LATENZA = 400;
+// Latenza audio: 0 = note allineate al beat TV. Aumentare (es. 100) solo se
+// il locale è molto grande e il suono impiega tempo ad arrivare al giocatore.
+const OFFSET_LATENZA = 0;
 const HIT_WINDOW  = 0.20;
 const GOOD_WINDOW = 0.10;
 const PERF_WINDOW = 0.05;

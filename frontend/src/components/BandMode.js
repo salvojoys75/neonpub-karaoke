@@ -319,9 +319,11 @@ export default function BandMode({ session, pubCode }) {
     }
 
     setGameState('countdown');
+    // Conta dal numero reale di secondi rimanenti — non cappato a 4.
+    // Con startAt+7s, mostra 6,5,4,3,2,1,GO! senza congelarsi.
     const totalSec = Math.ceil(msDelay / 1000);
-    setCountdown(Math.min(totalSec, 4));
-    let count = Math.min(totalSec, 4);
+    setCountdown(totalSec);
+    let count = totalSec;
     const iv = setInterval(() => {
       count--;
       if (count > 0) setCountdown(count);
