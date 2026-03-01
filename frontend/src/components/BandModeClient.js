@@ -192,10 +192,17 @@ export default function BandModeClient({ pubCode, participant }) {
 
     poll();            // Immediato al mount
     setupRealtime();   // Iscriviti ai push
-    const interval = setInterval(poll, 3000); // Fallback ogni 3s
+    const interval = setInterval(poll, 500); // 500ms: rileva startAt entro mezzo secondo
+
+    // Quando l'utente torna alla tab (da background/altra app), scatta subito.
+    // Senza questo, il browser tiene il timer throttolato e il telefono riceve
+    // startAt in ritardo → countdown già parzialmente passato o azzerato.
+    const onVisible = () => { if (document.visibilityState === 'visible') poll(); };
+    document.addEventListener('visibilitychange', onVisible);
 
     return () => {
       clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
       if (realtimeChannel) supabase.removeChannel(realtimeChannel);
     };
   }, [pubCode]); // eslint-disable-line react-hooks/exhaustive-deps
