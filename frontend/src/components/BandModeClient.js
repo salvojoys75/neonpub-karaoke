@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import { getEventState, getServerTime } from '@/lib/api';
+import { getEventState } from '@/lib/api';
 
 // ── CONFIGURAZIONE ────────────────────────────────────────────────────────────
 // Latenza audio: 0 = note allineate al beat TV. Aumentare (es. 100) solo se
@@ -52,7 +52,6 @@ export default function BandModeClient({ pubCode, participant }) {
   // i broadcast — causando la perdita degli eventi (race condition deterministica).
   const laneLabelsRef  = useRef([]);   // aggiornato quando myRole cambia
   const startGameRef    = useRef(null); // aggiornato quando startGame cambia
-  const clockOffsetRef  = useRef(0);    // offset ms tra clock locale e server (NTP)
   const nicknameRef    = useRef(null); // costante per sessione
   const userIdRef      = useRef(null); // costante per sessione
 
@@ -68,18 +67,9 @@ export default function BandModeClient({ pubCode, participant }) {
   useEffect(() => { userIdRef.current     = userId; },     [userId]);
   // startGameRef.current viene sincronizzato subito dopo la dichiarazione di startGame
 
-  // ── Clock sync al mount ───────────────────────────────────────────────────
-  // Misura una volta l'offset tra clock locale e server (algoritmo NTP).
-  // Tutti i confronti con startAt usano (Date.now() + clockOffsetRef.current).
-  useEffect(() => {
-    getServerTime()
-      .then(offset => { clockOffsetRef.current = offset; })
-      .catch(() => { clockOffsetRef.current = 0; }); // fallback: usa clock locale
-  }, []);
-
   const getElapsed = useCallback(() => {
     if (!startTimeRef.current) return -999;
-    return ((Date.now() + clockOffsetRef.current) - startTimeRef.current) / 1000;
+    return (Date.now() - startTimeRef.current) / 1000;
   }, []);
 
   // ── Realtime + polling fallback ─────────────────────────────────────────────
@@ -92,7 +82,7 @@ export default function BandModeClient({ pubCode, participant }) {
     let realtimeChannel   = null;
 
     // ── Logica condivisa: processa lo stato band dal DB ─────────────────────
-    const processBandState = async (activeBand) => {
+    const processBandState = async (activeBand, estimatedServerTime = Date.now()) => {
       if (!activeBand || activeBand.status !== 'active' || !activeBand.startAt) {
         // Band non attiva → reset se eravamo in sessione
         if (activeStartAtRef.current !== null || myRoleRef.current !== null) {
@@ -115,11 +105,16 @@ export default function BandModeClient({ pubCode, participant }) {
       }
 
       // Band attiva con startAt — nuova sessione?
-      // Usa il clock corretto (locale + offset server) per verificare se startAt è già passato
-      const correctedNow = Date.now() + clockOffsetRef.current;
-      const startAtMs    = new Date(activeBand.startAt).getTime();
-      if (correctedNow > startAtMs + 30000) return; // sessione più vecchia di 30s — ignora
       if (activeStartAtRef.current === activeBand.startAt || isLoadingRef.current) return;
+
+      // Calcolo NTP: converti startAt (clock server/admin) in timestamp del clock LOCALE
+      // msUntilStart = quanto manca all'inizio dal punto di vista del server stimato
+      // localStartAtMs = quando il gioco inizia secondo il clock locale del telefono
+      const startAtMs     = new Date(activeBand.startAt).getTime();
+      const msUntilStart  = startAtMs - estimatedServerTime;
+      if (msUntilStart < -30000) return; // sessione più vecchia di 30s — ignora
+      const localStartAtMs = Date.now() + Math.max(msUntilStart, 200); // min 200ms
+
       activeStartAtRef.current = activeBand.startAt;
 
       const assignments = activeBand.assignments || [];
@@ -140,7 +135,7 @@ export default function BandModeClient({ pubCode, participant }) {
           const res = await fetch(`/audio/${activeBand.song}/chart_${mine.instrument}.json`);
           if (!res.ok) throw new Error('chart non trovata');
           const chartData = await res.json();
-          startGameRef.current?.(chartData, activeBand.startAt);
+          startGameRef.current?.(chartData, localStartAtMs);
         } catch (err) {
           console.error('BandModeClient chart error:', err);
           setFeedback({ text: 'ERRORE CHART', color: '#ff3b5c', lane: 1 });
@@ -154,12 +149,23 @@ export default function BandModeClient({ pubCode, participant }) {
       }
     };
 
-    // ── Poll HTTP: primo load + fallback ogni 3s ─────────────────────────────
+    // ── Poll HTTP: primo load + fallback ogni 500ms ──────────────────────────
+    // Algoritmo NTP applicato direttamente alla richiesta poll:
+    //   t0 = Date.now() prima del fetch
+    //   serverTime stimato = t0 + rtt/2  (il server ha processato a metà del viaggio)
+    //   msUntilStart = startAt_ms - serverTime_stimato
+    //   localStartAtMs = Date.now() + msUntilStart
+    // Risultato: anche se admin clock e phone clock differiscono di secondi,
+    // il telefono calcola il countdown dal proprio clock locale — senza dipendere
+    // dalla sincronizzazione degli orologi.
     const poll = async () => {
       try {
+        const t0    = Date.now();
         const state = await getEventState();
+        const t1    = Date.now();
+        const estimatedServerTime = t0 + (t1 - t0) / 2; // NTP midpoint
         const activeBand = state?.active_module === 'band' ? state?.active_band : null;
-        await processBandState(activeBand);
+        await processBandState(activeBand, estimatedServerTime);
       } catch { /* silenzioso */ }
     };
 
@@ -183,7 +189,9 @@ export default function BandModeClient({ pubCode, participant }) {
             (payload) => {
               const row = payload.new;
               const activeBand = row.active_module === 'band' ? row.active_band : null;
-              processBandState(activeBand);
+              // Push WebSocket: latenza ~10-50ms, usiamo Date.now() come stima serverTime
+              // (il postgres_changes arriva praticamente in tempo reale)
+              processBandState(activeBand, Date.now());
             }
           )
           .subscribe();
@@ -316,11 +324,10 @@ export default function BandModeClient({ pubCode, participant }) {
   // sistematico pari al tempo di download (200-800ms). Ancorando direttamente
   // a startAt, startTimeRef è invariante rispetto a quando viene chiamata questa
   // funzione — il telefono è sempre sincronizzato all'UTC del DB.
-  const startGame = useCallback((chartData, startAt) => {
-    // startTimeRef = punto zero del tempo di gioco
-    // elapsed = (Date.now() - startTimeRef) / 1000
-    // OFFSET_LATENZA compensa la propagazione audio TV→orecchie del giocatore
-    startTimeRef.current = new Date(startAt).getTime(); // startAt è UTC server — nessun offset necessario
+  const startGame = useCallback((chartData, localStartAtMs) => {
+    // localStartAtMs: timestamp nel clock LOCALE del telefono — già corretto via NTP midpoint.
+    // Non serve conversione: il telefono usa il proprio Date.now() come riferimento.
+    startTimeRef.current = localStartAtMs;
     notesRef.current = chartData.map((n, i) => ({ ...n, id: i, hit: false, missed: false }));
     scoreRef.current = 0; comboRef.current = 0;
     setScore(0); setCombo(0);
