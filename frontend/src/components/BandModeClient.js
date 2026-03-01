@@ -250,7 +250,27 @@ export default function BandModeClient({ pubCode, participant }) {
     });
 
     ch.on('broadcast', { event: 'band_start' }, async ({ payload }) => {
-      const role     = myRoleRef.current;
+      // Se band_start arriva prima che loadRoleFromDB abbia risposto,
+      // derivo il mio ruolo direttamente dalle assignments nel payload
+      let role = myRoleRef.current;
+      if (!role && payload.assignments?.length) {
+        const mine = payload.assignments.find(a =>
+          (userId && a.userId === userId) || a.nickname === nickname
+        );
+        if (mine) {
+          role = mine.instrument;
+          setMyRole(role);
+          myRoleRef.current  = role;
+          songNameRef.current = payload.song;
+          setIsSpectator(false);
+          setGameState('assigned');
+        } else {
+          setIsSpectator(true);
+          setGameState('waiting');
+          return;
+        }
+      }
+
       const songName = payload.song || songNameRef.current || 'deepdown';
       if (!role) return;
 

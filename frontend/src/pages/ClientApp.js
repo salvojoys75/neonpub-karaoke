@@ -49,6 +49,8 @@ export default function ClientApp() {
   const [selfieSent, setSelfieSent] = useState(false);
   const selfieInputRef = useRef(null);
   const pollIntervalRef = useRef(null);
+  // Traccia se la band è già attiva per evitare toast ripetitivi ogni 3s
+  const bandActiveRef   = useRef(false);
 
   useEffect(() => { if (!isAuthenticated) navigate("/"); }, [isAuthenticated, navigate]);
 
@@ -56,7 +58,7 @@ export default function ClientApp() {
     // Senza token non ha senso chiamare le API
     if (!localStorage.getItem('discojoys_token')) return;
     try {
-      const [queueRes, myRes, perfRes, lbRes, quizRes, arcadeRes, millionaireRes] = await Promise.all([
+      const [queueRes, myRes, perfRes, lbRes, quizRes, arcadeRes, millionaireRes, eventStateRes] = await Promise.all([
         api.getSongQueue(), 
         api.getMyRequests(), 
         api.getCurrentPerformance(), 
@@ -100,15 +102,20 @@ export default function ClientApp() {
       } else {
         setActiveArcade(null);
       }
-// ✅ GESTIONE BAND MODE - Cambio automatico tab
-const eventState = await api.getEventState();
+// ✅ GESTIONE BAND MODE - Cambio automatico tab (una sola notifica, nessun loop)
+const eventState = eventStateRes;
 if (eventState?.active_module === 'band' && eventState?.active_band?.status === 'active') {
-  if (activeTab !== 'band') {
+  if (!bandActiveRef.current) {
+    bandActiveRef.current = true;
     setActiveTab('band');
     toast.success("🎸 Band Mode! Pronto a suonare?");
   }
-} else if (activeTab === 'band') {
-  setActiveTab('home');
+} else {
+  if (bandActiveRef.current) {
+    bandActiveRef.current = false;
+    // Torna a home solo se si è ancora sul tab band
+    setActiveTab(prev => prev === 'band' ? 'home' : prev);
+  }
 }
 
       // ✅ GESTIONE MILIONARIO

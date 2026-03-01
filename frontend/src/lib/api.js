@@ -1220,19 +1220,46 @@ export const startBandSession = async (songId, songTitle, assignments) => {
     active_band:   activeBand,
   }).eq('id', event.id);
 
-  // Broadcast immediato — il display lo usa per avviare il countdown subito
-  // senza aspettare il prossimo poll (max 1s di ritardo altrimenti)
-  const channel = supabase.channel(`band_game_${event.code}`);
-  await new Promise(resolve => setTimeout(resolve, 200)); // attendi subscribe
-  await channel.send({
-    type: 'broadcast',
-    event: 'band_start',
-    payload: {
-      song:        songId,
-      songTitle:   songTitle,
-      assignments: assignments,
-      startDelay:  4000,
-    }
+  // Broadcast — bisogna fare subscribe prima di poter inviare messaggi
+  // Mandiamo prima band_setup (imposta i ruoli sui telefoni che sono già connessi)
+  // poi band_start (fa partire il conto alla rovescia su TV e telefoni)
+  await new Promise((resolve, reject) => {
+    const channel = supabase.channel(`band_game_${event.code}`);
+    const timeout = setTimeout(() => {
+      supabase.removeChannel(channel);
+      reject(new Error('Timeout broadcast band'));
+    }, 8000);
+
+    channel.subscribe(async (status) => {
+      if (status !== 'SUBSCRIBED') return;
+      try {
+        // 1) band_setup — imposta ruoli sui client già connessi
+        await channel.send({
+          type: 'broadcast',
+          event: 'band_setup',
+          payload: { song: songId, assignments },
+        });
+
+        // Piccola pausa per dare il tempo ai client di registrare il ruolo
+        await new Promise(r => setTimeout(r, 400));
+
+        // 2) band_start — avvia il gioco (contiene assignments per chi fosse arrivato tardi)
+        await channel.send({
+          type: 'broadcast',
+          event: 'band_start',
+          payload: {
+            song:        songId,
+            songTitle:   songTitle,
+            assignments: assignments,
+            startDelay:  4000,
+          },
+        });
+      } finally {
+        clearTimeout(timeout);
+        supabase.removeChannel(channel);
+        resolve();
+      }
+    });
   });
 
   return { success: true };
