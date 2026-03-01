@@ -102,7 +102,8 @@ function getActiveMode(data) {
   const millionaire = data.active_millionaire;
   if (extraction_data) return 'extraction';
   const isQuiz   = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
-  const isArcade = (arcade && ['active', 'paused', 'setup', 'waiting'].includes(arcade.status)) || !!data.arcade_result;
+  const isBandActive = data.active_band?.status === 'active';
+  const isArcade = !isBandActive && ((arcade && ['active', 'paused', 'setup', 'waiting'].includes(arcade.status)) || !!data.arcade_result);
   const isMillionaire = millionaire && ['active', 'lifeline_audience', 'won', 'lost', 'retired'].includes(millionaire.status);
   const isKaraoke = !isQuiz && !isArcade && !isMillionaire && perf && ['live', 'paused'].includes(perf.status);
   const isVoting  = !isQuiz && !isArcade && !isMillionaire && perf && perf.status === 'voting';
@@ -1758,7 +1759,8 @@ export default function PubDisplay() {
     const isMillionaire = millionaire && ['active','lifeline_audience','won','lost','retired'].includes(millionaire.status);
     const isQuiz        = !isMillionaire && quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
     const isArcadeLobby = !isQuiz && !isMillionaire && data.active_arcade && ['setup', 'waiting'].includes(data.active_arcade.status);
-    const isArcade      = !isQuiz && !isArcadeLobby && !isMillionaire && ((data.active_arcade && ['active', 'paused'].includes(data.active_arcade.status)) || !!data.arcade_result);
+    const isBandActive  = data.active_band?.status === 'active';
+    const isArcade      = !isQuiz && !isArcadeLobby && !isMillionaire && !isBandActive && ((data.active_arcade && ['active', 'paused'].includes(data.active_arcade.status)) || !!data.arcade_result);
     const isKaraoke     = !isQuiz && !isArcade && !isArcadeLobby && !isMillionaire && perf && ['live', 'paused'].includes(perf.status);
     const isVoting      = !isQuiz && !isArcade && !isArcadeLobby && !isMillionaire && perf && perf.status === 'voting';
     const isScore       = !isQuiz && !isArcade && !isArcadeLobby && !isMillionaire && perf && perf.status === 'ended' && perf.average_score > 0;

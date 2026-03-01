@@ -61,10 +61,11 @@ export const getDisplayData = async (pubCode) => {
     .map(q => ({...q, user_nickname: q.participants?.nickname, user_avatar: q.participants?.avatar_url}));
 
   // ── Arcade winner: mostrato finché l'admin non preme "clear_arcade".
-  // La schermata vincitore rimane visibile finché active_band non viene azzerata.
+  // Se band mode è attiva, arcade_result è sempre null (band ha priorità assoluta).
   const arcadeRaw = activeArcade.data;
+  const bandActive = event.active_band?.status === 'active';
   let arcadeResult = null;
-  if (arcadeRaw && arcadeRaw.status === 'ended' && arcadeRaw.winner_id) {
+  if (!bandActive && arcadeRaw && arcadeRaw.status === 'ended' && arcadeRaw.winner_id) {
     const { data: winner } = await supabase
       .from('participants').select('id, nickname, avatar_url')
       .eq('id', arcadeRaw.winner_id).single();
@@ -1225,7 +1226,12 @@ export const startBandSession = async (songId, songTitle, assignments) => {
   // Resetta altri moduli per sicurezza
   await supabase.from('performances').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
   await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
-  await supabase.from('arcade_games').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
+  // Azzera anche winner_id: così getDisplayData non costruisce arcade_result
+  // (il .neq precedente non toccava le partite già 'ended', lasciando il winner visibile)
+  await supabase.from('arcade_games')
+    .update({ status: 'ended', winner_id: null })
+    .eq('event_id', event.id)
+    .in('status', ['setup', 'waiting', 'active', 'paused', 'ended']);
   await supabase.from('millionaire_games').update({ status: 'lost' }).eq('event_id', event.id).neq('status', 'lost');
 
   // ── DESIGN: Il DB è l'unica fonte di verità per l'avvio del gioco.
