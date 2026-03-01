@@ -1232,7 +1232,8 @@ export const startBandSession = async (songId, songTitle, assignments) => {
     .update({ status: 'ended', winner_id: null })
     .eq('event_id', event.id)
     .in('status', ['setup', 'waiting', 'active', 'paused', 'ended']);
-  await supabase.from('millionaire_games').update({ status: 'lost' }).eq('event_id', event.id).neq('status', 'lost');
+  // 'ended' non è nella query di getDisplayData → active_millionaire diventa null → isMillionaire=false
+  await supabase.from('millionaire_games').update({ status: 'ended' }).eq('event_id', event.id);
 
   // ── DESIGN: Il DB è l'unica fonte di verità per l'avvio del gioco.
   // Non usiamo broadcast WebSocket per band_start perché "send() falling back to REST"

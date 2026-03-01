@@ -104,12 +104,13 @@ function getActiveMode(data) {
   const isQuiz   = quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
   const isBandActive = data.active_band?.status === 'active';
   const isArcade = !isBandActive && ((arcade && ['active', 'paused', 'setup', 'waiting'].includes(arcade.status)) || !!data.arcade_result);
-  const isMillionaire = millionaire && ['active', 'lifeline_audience', 'won', 'lost', 'retired'].includes(millionaire.status);
+  const isMillionaire = !isBandActive && millionaire && ['active', 'lifeline_audience', 'won', 'lost', 'retired'].includes(millionaire.status);
   const isKaraoke = !isQuiz && !isArcade && !isMillionaire && perf && ['live', 'paused'].includes(perf.status);
   const isVoting  = !isQuiz && !isArcade && !isMillionaire && perf && perf.status === 'voting';
   const isScore   = !isQuiz && !isArcade && !isMillionaire && perf && perf.status === 'ended';
   if (isQuiz)        return 'quiz';
   if (isArcade)      return 'arcade';
+  if (isBandActive)  return 'band';
   if (isMillionaire) return 'millionaire';
   if (data.active_band?.status === 'active') return 'band';  // band prima di karaoke
   if (isKaraoke || isVoting) return 'karaoke';
@@ -1756,10 +1757,10 @@ export default function PubDisplay() {
     // ── Calcolo modalità attiva (deve stare prima dei return anticipati) ─────
     const recentMessages = approved_messages ? approved_messages.slice(0, 10) : [];
     const millionaire = data.active_millionaire;
-    const isMillionaire = millionaire && ['active','lifeline_audience','won','lost','retired'].includes(millionaire.status);
+    const isBandActive  = data.active_band?.status === 'active';
+    const isMillionaire = !isBandActive && millionaire && ['active','lifeline_audience','won','lost','retired'].includes(millionaire.status);
     const isQuiz        = !isMillionaire && quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status);
     const isArcadeLobby = !isQuiz && !isMillionaire && data.active_arcade && ['setup', 'waiting'].includes(data.active_arcade.status);
-    const isBandActive  = data.active_band?.status === 'active';
     const isArcade      = !isQuiz && !isArcadeLobby && !isMillionaire && !isBandActive && ((data.active_arcade && ['active', 'paused'].includes(data.active_arcade.status)) || !!data.arcade_result);
     const isKaraoke     = !isQuiz && !isArcade && !isArcadeLobby && !isMillionaire && perf && ['live', 'paused'].includes(perf.status);
     const isVoting      = !isQuiz && !isArcade && !isArcadeLobby && !isMillionaire && perf && perf.status === 'voting';
@@ -1855,12 +1856,11 @@ export default function PubDisplay() {
     );
 
     let Content = null;
-    if (isMillionaire)    Content = <MillionaireMode game={millionaire} />;
+    if (isBandActive)          Content = <BandMode session={data.active_band} pubCode={pubCode} />;
+    else if (isMillionaire)    Content = <MillionaireMode game={millionaire} />;
     else if (isQuiz)           Content = <QuizMode quiz={quiz} result={quizResult} />;
     else if (isArcadeLobby)  Content = <ArcadeLobbyMode arcade={data.active_arcade} pubCode={pubCode} />;
     else if (isArcade)    Content = <ArcadeMode arcade={data.active_arcade || {}} result={data.arcade_result} bookingQueue={data.active_arcade?.booking_queue || []} lastError={data.active_arcade?.last_error} />;
-    else if (data.active_band?.status === 'active')
-      Content = <BandMode session={data.active_band} pubCode={pubCode} />;
     else if (isLobbyKaraoke) Content = <KaraokeLobbyMode lobbyData={lobbyState.data} />;
     else if (isLobbyQuiz)    Content = <QuizLobbyMode lobbyData={lobbyState.data} />;
     else if (isVoting)    Content = <VotingMode perf={perf} />;
