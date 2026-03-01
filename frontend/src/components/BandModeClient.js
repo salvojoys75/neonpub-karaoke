@@ -175,20 +175,35 @@ export default function BandModeClient({ pubCode, participant }) {
   }, [pubCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Render Loop ────────────────────────────────────────────────────────────
+  // IMPORTANTE: le dimensioni vengono rilette ogni frame, NON catturate all'avvio.
+  // Motivo: quando startDrawLoop viene chiamato, il canvas potrebbe essere dentro
+  // un div con display:none (ClientApp nasconde BandModeClient quando activeTab !== 'band').
+  // In quel caso offsetWidth = 0 → lW = 0 → note disegnate a x=0 invisibili.
+  // Rileggere ogni frame garantisce che appena il tab diventa visibile, le note appaiono.
   const startDrawLoop = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const DPR = window.devicePixelRatio || 1;
-    const cW  = canvas.offsetWidth;
-    const cH  = canvas.offsetHeight;
-    canvas.width  = cW * DPR;
-    canvas.height = cH * DPR;
+
     const ctx = canvas.getContext('2d');
-    ctx.scale(DPR, DPR);
-    const lW = cW / 3, hitY = cH * 0.82;
 
     function draw() {
       const elapsed = getElapsed();
+
+      // Rileggi dimensioni ogni frame — gestisce display:none → block e rotazione schermo
+      const DPR = window.devicePixelRatio || 1;
+      const cW  = canvas.offsetWidth;
+      const cH  = canvas.offsetHeight;
+      if (cW === 0 || cH === 0) {
+        animRef.current = requestAnimationFrame(draw);
+        return; // canvas non ancora visibile, aspetta
+      }
+      if (canvas.width !== cW * DPR || canvas.height !== cH * DPR) {
+        canvas.width  = cW * DPR;
+        canvas.height = cH * DPR;
+        ctx.scale(DPR, DPR);
+      }
+      const lW = cW / 3, hitY = cH * 0.82;
+
       ctx.clearRect(0, 0, cW, cH);
 
       // COUNTDOWN
