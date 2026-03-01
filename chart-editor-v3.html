@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chart Editor</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Syne:wght@700;800&display=swap');
+:root{--bg:#0c0c10;--panel:#13131a;--border:rgba(255,255,255,0.07);--l0:#ff3b5c;--l1:#00d4ff;--l2:#39ff84;--accent:#ffd100;--text:#e8e8f0;--muted:rgba(255,255,255,0.25)}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;overflow:hidden}
+#app{display:grid;grid-template-rows:52px 1fr 160px;height:100vh}
+
+/* TOPBAR */
+#topbar{display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid var(--border);background:var(--panel);flex-shrink:0}
+#topbar h1{font-family:'Syne',sans-serif;font-size:17px;font-weight:800;color:var(--accent);flex-shrink:0}
+.sep{width:1px;height:22px;background:var(--border);flex-shrink:0}
+.tbtn{padding:4px 12px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:.5px;border:1px solid;transition:all .15s;white-space:nowrap}
+.tbtn-muted{border-color:var(--muted);color:var(--muted);background:transparent}
+.tbtn-muted:hover{border-color:var(--text);color:var(--text)}
+.tbtn-gold{border-color:var(--accent);color:var(--accent);background:rgba(255,209,0,.07)}
+.tbtn-gold:hover{background:rgba(255,209,0,.18)}
+.tbtn-red{border-color:var(--l0);color:var(--l0);background:rgba(255,59,92,.07)}
+.tbtn-red:hover{background:rgba(255,59,92,.18)}
+#file-input{display:none}
+#status{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}
+#note-count{font-size:11px;color:var(--accent);font-weight:700;margin-left:auto;flex-shrink:0}
+
+/* EDITOR */
+#editor-wrap{position:relative;overflow:hidden;background:var(--bg)}
+#lane-labels{position:absolute;top:0;left:0;width:52px;height:100%;display:flex;flex-direction:column;border-right:1px solid var(--border);background:var(--panel);z-index:10;pointer-events:none}
+.lane-label{flex:1;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;letter-spacing:1px;border-bottom:1px solid var(--border);flex-direction:column;gap:2px}
+.lane-label.l0{color:var(--l0)}.lane-label.l1{color:var(--l1)}.lane-label.l2{color:var(--l2)}
+canvas{position:absolute;top:0;left:0}
+
+/* CONTROLS */
+#controls{border-top:1px solid var(--border);background:var(--panel);display:flex;flex-direction:column}
+#transport{padding:8px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);flex-shrink:0}
+.icon-btn{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;border:1px solid;font-size:13px;transition:all .15s;flex-shrink:0;background:transparent}
+#play-btn{width:36px;height:36px;background:var(--accent);border:none;border-radius:50%;color:#000;font-size:15px;font-weight:900;cursor:pointer;flex-shrink:0;transition:transform .1s}
+#play-btn:active{transform:scale(.88)}
+#rew-btn{border-color:rgba(255,255,255,.2);color:var(--text)}
+#rew-btn:hover{background:rgba(255,255,255,.08)}
+#time-disp{font-size:13px;font-weight:700;color:var(--accent);min-width:86px}
+#bpm-input{width:50px;padding:3px 6px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;text-align:center}
+#zoom-range{width:70px;accent-color:var(--accent)}
+
+/* Quantizzazione */
+.quant-group{display:flex;gap:3px;align-items:center}
+.qbtn{padding:3px 8px;border-radius:3px;border:1px solid rgba(255,255,255,.12);background:transparent;color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:10px;cursor:pointer;transition:all .12s}
+.qbtn:hover{border-color:var(--accent);color:var(--accent)}
+.qbtn.active{border-color:var(--accent);color:var(--accent);background:rgba(255,209,0,.12)}
+
+/* Lane selector */
+#lane-selector{display:flex;align-items:center;gap:0;padding:0 16px;flex:1}
+.lane-key{flex:0 0 auto;padding:8px 14px;display:flex;align-items:center;gap:7px;cursor:pointer;border:none;background:transparent;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;letter-spacing:1px;border-top:2px solid transparent;transition:background .1s}
+.lane-key.l0{color:var(--l0)}.lane-key.l1{color:var(--l1)}.lane-key.l2{color:var(--l2)}
+.lane-key.active.l0{background:rgba(255,59,92,.1);border-top-color:var(--l0)}
+.lane-key.active.l1{background:rgba(0,212,255,.1);border-top-color:var(--l1)}
+.lane-key.active.l2{background:rgba(57,255,132,.1);border-top-color:var(--l2)}
+.kbd{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:3px;font-size:9px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12)}
+#hint{font-size:9px;color:rgba(255,255,255,.18);margin-left:auto;line-height:1.8;text-align:right}
+</style>
+</head>
+<body>
+<div id="app">
+
+<div id="topbar">
+  <h1>◈ CHART EDITOR</h1>
+  <div class="sep"></div>
+  <button class="tbtn tbtn-muted" onclick="document.getElementById('file-input').click()">📂 CARICA</button>
+  <input type="file" id="file-input" accept="audio/*" onchange="loadAudio(this)">
+  <button class="tbtn tbtn-muted" onclick="undo()" title="Ctrl+Z">↩ UNDO</button>
+  <button class="tbtn tbtn-red" onclick="clearNotes()">✕ PULISCI</button>
+  <button class="tbtn" onclick="quantizeNotes()" style="border-color:#39ff84;color:#39ff84;background:rgba(57,255,132,.07)" title="Sposta tutte le note al punto griglia più vicino">⊞ QUANTIZZA</button>
+  <button class="tbtn tbtn-gold" onclick="exportChart()">↓ ESPORTA JSON</button>
+  <div class="sep"></div>
+  <span id="status">Carica una stem per iniziare</span>
+  <span id="note-count">0 note</span>
+</div>
+
+<div id="editor-wrap">
+  <div id="lane-labels">
+    <div class="lane-label l0"><span>F</span><span style="font-size:7px;opacity:.4">LANE 0</span></div>
+    <div class="lane-label l1"><span>G</span><span style="font-size:7px;opacity:.4">LANE 1</span></div>
+    <div class="lane-label l2"><span>H</span><span style="font-size:7px;opacity:.4">LANE 2</span></div>
+  </div>
+  <canvas id="wf" style="pointer-events:none"></canvas>
+  <canvas id="gd" style="pointer-events:none"></canvas>
+  <canvas id="nt" style="pointer-events:none"></canvas>
+  <canvas id="cu"></canvas>
+</div>
+
+<div id="controls">
+  <div id="transport">
+    <button class="icon-btn" id="rew-btn" onclick="rewind()" title="−5s (Shift+←)">↺</button>
+    <button id="play-btn" onclick="togglePlay()">▶</button>
+    <span id="time-disp">0:00.000</span>
+    <div class="sep"></div>
+    <span style="font-size:10px;color:var(--muted)">BPM</span>
+    <input type="number" id="bpm-input" value="126" min="40" max="300" onchange="bpm=+this.value;redrawAll()">
+    <div class="sep"></div>
+    <span style="font-size:10px;color:#00d4ff">OFFSET</span>
+    <button onclick="autoGridOffset()" style="padding:3px 9px;border-radius:3px;border:1px solid rgba(0,212,255,.5);background:rgba(0,212,255,.1);color:#00d4ff;font-family:JetBrains Mono,monospace;font-size:10px;font-weight:700;cursor:pointer">AUTO</button>
+    <span id="off-val" style="font-size:11px;color:#00d4ff;min-width:48px;text-align:center">0.000s</span>
+    <input type="range" id="off-range" min="0" max="1000" value="0" style="width:90px;accent-color:#00d4ff" oninput="setGridOffset((+this.value/1000)*(60/bpm))" title="Oppure trascina una linea gialla direttamente sul grafico">
+    <div class="sep"></div>
+    <span style="font-size:10px;color:var(--muted)">GRIGLIA</span>
+    <div class="quant-group">
+      <button class="qbtn" onclick="setQuant(4)">1/4</button>
+      <button class="qbtn" onclick="setQuant(8)">1/8</button>
+      <button class="qbtn" onclick="setQuant(16)">1/16</button>
+      <button class="qbtn active" onclick="setQuant(0)">FREE</button>
+    </div>
+    <div class="sep"></div>
+    <span style="font-size:10px;color:var(--muted)">ZOOM</span>
+    <input type="range" id="zoom-range" min="1" max="24" value="4" oninput="zoom=+this.value;document.getElementById('zoom-val').textContent=zoom+'×';redrawAll()">
+    <span id="zoom-val" style="font-size:10px;color:var(--muted);min-width:24px">4×</span>
+  </div>
+  <div id="lane-selector">
+    <button class="lane-key l0 active" onclick="selectLane(0)"><span class="kbd">F</span> LANE 0</button>
+    <button class="lane-key l1" onclick="selectLane(1)"><span class="kbd">G</span> LANE 1</button>
+    <button class="lane-key l2" onclick="selectLane(2)"><span class="kbd">H</span> LANE 2</button>
+    <div id="hint">
+      AUTO rileva il primo beat &nbsp;|&nbsp; oppure trascina una linea <span style="color:#ffd100">■</span> gialla per allineare la griglia alla waveform<br>
+      F/G/H per piazzare note &nbsp;|&nbsp; ⊞ QUANTIZZA per agganciare &nbsp;|&nbsp; TRASCINA nota per spostare &nbsp;|&nbsp; CLICK DX per cancellare
+    </div>
+  </div>
+</div>
+
+</div>
+<script>
+// ── STATE ──
+let audioCtx=null, audioBuffer=null, sourceNode=null;
+let isPlaying=false, startTime=0, pauseOffset=0, duration=0;
+let bpm=126, zoom=4, scrollX=0, quantDiv=0, currentLane=0, gridOffset=0;
+let notes=[], waveData=[], animFrame=null;
+const COLORS=['#ff3b5c','#00d4ff','#39ff84'];
+const LO=52; // lane offset px
+
+const wfC=document.getElementById('wf');
+const gdC=document.getElementById('gd');
+const ntC=document.getElementById('nt');
+const cuC=document.getElementById('cu');
+const wrap=document.getElementById('editor-wrap');
+let W=0,H=0;
+
+function resize(){
+  W=wrap.clientWidth; H=wrap.clientHeight;
+  [wfC,gdC,ntC,cuC].forEach(c=>{c.width=W;c.height=H});
+  redrawAll();
+}
+window.addEventListener('resize',resize);
+
+// ── AUDIO ──
+function loadAudio(input){
+  const file=input.files[0]; if(!file)return;
+  document.getElementById('status').textContent='⏳ '+file.name;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    if(!audioCtx) audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    audioCtx.decodeAudioData(e.target.result,buf=>{
+      audioBuffer=buf; duration=buf.duration; pauseOffset=0;
+      buildWave(); redrawAll();
+      document.getElementById('status').textContent='✅ '+file.name+' ('+fmtTime(duration)+')';
+    });
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function buildWave(){
+  const ch=audioBuffer.getChannelData(0);
+  const total=ch.length;
+  // Creiamo circa 1000 punti per secondo di durata
+  const n=Math.ceil(duration*1000);
+  waveData=new Float32Array(n);
+  
+  // CORREZIONE: Usiamo un fattore preciso invece di Math.floor(total/n)
+  const ratio = total / n;
+
+  for(let i=0;i<n;i++){
+    let mx=0;
+    // Calcoliamo inizio e fine esatti per questo segmento
+    const start = Math.floor(i * ratio);
+    const end = Math.floor((i + 1) * ratio);
+    
+    // Scansioniamo il segmento reale
+    for(let j=start; j<end && j<total; j++){
+      const val = Math.abs(ch[j]);
+      if(val > mx) mx = val;
+    }
+    waveData[i]=mx;
+  }
+}
+
+// ── AUTO ONSET DETECTION (spectral flux nel browser) ──
+function autoDetect(){
+  if(!audioBuffer){alert('Carica prima una stem!');return;}
+  document.getElementById('status').textContent='🔍 Analisi in corso...';
+
+  setTimeout(()=>{
+    const ch = audioBuffer.getChannelData(0);
+    const SR = audioBuffer.sampleRate;
+    const HOP = 512, WIN = 2048;
+    const n = Math.floor((ch.length - WIN) / HOP);
+
+    // Spectral flux half-wave rectified
+    const flux = new Float32Array(n);
+    const prev = new Float32Array(WIN/2+1);
+    for(let i=0;i<n;i++){
+      // FFT manuale con Hann window
+      const frame = new Float32Array(WIN);
+      for(let j=0;j<WIN;j++) frame[j]=(ch[i*HOP+j]||0)*(.5-.5*Math.cos(2*Math.PI*j/WIN));
+      const spec = fft_mag(frame);
+      let f=0;
+      for(let k=0;k<spec.length;k++) f+=Math.max(spec[k]-prev[k],0);
+      flux[i]=f;
+      prev.set(spec);
+    }
+
+    // Normalizza
+    let mx=0; for(let i=0;i<n;i++) if(flux[i]>mx)mx=flux[i];
+    if(mx>0) for(let i=0;i<n;i++) flux[i]/=mx;
+
+    // Soglia adattiva percentile 88
+    const sorted=[...flux].filter(v=>v>1e-4).sort((a,b)=>a-b);
+    const thresh = sorted[Math.floor(sorted.length*(+document.getElementById('sens-range').value/100))]||0.1;
+    const minDist = Math.floor(.12*SR/HOP);
+
+    // Peak picking
+    const peaks=[];
+    for(let i=2;i<n-2;i++){
+      if(flux[i]<=flux[i-1]||flux[i]<=flux[i+1])continue;
+      if(flux[i]<thresh)continue;
+      if(peaks.length&&(i-peaks[peaks.length-1][0])<minDist){
+        if(flux[i]>flux[peaks[peaks.length-1][0]]) peaks[peaks.length-1]=[i,flux[i]];
+      } else peaks.push([i,flux[i]]);
+    }
+
+    // Snap al grid BPM
+    const gridSec=(60/bpm)/quantDiv*4;
+    const snapped={};
+    for(const [fi] of peaks){
+      const t=fi*HOP/SR;
+      if(t<.3||t>duration-.3)continue;
+      const gi=Math.round(t/gridSec);
+      const gt=parseFloat((gi*gridSec).toFixed(4));
+      if(!snapped[gt]) snapped[gt]=t; // prima onset per ogni punto griglia
+    }
+
+    // Spectral centroid per lane
+    const times=Object.keys(snapped).map(Number).sort((a,b)=>a-b);
+    const cents=times.map(t=>{
+      const ci=Math.floor(t*SR);
+      const seg=new Float32Array(WIN);
+      for(let j=0;j<WIN;j++) seg[j]=(ch[ci-WIN/2+j]||0)*(.5-.5*Math.cos(2*Math.PI*j/WIN));
+      const spec=fft_mag(seg);
+      const freqs_step=SR/WIN;
+      let num=0,den=0;
+      for(let k=0;k<spec.length;k++){num+=k*freqs_step*spec[k];den+=spec[k];}
+      return den>0?num/den:1000;
+    });
+
+    // Distribuzione bilanciata 33/33/33
+    const sorted_c=[...cents].sort((a,b)=>a-b);
+    const p33=sorted_c[Math.floor(sorted_c.length*.33)];
+    const p66=sorted_c[Math.floor(sorted_c.length*.66)];
+
+    const newNotes=times.map((t,i)=>({
+      time:t,
+      lane:cents[i]<p33?0:cents[i]<p66?1:2
+    }));
+
+    // Aggiungi alle note esistenti (o sostituisci se confermi)
+    if(notes.length>0){
+      if(!confirm(`Trovate ${newNotes.length} note automaticamente.\nSostituire le note esistenti?`)) return;
+    }
+    notes=newNotes;
+    updateCount(); drawNotes();
+    document.getElementById('status').textContent=`✅ ${newNotes.length} note rilevate automaticamente`;
+  },30);
+}
+
+// FFT semplificata (magnitudine spettrale via DFT approssimata)
+function fft_mag(frame){
+  const N=frame.length, half=N/2+1;
+  const mag=new Float32Array(half);
+  // Usiamo solo le prime 256 frequenze per velocità
+  const step=Math.max(1,Math.floor(N/512));
+  for(let k=0;k<half;k+=step){
+    let re=0,im=0;
+    const w=2*Math.PI*k/N;
+    for(let n=0;n<N;n+=4){re+=frame[n]*Math.cos(w*n);im-=frame[n]*Math.sin(w*n);}
+    mag[k]=Math.sqrt(re*re+im*im);
+  }
+  // Interpola i valori saltati
+  for(let k=1;k<half;k++) if(mag[k]===0) mag[k]=mag[k-1];
+  return mag;
+}
+
+// ── COORDINATE ──
+function pps(){return zoom*100}
+function t2x(t){return LO+t*pps()-scrollX}
+function x2t(x){return(x-LO+scrollX)/pps()}
+function snapT(t){
+  if(quantDiv===0)return Math.max(0,Math.min(duration,parseFloat(t.toFixed(3))));
+  const g=(60/bpm)/quantDiv*4;
+  // Snap tenendo conto dell'offset della griglia
+  const tRel=t-gridOffset;
+  const snapped=gridOffset+Math.round(tRel/g)*g;
+  return Math.max(0,Math.min(duration,parseFloat(snapped.toFixed(4))));
+}
+function scrollToTime(t){
+  // centra il tempo dato nella vista
+  scrollX=Math.max(0,t*pps()-(W-LO)*0.35);
+}
+
+// ── DRAW WAVEFORM ──
+function drawWave(){
+  const ctx=wfC.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+  if(!waveData.length)return;
+  const lH=H/3;
+  for(let lane=0;lane<3;lane++){
+    const y0=lane*lH, cy=y0+lH/2;
+    ctx.fillStyle=lane%2?'transparent':'rgba(255,255,255,.01)';
+    ctx.fillRect(LO,y0,W-LO,lH);
+    ctx.strokeStyle='rgba(255,255,255,.06)';
+    ctx.beginPath();ctx.moveTo(LO,y0+lH);ctx.lineTo(W,y0+lH);ctx.stroke();
+    // waveform fill
+    const col=COLORS[lane];
+    ctx.fillStyle=col+'16';
+    ctx.strokeStyle=col+'50';
+    ctx.lineWidth=1;
+    ctx.beginPath();
+    ctx.moveTo(LO,cy);
+    let first=true;
+    for(let x=LO;x<W;x++){
+      const t=x2t(x);
+      if(t<0||t>duration)continue;
+      const amp=(waveData[Math.floor(t*1000)]||0)*(lH*.44);
+      if(first){ctx.moveTo(x,cy-amp);first=false;}
+      else ctx.lineTo(x,cy-amp);
+    }
+    const pts=[];
+    for(let x=W-1;x>=LO;x--){
+      const t=x2t(x);
+      if(t<0||t>duration)continue;
+      pts.push([x,cy+(waveData[Math.floor(t*1000)]||0)*(lH*.44)]);
+    }
+    pts.forEach(([x,y])=>ctx.lineTo(x,y));
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    first=true;
+    for(let x=LO;x<W;x++){
+      const t=x2t(x);
+      if(t<0||t>duration)continue;
+      const amp=(waveData[Math.floor(t*1000)]||0)*(lH*.44);
+      if(first){ctx.moveTo(x,cy-amp);first=false;}
+      else ctx.lineTo(x,cy-amp);
+    }
+    ctx.stroke();
+  }
+}
+
+// ── DRAW GRID ──
+function drawGrid(){
+  const ctx=gdC.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+  if(!quantDiv&&!audioBuffer)return;
+  const beatSec=60/bpm, barSec=beatSec*4;
+  const gridSec=quantDiv>0?(60/bpm)/quantDiv*4:(60/bpm)/4;
+  const t0=Math.max(0,x2t(LO)), t1=Math.min(duration||999,x2t(W));
+  // Primo punto griglia che cade nell'area visibile, tenendo conto dell'offset
+  let t=gridOffset+Math.floor((t0-gridOffset)/gridSec)*gridSec;
+  while(t<=t1+gridSec){
+    const x=t2x(t);
+    if(x>=LO){
+      const isBar=Math.abs(t%barSec)<.003;
+      const isBeat=!isBar&&Math.abs(t%beatSec)<.003;
+      ctx.strokeStyle=isBar?'rgba(255,209,0,.30)':isBeat?'rgba(255,255,255,.12)':'rgba(255,255,255,.035)';
+      ctx.lineWidth=isBar?2:1;
+      ctx.setLineDash(isBar?[]:[]);
+      ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();
+      if(isBar){
+        const bar=Math.round(t/barSec)+1;
+        ctx.fillStyle='rgba(255,209,0,.45)';
+        ctx.font='9px JetBrains Mono';
+        ctx.fillText(bar,x+3,11);
+      }
+    }
+    t+=gridSec; t=parseFloat(t.toFixed(6));
+  }
+}
+
+// ── DRAW NOTES ──
+function drawNotes(){
+  const ctx=ntC.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+  const lH=H/3;
+  for(const n of notes){
+    const x=t2x(n.time);
+    if(x<LO-12||x>W+12)continue;
+    const ly=n.lane*lH, cy=ly+lH/2, col=COLORS[n.lane];
+    // glow
+    ctx.fillStyle=col+'22';
+    ctx.beginPath();ctx.arc(x,cy,16,0,Math.PI*2);ctx.fill();
+    // linea verticale
+    ctx.strokeStyle=col+'aa';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(x,ly+4);ctx.lineTo(x,ly+lH-4);ctx.stroke();
+    // diamante
+    ctx.fillStyle=col;
+    ctx.beginPath();
+    ctx.moveTo(x,cy-9);ctx.lineTo(x+7,cy);ctx.lineTo(x,cy+9);ctx.lineTo(x-7,cy);
+    ctx.closePath();ctx.fill();
+  }
+}
+
+// ── DRAW CURSOR ──
+function drawCursor(t){
+  const ctx=cuC.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+  if(!audioBuffer)return;
+  const x=t2x(t);
+  if(x<LO||x>W)return;
+  ctx.strokeStyle='#ff3b5c';ctx.lineWidth=2;ctx.setLineDash([]);
+  ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();
+  ctx.fillStyle='#ff3b5c';
+  ctx.beginPath();ctx.moveTo(x-6,0);ctx.lineTo(x+6,0);ctx.lineTo(x,10);ctx.closePath();ctx.fill();
+  ctx.fillStyle='rgba(8,8,15,.85)';ctx.fillRect(x+8,4,72,16);
+  ctx.fillStyle='#ff3b5c';ctx.font='10px JetBrains Mono';
+  ctx.fillText(fmtTime(t),x+11,16);
+}
+
+function redrawAll(){drawWave();drawGrid();drawNotes();drawCursor(getCurrentTime())}
+
+// ── PLAYBACK ──
+function getCurrentTime(){
+  if(isPlaying&&audioCtx)return Math.min(duration,pauseOffset+(audioCtx.currentTime-startTime));
+  return pauseOffset;
+}
+
+function togglePlay(){
+  if(!audioBuffer)return;
+  if(isPlaying){
+    pauseOffset=getCurrentTime();
+    sourceNode&&sourceNode.stop();sourceNode=null;
+    isPlaying=false;
+    document.getElementById('play-btn').textContent='▶';
+    cancelAnimationFrame(animFrame);
+  } else {
+    if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    sourceNode=audioCtx.createBufferSource();
+    sourceNode.buffer=audioBuffer;
+    sourceNode.connect(audioCtx.destination);
+    sourceNode.start(0,pauseOffset);
+    sourceNode.onended=()=>{if(isPlaying){isPlaying=false;pauseOffset=0;document.getElementById('play-btn').textContent='▶';}};
+    startTime=audioCtx.currentTime;
+    isPlaying=true;
+    document.getElementById('play-btn').textContent='⏸';
+    playLoop();
+  }
+}
+
+function playLoop(){
+  const t=getCurrentTime();
+  document.getElementById('time-disp').textContent=fmtTime(t);
+  // Auto-scroll: cursore sempre al 30% da sinistra
+  const cx=t2x(t);
+  const target=LO+(W-LO)*.3;
+  if(cx>target+2||cx<LO){
+    scrollX=Math.max(0,t*pps()-(W-LO)*.3);
+    drawWave();drawGrid();drawNotes();
+  }
+  drawCursor(t);
+  if(isPlaying)animFrame=requestAnimationFrame(playLoop);
+}
+
+function rewind(){
+  const was=isPlaying;
+  if(isPlaying)togglePlay();
+  pauseOffset=Math.max(0,pauseOffset-5);
+  scrollToTime(pauseOffset);     // ← porta il grafico lì
+  redrawAll();
+  document.getElementById('time-disp').textContent=fmtTime(pauseOffset);
+  if(was)setTimeout(togglePlay,60);
+}
+
+// ── QUANTIZZAZIONE ──
+function setQuant(div){
+  quantDiv=div;
+  document.querySelectorAll('.qbtn').forEach((b,i)=>{
+    b.classList.toggle('active',[4,8,16,0][i]===div);
+  });
+  redrawAll();
+}
+
+// ── INTERAZIONE MOUSE (tutto su cuC = canvas superiore) ──
+let dragIdx=null, dragX0=0, dragT0=0, didDrag=false;
+let draggingGrid=false, dragGridX0=0, dragGridOffset0=0;
+let history=[];  // stack undo
+
+function saveHistory(){ history.push(JSON.stringify(notes)); if(history.length>50)history.shift(); }
+function undo(){ if(!history.length)return; notes=JSON.parse(history.pop()); updateCount(); drawNotes(); }
+
+function getCoords(e){ const r=cuC.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top}; }
+function nearGridBar(x){
+  const t=x2t(x), barSec=60/bpm*4;
+  const nearT=Math.round((t-gridOffset)/barSec)*barSec+gridOffset;
+  return Math.abs(x-t2x(nearT))<10;
+}
+
+cuC.addEventListener('mousedown',e=>{
+  const {x,y}=getCoords(e);
+  if(x<LO)return;
+
+  // CLICK DESTRO = cancella nota
+  if(e.button===2){
+    e.preventDefault();
+    const t=x2t(x), lane=Math.floor(y/(H/3));
+    const idx=notes.findIndex(n=>n.lane===lane&&Math.abs(n.time-t)<.15);
+    if(idx>=0){ saveHistory(); notes.splice(idx,1); updateCount(); drawNotes(); }
+    return;
+  }
+  if(e.button!==0)return;
+
+  // Trascina linea griglia (barra battuta)?
+  if(nearGridBar(x)){
+    draggingGrid=true; dragGridX0=x; dragGridOffset0=gridOffset;
+    cuC.style.cursor='ew-resize';
+    e.preventDefault(); return;
+  }
+
+  // Trascina nota esistente?
+  const t=x2t(x), lane=Math.floor(y/(H/3));
+  const idx=notes.findIndex(n=>n.lane===lane&&Math.abs(n.time-t)<.15);
+  if(idx>=0){
+    saveHistory();
+    dragIdx=idx; dragX0=x; dragT0=notes[idx].time; didDrag=false;
+    cuC.style.cursor='grabbing';
+    e.preventDefault(); return;
+  }
+
+  // Click su area vuota = seek (sposta playhead)
+  if(!audioBuffer)return;
+  const newT=Math.max(0,Math.min(duration,x2t(x)));
+  const wasPlaying=isPlaying;
+  if(isPlaying)togglePlay();
+  pauseOffset=newT;
+  scrollToTime(newT);
+  document.getElementById('time-disp').textContent=fmtTime(newT);
+  drawCursor(newT);
+  if(wasPlaying)setTimeout(togglePlay,60);
+});
+
+cuC.addEventListener('mousemove',e=>{
+  const {x,y}=getCoords(e);
+  if(x<LO)return;
+
+  if(draggingGrid){
+    const dt=(x-dragGridX0)/pps();
+    setGridOffset(dragGridOffset0+dt);
+    return;
+  }
+
+  if(dragIdx!==null){
+    const dt=(x-dragX0)/pps();
+    const newT=snapT(dragT0+dt);
+    if(Math.abs(newT-notes[dragIdx].time)>0.001)didDrag=true;
+    notes[dragIdx].time=newT;
+    notes.sort((a,b)=>a.time-b.time);
+    drawNotes();
+    document.getElementById('time-disp').textContent=fmtTime(newT);
+    return;
+  }
+
+  // Cursore hover
+  const t=x2t(x), lane=Math.floor(y/(H/3));
+  const nearNote=notes.some(n=>n.lane===lane&&Math.abs(n.time-t)<.15);
+  if(nearGridBar(x))      cuC.style.cursor='ew-resize';
+  else if(nearNote)       cuC.style.cursor='grab';
+  else                    cuC.style.cursor='crosshair';
+
+  if(!isPlaying) drawCursor(snapT(t));
+});
+
+cuC.addEventListener('mouseup',e=>{
+  if(draggingGrid){ draggingGrid=false; cuC.style.cursor='crosshair'; return; }
+
+  if(dragIdx!==null){
+    if(!didDrag){
+      // click su nota senza muovere = cancella
+      notes.splice(dragIdx,1); updateCount(); drawNotes();
+    }
+    dragIdx=null; didDrag=false; cuC.style.cursor='crosshair';
+    updateCount(); return;
+  }
+
+  // Click su area vuota = aggiungi nota
+  if(!audioBuffer||didDrag)return;
+  const {x,y}=getCoords(e);
+  if(x<LO)return;
+  const t=snapT(x2t(x));
+  const lane=e.shiftKey?Math.floor(y/(H/3)):currentLane;
+  const exists=notes.some(n=>n.lane===lane&&Math.abs(n.time-t)<.05);
+  if(!exists){
+    saveHistory();
+    notes.push({time:parseFloat(t.toFixed(4)),lane});
+    notes.sort((a,b)=>a.time-b.time);
+    updateCount(); drawNotes();
+  }
+});
+
+cuC.addEventListener('contextmenu',e=>e.preventDefault());
+cuC.addEventListener('mouseleave',()=>{
+  draggingGrid=false; dragIdx=null; didDrag=false; cuC.style.cursor='crosshair';
+});
+
+// scroll orizzontale con rotella
+cuC.addEventListener('wheel',e=>{
+  e.preventDefault();
+  scrollX=Math.max(0,scrollX+(e.deltaX||e.deltaY)*2.5);
+  redrawAll();
+},{passive:false});
+
+// ── TASTIERA ──
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT')return;
+  if(e.code==='Space'){e.preventDefault();togglePlay();return;}
+  if(e.key==='f'||e.key==='F')addLive(0);
+  if(e.key==='g'||e.key==='G')addLive(1);
+  if(e.key==='h'||e.key==='H')addLive(2);
+  if(e.shiftKey&&e.key==='ArrowLeft'){e.preventDefault();rewind();return;}
+  if(e.key==='ArrowLeft'){
+    const t=Math.max(0,getCurrentTime()-.5);
+    pauseOffset=t; scrollToTime(t); redrawAll();
+    document.getElementById('time-disp').textContent=fmtTime(t);
+  }
+  if(e.key==='ArrowRight'){
+    const t=Math.min(duration,getCurrentTime()+.5);
+    pauseOffset=t; scrollToTime(t); redrawAll();
+    document.getElementById('time-disp').textContent=fmtTime(t);
+  }
+  if((e.ctrlKey||e.metaKey)&&e.key==='z'){ e.preventDefault(); undo(); }
+});
+
+function addLive(lane){
+  if(!audioBuffer)return;
+  saveHistory();
+  const t=parseFloat(snapT(getCurrentTime()).toFixed(4));
+  const idx=notes.findIndex(n=>n.lane===lane&&Math.abs(n.time-t)<.05);
+  if(idx>=0){notes.splice(idx,1);}
+  else{notes.push({time:t,lane});notes.sort((a,b)=>a.time-b.time);}
+  updateCount();drawNotes();
+}
+
+// ── UI ──
+function selectLane(l){
+  currentLane=l;
+  document.querySelectorAll('.lane-key').forEach((el,i)=>el.classList.toggle('active',i===l));
+}
+
+function setGridOffset(v){
+  const beatSec=60/bpm;
+  gridOffset=Math.max(0,Math.min(beatSec,v));
+  document.getElementById('off-val').textContent=gridOffset.toFixed(3)+'s';
+  // sincronizza slider
+  document.getElementById('off-range').value=Math.round(gridOffset/beatSec*1000);
+  redrawAll();
+}
+
+function autoGridOffset(){
+  if(!audioBuffer){alert('Carica prima una stem!');return;}
+  // Trova il primo onset energetico: picco RMS nelle prime 10 secondi
+  const ch=audioBuffer.getChannelData(0);
+  const SR=audioBuffer.sampleRate;
+  const HOP=256;
+  const endSample=Math.min(ch.length,SR*10);
+  let maxRMS=0, maxI=0;
+  // Calcola RMS per ogni hop nelle prime 10s
+  const rmsArr=[];
+  for(let i=0;i<endSample-HOP;i+=HOP){
+    let s=0;
+    for(let j=i;j<i+HOP;j++)s+=ch[j]*ch[j];
+    rmsArr.push({rms:Math.sqrt(s/HOP),t:i/SR});
+  }
+  // Soglia: 30% del massimo RMS
+  const maxR=Math.max(...rmsArr.map(r=>r.rms));
+  const thresh=maxR*0.3;
+  // Primo onset sopra soglia
+  const first=rmsArr.find(r=>r.rms>thresh);
+  if(!first){alert('Primo beat non trovato');return;}
+
+  // Allinea: il gridOffset deve essere il resto di first.t diviso per il beat
+  const beatSec=60/bpm;
+  const mod=first.t%beatSec;
+  setGridOffset(mod);
+  // Scrolla alla posizione del primo beat
+  scrollX=Math.max(0,first.t*pps()-(W-LO)*0.2);
+  redrawAll();
+  document.getElementById('status').textContent=`✅ Primo beat rilevato a ${first.t.toFixed(3)}s → offset ${gridOffset.toFixed(3)}s`;
+}
+
+function quantizeNotes(){
+  if(!notes.length){alert('Nessuna nota da quantizzare!');return;}
+  const div=quantDiv>0?quantDiv:16;
+  const g=(60/bpm)/div*4;
+  notes=notes.map(n=>{
+    const tRel=n.time-gridOffset;
+    const snapped=gridOffset+Math.round(tRel/g)*g;
+    return {time:parseFloat(Math.max(0,snapped).toFixed(4)), lane:n.lane};
+  });
+  notes.sort((a,b)=>a.time-b.time);
+  updateCount();drawNotes();
+  document.getElementById('status').textContent=`✅ ${notes.length} note quantizzate a 1/${div} (offset ${gridOffset.toFixed(3)}s)`;
+}
+
+function clearNotes(){
+  if(!confirm('Cancellare tutte le note?'))return;
+  notes=[];updateCount();drawNotes();
+}
+
+function updateCount(){
+  const el=document.getElementById('note-count');
+  el.textContent=notes.length+' note';
+  const d=[0,1,2].map(l=>notes.filter(n=>n.lane===l).length);
+  el.title=`L0:${d[0]} L1:${d[1]} L2:${d[2]}`;
+}
+
+function exportChart(){
+  if(!notes.length){alert('Nessuna nota da esportare!');return;}
+  const blob=new Blob([JSON.stringify(notes,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download='chart.json';a.click();
+}
+
+function fmtTime(s){
+  s=Math.max(0,s||0);
+  const m=Math.floor(s/60),sec=(s%60).toFixed(3);
+  return m+':'+(+sec<10?'0':'')+sec;
+}
+
+// ── INIT ──
+resize();
+</script>
+</body>
+</html>

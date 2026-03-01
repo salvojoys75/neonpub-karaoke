@@ -1652,12 +1652,7 @@ export default function PubDisplay() {
                     finalData = { ...finalData, active_quiz: { ...q, leaderboard: finalData.leaderboard } };
                 }
 
-                const arcade = finalData.active_arcade;
-                if (arcade && arcade.status === 'ended' && arcade.winner_id) {
-                    const { data: winner } = await supabase.from('participants').select('id, nickname, avatar_url').eq('id', arcade.winner_id).single();
-                    const winnerData = winner || { nickname: 'Vincitore', avatar_url: null };
-                    finalData = { ...finalData, arcade_result: { winner: winnerData } };
-                }
+                // arcade_result è già calcolato da getDisplayData (con auto-expire 15s)
                 if (arcade && ['active', 'setup', 'waiting'].includes(arcade.status)) {
                     const { data: allBookings } = await api.getArcadeBookings(arcade.id);
                     const pendingQueue = allBookings?.filter(b => b.status === 'pending').sort((a, b) => a.booking_order - b.booking_order) || [];
@@ -1741,7 +1736,8 @@ export default function PubDisplay() {
             (quiz && ['active', 'closed', 'showing_results', 'leaderboard'].includes(quiz.status)) ||
             (arcade && ['active', 'paused'].includes(arcade.status)) ||
             !!data.arcade_result ||
-            !!extraction_data;
+            !!extraction_data ||
+            (data.active_band?.status === 'active'); // ← band mode esce dallo standby
         if (hasActivity) setStandby(false);
     }, [data]);
 

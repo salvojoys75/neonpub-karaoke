@@ -49,7 +49,7 @@ export default function ClientApp() {
   const [selfieSent, setSelfieSent] = useState(false);
   const selfieInputRef = useRef(null);
   const pollIntervalRef = useRef(null);
-  // Traccia se la band è già attiva per evitare toast ripetitivi ogni 3s
+  // Traccia se band è attiva — evita toast ripetitivi ogni 3s
   const bandActiveRef   = useRef(false);
 
   useEffect(() => { if (!isAuthenticated) navigate("/"); }, [isAuthenticated, navigate]);
@@ -102,7 +102,8 @@ export default function ClientApp() {
       } else {
         setActiveArcade(null);
       }
-// ✅ GESTIONE BAND MODE - Cambio automatico tab (una sola notifica, nessun loop)
+// ✅ GESTIONE BAND MODE — usa il risultato già fetchato, niente doppia chiamata
+// bandActiveRef evita toast ripetitivi ogni 3s: scatta una sola volta per sessione
 const eventState = eventStateRes;
 if (eventState?.active_module === 'band' && eventState?.active_band?.status === 'active') {
   if (!bandActiveRef.current) {
@@ -113,7 +114,6 @@ if (eventState?.active_module === 'band' && eventState?.active_band?.status === 
 } else {
   if (bandActiveRef.current) {
     bandActiveRef.current = false;
-    // Torna a home solo se si è ancora sul tab band
     setActiveTab(prev => prev === 'band' ? 'home' : prev);
   }
 }

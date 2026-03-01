@@ -60,6 +60,20 @@ export const getDisplayData = async (pubCode) => {
     .filter(q => !liveRequestId || q.id !== liveRequestId)
     .map(q => ({...q, user_nickname: q.participants?.nickname, user_avatar: q.participants?.avatar_url}));
 
+  // ── Arcade winner: mostrato solo per 15s dopo la fine. Poi sparisce da solo.
+  const arcadeRaw = activeArcade.data;
+  let arcadeResult = null;
+  if (arcadeRaw && arcadeRaw.status === 'ended' && arcadeRaw.winner_id) {
+    const endedAt = arcadeRaw.ended_at ? new Date(arcadeRaw.ended_at) : null;
+    const withinWindow = !endedAt || (Date.now() - endedAt.getTime()) < 15000;
+    if (withinWindow) {
+      const { data: winner } = await supabase
+        .from('participants').select('id, nickname, avatar_url')
+        .eq('id', arcadeRaw.winner_id).single();
+      arcadeResult = { winner: winner || { nickname: 'Vincitore', avatar_url: null } };
+    }
+  }
+
   return {
     data: {
       pub: event,
@@ -69,7 +83,8 @@ export const getDisplayData = async (pubCode) => {
       active_quiz: activeQuiz.data,
       admin_message: adminMsg.data,
       extraction_data: event.extraction_data,
-      active_arcade: activeArcade.data,
+      active_arcade: arcadeRaw,
+      arcade_result: arcadeResult,
       active_millionaire: activeMill.data || null,
       active_band: event.active_band || null,
       active_selfie: null,
@@ -1220,9 +1235,10 @@ export const startBandSession = async (songId, songTitle, assignments) => {
     active_band:   activeBand,
   }).eq('id', event.id);
 
-  // Broadcast — bisogna fare subscribe prima di poter inviare messaggi
-  // Mandiamo prima band_setup (imposta i ruoli sui telefoni che sono già connessi)
-  // poi band_start (fa partire il conto alla rovescia su TV e telefoni)
+  // ── Broadcast: subscribe prima di inviare, altrimenti il messaggio viene perso.
+  // Sequenza: 1) band_setup (imposta ruoli sui client già connessi)
+  //           2) pausa 400ms (i client registrano il ruolo)
+  //           3) band_start (avvia countdown su TV e telefoni)
   await new Promise((resolve, reject) => {
     const channel = supabase.channel(`band_game_${event.code}`);
     const timeout = setTimeout(() => {
@@ -1233,26 +1249,14 @@ export const startBandSession = async (songId, songTitle, assignments) => {
     channel.subscribe(async (status) => {
       if (status !== 'SUBSCRIBED') return;
       try {
-        // 1) band_setup — imposta ruoli sui client già connessi
         await channel.send({
-          type: 'broadcast',
-          event: 'band_setup',
+          type: 'broadcast', event: 'band_setup',
           payload: { song: songId, assignments },
         });
-
-        // Piccola pausa per dare il tempo ai client di registrare il ruolo
         await new Promise(r => setTimeout(r, 400));
-
-        // 2) band_start — avvia il gioco (contiene assignments per chi fosse arrivato tardi)
         await channel.send({
-          type: 'broadcast',
-          event: 'band_start',
-          payload: {
-            song:        songId,
-            songTitle:   songTitle,
-            assignments: assignments,
-            startDelay:  4000,
-          },
+          type: 'broadcast', event: 'band_start',
+          payload: { song: songId, songTitle, assignments, startDelay: 4000 },
         });
       } finally {
         clearTimeout(timeout);
@@ -1279,10 +1283,22 @@ export const stopBandSession = async () => {
     settings: newSettings
   }).eq('id', event.id);
   
-  // Segnale di stop ai telefoni
-  const channel = supabase.channel(`band_game_${event.code}`);
-  await channel.send({ type: 'broadcast', event: 'band_stop', payload: {} });
-  
+  // ── Broadcast band_stop: subscribe prima di inviare
+  await new Promise((resolve) => {
+    const channel = supabase.channel(`band_game_${event.code}`);
+    const timeout = setTimeout(() => { supabase.removeChannel(channel); resolve(); }, 5000);
+    channel.subscribe(async (status) => {
+      if (status !== 'SUBSCRIBED') return;
+      try {
+        await channel.send({ type: 'broadcast', event: 'band_stop', payload: {} });
+      } finally {
+        clearTimeout(timeout);
+        supabase.removeChannel(channel);
+        resolve();
+      }
+    });
+  });
+
   return { success: true };
 };
 

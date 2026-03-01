@@ -44,11 +44,26 @@ export default function BandModeClient({ pubCode, participant }) {
   const myRoleRef    = useRef(null);
   const songNameRef  = useRef(null);
 
+  // ── Refs stabili per evitare che il canale Supabase si ricroei ogni render ──
+  // Il problema: se startGame (o qualunque altro callback) è in deps dell'useEffect
+  // del canale, ogni cambio di stato ricrea il canale esattamente mentre arrivano
+  // i broadcast — causando la perdita degli eventi (race condition deterministica).
+  const laneLabelsRef  = useRef([]);   // aggiornato quando myRole cambia
+  const startGameRef   = useRef(null); // aggiornato quando startGame cambia
+  const nicknameRef    = useRef(null); // costante per sessione
+  const userIdRef      = useRef(null); // costante per sessione
+
   const nickname = participant?.nickname || participant?.name || 'Player';
   const userId   = participant?.id || participant?.user_id || null;
 
   const instrConfig = myRole ? (INSTRUMENT_CONFIG[myRole] || DEFAULT_CONFIG) : DEFAULT_CONFIG;
   const { color: instrColor, icon: instrIcon, label: instrLabel, lanes: laneLabels } = instrConfig;
+
+  // Sincronizza i ref con i valori correnti
+  useEffect(() => { laneLabelsRef.current = laneLabels; },    [laneLabels]);
+  useEffect(() => { startGameRef.current  = startGame; },     [startGame]);
+  useEffect(() => { nicknameRef.current   = nickname; },      [nickname]);
+  useEffect(() => { userIdRef.current     = userId; },        [userId]);
 
   const getElapsed = useCallback(() => {
     if (!startTimeRef.current) return -999;
@@ -168,13 +183,13 @@ export default function BandModeClient({ pubCode, participant }) {
       ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
       for (let l = 0; l < 3; l++) {
         ctx.fillStyle = LANE_COLORS[l] + 'aa';
-        ctx.fillText(laneLabels[l] || String(l+1), l*lW + lW/2, cH - 4);
+        ctx.fillText(laneLabelsRef.current[l] || String(l+1), l*lW + lW/2, cH - 4);
       }
 
       animRef.current = requestAnimationFrame(draw);
     }
     animRef.current = requestAnimationFrame(draw);
-  }, [getElapsed, laneLabels]);
+  }, [getElapsed]); // laneLabels tolto dai deps — letto da laneLabelsRef per stabilità
 
   // ── Start Game ─────────────────────────────────────────────────────────────
   const startGame = useCallback((chartData, delay) => {
@@ -228,16 +243,24 @@ export default function BandModeClient({ pubCode, participant }) {
     }
   }, [gameState, getElapsed, nickname]);
 
-  // ── Supabase ──────────────────────────────────────────────────────────────
+  // ── Supabase channel ─────────────────────────────────────────────────────
+  // DEPS: solo [pubCode]. Il canale non deve MAI ricrearsi per via dei cambi di stato
+  // interno (gameState, myRole, startGame, ecc.) perché altrimenti si crea una race
+  // condition deterministica: il canale si distrugge e ricrea esattamente nel momento
+  // in cui arrivano band_setup e band_start, facendo perdere gli eventi.
+  // Tutti i valori variabili vengono letti tramite ref (sempre aggiornati, mai stale).
   useEffect(() => {
     const ch = supabase.channel(`band_game_${pubCode}`, { config: { broadcast: { self: true } } });
 
+    // ── band_setup: imposta il ruolo del giocatore ──────────────────────────
     ch.on('broadcast', { event: 'band_setup' }, ({ payload }) => {
       const ass  = payload.assignments || [];
-      const mine = ass.find(a => (userId && a.userId === userId) || a.nickname === nickname);
+      const mine = ass.find(a =>
+        (userIdRef.current && a.userId === userIdRef.current) || a.nickname === nicknameRef.current
+      );
       if (mine) {
         setMyRole(mine.instrument);
-        myRoleRef.current  = mine.instrument;
+        myRoleRef.current   = mine.instrument;
         songNameRef.current = payload.song;
         setIsSpectator(false);
         setGameState('assigned');
@@ -249,18 +272,21 @@ export default function BandModeClient({ pubCode, participant }) {
       }
     });
 
+    // ── band_start: avvia il gioco ──────────────────────────────────────────
+    // Gestisce anche la race condition: se band_start arriva prima che band_setup
+    // abbia risposto (o prima di loadRoleFromDB), deriva il ruolo dal payload stesso.
     ch.on('broadcast', { event: 'band_start' }, async ({ payload }) => {
-      // Se band_start arriva prima che loadRoleFromDB abbia risposto,
-      // derivo il mio ruolo direttamente dalle assignments nel payload
       let role = myRoleRef.current;
+
+      // Race condition: band_start arrivato prima di band_setup → ricava ruolo dal payload
       if (!role && payload.assignments?.length) {
         const mine = payload.assignments.find(a =>
-          (userId && a.userId === userId) || a.nickname === nickname
+          (userIdRef.current && a.userId === userIdRef.current) || a.nickname === nicknameRef.current
         );
         if (mine) {
           role = mine.instrument;
           setMyRole(role);
-          myRoleRef.current  = role;
+          myRoleRef.current   = role;
           songNameRef.current = payload.song;
           setIsSpectator(false);
           setGameState('assigned');
@@ -270,28 +296,48 @@ export default function BandModeClient({ pubCode, participant }) {
           return;
         }
       }
-
-      const songName = payload.song || songNameRef.current || 'deepdown';
       if (!role) return;
 
+      const songName = payload.song || songNameRef.current || 'deepdown';
       setGameState('loading');
       try {
         const res = await fetch(`/audio/${songName}/chart_${role}.json`);
         if (!res.ok) throw new Error(`chart_${role}.json non trovata`);
         const chartData = await res.json();
-        startGame(chartData, payload.startDelay);
+        // Usa il ref: startGame potrebbe avere un riferimento diverso da quello
+        // catturato alla creazione del canale, ma il ref è sempre aggiornato.
+        startGameRef.current?.(chartData, payload.startDelay);
       } catch (err) {
-        console.error('Errore:', err);
+        console.error('BandModeClient band_start error:', err);
         setFeedback({ text: 'ERRORE CHART', color: 'red', lane: 1 });
         setGameState('assigned');
       }
     });
 
+    // ── band_stop: resetta tutto per la prossima sessione ──────────────────
+    ch.on('broadcast', { event: 'band_stop' }, () => {
+      cancelAnimationFrame(animRef.current);
+      startTimeRef.current = null;
+      notesRef.current     = [];
+      scoreRef.current     = 0;
+      comboRef.current     = 0;
+      myRoleRef.current    = null;
+      setGameState('waiting');
+      setMyRole(null);
+      setScore(0);
+      setCombo(0);
+      setIsSpectator(false);
+      setFeedback(null);
+    });
+
     ch.subscribe(status => setConnected(status === 'SUBSCRIBED'));
     channelRef.current = ch;
 
-    return () => { supabase.removeChannel(ch); cancelAnimationFrame(animRef.current); };
-  }, [pubCode, nickname, userId, startGame]);
+    return () => {
+      supabase.removeChannel(ch);
+      cancelAnimationFrame(animRef.current);
+    };
+  }, [pubCode]); // ← SOLO pubCode — il canale è stabile per tutta la sessione
 
   // ── UI ─────────────────────────────────────────────────────────────────────
   const renderWaiting = () => (
