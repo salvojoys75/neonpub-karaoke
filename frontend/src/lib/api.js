@@ -28,7 +28,7 @@ async function getAdminEvent() {
   return data
 }
 
-// Helper per sincronizzazione orario Server (per Band Mode)
+// Helper per sincronizzazione orario Server (Definito una sola volta qui)
 const getServerTime = async () => {
   try {
     const res = await fetch(window.location.href, { method: 'HEAD' });
@@ -75,13 +75,11 @@ export const getDisplayData = async (pubCode) => {
     .map(q => ({...q, user_nickname: q.participants?.nickname, user_avatar: q.participants?.avatar_url}));
 
   const arcadeRaw = activeArcade.data;
-  // Se la band è attiva, nascondiamo i risultati arcade vecchi
   const bandActive = event.active_band?.status === 'active';
   let arcadeResult = null;
   
   if (!bandActive && arcadeRaw && arcadeRaw.status === 'ended' && arcadeRaw.winner_id) {
     const endedAt = arcadeRaw.ended_at ? new Date(arcadeRaw.ended_at) : null;
-    // Mostra il vincitore solo per 15 secondi dopo la fine, a meno che non sia stato pulito
     const withinWindow = !endedAt || (Date.now() - endedAt.getTime()) < 15000;
     if (withinWindow) {
       const { data: winner } = await supabase
@@ -335,7 +333,6 @@ export const endArcadeGame = async (gameId) => {
       .update({ status: 'ended', ended_at: new Date().toISOString() })
       .eq('id', gameId).select().single();
     if (error) throw error;
-    // Notifica la TV di pulire la schermata vincitore/arcade
     const tvChannel = supabase.channel('tv_ctrl');
     await tvChannel.send({ type: 'broadcast', event: 'control', payload: { command: 'clear_arcade' } });
     return { data };
