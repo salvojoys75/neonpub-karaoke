@@ -72,108 +72,118 @@ export default function BandModeClient({ pubCode, participant }) {
     return (Date.now() - startTimeRef.current) / 1000;
   }, []);
 
-  // ── Polling DB ogni 2s — fonte di verità unica per game start/stop ─────────
-  // DESIGN: Non usiamo Supabase broadcast per il game start perché channel.send()
-  // può cadere su REST fallback, che NON consegna ai subscriber WebSocket.
-  // Il polling sul DB è deterministico, affidabile, e gestisce anche reload/reconnect.
+  // ── Realtime + polling fallback ─────────────────────────────────────────────
+  // ARCHITETTURA: Supabase postgres_changes push quando active_band cambia nel DB.
+  // Latenza push: <100ms su WebSocket. Polling ogni 3s come fallback (reconnect).
+  // Questo è il pattern usato da Kahoot, Jackbox: WebSocket push + HTTP fallback.
   useEffect(() => {
-    // activeStartAt: tiene traccia dell'ultima sessione avviata.
-    // Se cambia → nuova sessione. Se torna null → sessione terminata.
     const activeStartAtRef = { current: null };
     const isLoadingRef    = { current: false };
+    let realtimeChannel   = null;
 
+    // ── Logica condivisa: processa lo stato band dal DB ─────────────────────
+    const processBandState = async (activeBand) => {
+      if (!activeBand || activeBand.status !== 'active' || !activeBand.startAt) {
+        // Band non attiva → reset se eravamo in sessione
+        if (activeStartAtRef.current !== null || myRoleRef.current !== null) {
+          activeStartAtRef.current = null;
+          isLoadingRef.current     = false;
+          cancelAnimationFrame(animRef.current);
+          startTimeRef.current = null;
+          notesRef.current     = [];
+          scoreRef.current     = 0;
+          comboRef.current     = 0;
+          myRoleRef.current    = null;
+          setGameState('waiting');
+          setMyRole(null);
+          setScore(0);
+          setCombo(0);
+          setIsSpectator(false);
+          setFeedback(null);
+        }
+        return;
+      }
+
+      // Band attiva con startAt — nuova sessione?
+      if (activeStartAtRef.current === activeBand.startAt || isLoadingRef.current) return;
+      activeStartAtRef.current = activeBand.startAt;
+
+      const assignments = activeBand.assignments || [];
+      const mine = assignments.find(a =>
+        (userIdRef.current && a.userId === userIdRef.current) ||
+        a.nickname === nicknameRef.current
+      );
+
+      if (mine) {
+        setMyRole(mine.instrument);
+        myRoleRef.current   = mine.instrument;
+        songNameRef.current = activeBand.song;
+        setIsSpectator(false);
+        setGameState('loading');
+        isLoadingRef.current = true;
+
+        try {
+          const res = await fetch(`/audio/${activeBand.song}/chart_${mine.instrument}.json`);
+          if (!res.ok) throw new Error('chart non trovata');
+          const chartData = await res.json();
+          startGameRef.current?.(chartData, activeBand.startAt);
+        } catch (err) {
+          console.error('BandModeClient chart error:', err);
+          setFeedback({ text: 'ERRORE CHART', color: '#ff3b5c', lane: 1 });
+          setGameState('assigned');
+        } finally {
+          isLoadingRef.current = false;
+        }
+      } else if (assignments.length > 0) {
+        setIsSpectator(true);
+        setGameState('waiting');
+      }
+    };
+
+    // ── Poll HTTP: primo load + fallback ogni 3s ─────────────────────────────
     const poll = async () => {
       try {
         const state = await getEventState();
         const activeBand = state?.active_module === 'band' ? state?.active_band : null;
-
-        if (activeBand?.status === 'active' && activeBand?.startAt) {
-          // Verifica se è una nuova sessione (startAt diverso da prima)
-          if (activeStartAtRef.current !== activeBand.startAt && !isLoadingRef.current) {
-            activeStartAtRef.current = activeBand.startAt;
-
-            // Trova il ruolo di questo giocatore
-            const assignments = activeBand.assignments || [];
-            const mine = assignments.find(a =>
-              (userIdRef.current && a.userId === userIdRef.current) ||
-              a.nickname === nicknameRef.current
-            );
-
-            if (mine) {
-              const role = mine.instrument;
-              setMyRole(role);
-              myRoleRef.current   = role;
-              songNameRef.current = activeBand.song;
-              setIsSpectator(false);
-              setGameState('loading');
-              isLoadingRef.current = true;
-
-              // Carica la chart e avvia il gioco
-              try {
-                const res = await fetch(`/audio/${activeBand.song}/chart_${role}.json`);
-                if (!res.ok) throw new Error(`chart_${role}.json non trovata`);
-                const chartData = await res.json();
-                // Passa startAt diretto — startGame calcola il timing ancorato all'UTC del DB
-                startGameRef.current?.(chartData, activeBand.startAt);
-              } catch (err) {
-                console.error('BandModeClient: errore caricamento chart', err);
-                setFeedback({ text: 'ERRORE CHART', color: '#ff3b5c', lane: 1 });
-                setGameState('assigned');
-              } finally {
-                isLoadingRef.current = false;
-              }
-            } else if (assignments.length > 0) {
-              // Band attiva ma non sei tra i partecipanti
-              setIsSpectator(true);
-              setGameState('waiting');
-              isLoadingRef.current = false;
-            }
-          } else if (activeStartAtRef.current === null) {
-            // Band attiva ma startAt non ancora impostato → in attesa
-            const assignments = activeBand.assignments || [];
-            const mine = assignments.find(a =>
-              (userIdRef.current && a.userId === userIdRef.current) ||
-              a.nickname === nicknameRef.current
-            );
-            if (mine) {
-              if (myRoleRef.current !== mine.instrument) {
-                setMyRole(mine.instrument);
-                myRoleRef.current   = mine.instrument;
-                setIsSpectator(false);
-                setGameState('assigned');
-              }
-            } else if (assignments.length > 0) {
-              setIsSpectator(true);
-              setGameState('waiting');
-            }
-          }
-        } else if (!activeBand) {
-          // Band terminata o non attiva — reset completo
-          if (activeStartAtRef.current !== null || myRoleRef.current !== null) {
-            activeStartAtRef.current = null;
-            isLoadingRef.current     = false;
-            cancelAnimationFrame(animRef.current);
-            startTimeRef.current = null;
-            notesRef.current     = [];
-            scoreRef.current     = 0;
-            comboRef.current     = 0;
-            myRoleRef.current    = null;
-            setGameState('waiting');
-            setMyRole(null);
-            setScore(0);
-            setCombo(0);
-            setIsSpectator(false);
-            setFeedback(null);
-          }
-        }
-      } catch {
-        // Silenzioso — non interrompe il polling
-      }
+        await processBandState(activeBand);
+      } catch { /* silenzioso */ }
     };
 
-    poll(); // Esegui subito al mount
-    const interval = setInterval(poll, 500); // 500ms: rilevamento rapido, carico DB minimo
-    return () => clearInterval(interval);
+    // ── Setup Realtime postgres_changes ─────────────────────────────────────
+    const setupRealtime = async () => {
+      try {
+        const pubCode = localStorage.getItem('discojoys_pub_code');
+        if (!pubCode) return;
+        const { data: event } = await supabase
+          .from('events')
+          .select('id')
+          .eq('code', pubCode.toUpperCase())
+          .maybeSingle();
+        if (!event?.id) return;
+
+        realtimeChannel = supabase
+          .channel(`band_events_${event.id}`)
+          .on(
+            'postgres_changes',
+            { event: 'UPDATE', schema: 'public', table: 'events', filter: `id=eq.${event.id}` },
+            (payload) => {
+              const row = payload.new;
+              const activeBand = row.active_module === 'band' ? row.active_band : null;
+              processBandState(activeBand);
+            }
+          )
+          .subscribe();
+      } catch { /* silenzioso */ }
+    };
+
+    poll();            // Immediato al mount
+    setupRealtime();   // Iscriviti ai push
+    const interval = setInterval(poll, 3000); // Fallback ogni 3s
+
+    return () => {
+      clearInterval(interval);
+      if (realtimeChannel) supabase.removeChannel(realtimeChannel);
+    };
   }, [pubCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Render Loop ────────────────────────────────────────────────────────────

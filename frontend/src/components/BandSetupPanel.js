@@ -35,40 +35,45 @@ export default function BandSetupPanel({ pubCode, participants = [], onClose }) 
   const [gameStarted, setGameStarted] = useState(false);
   const [sending,     setSending]     = useState(false);
 
-  // ── Al mount: ripristina stato se c'è già una band attiva nel DB ────────
-  // Risolve il problema del pannello che "perde lo stato" quando si naviga
-  // via e si rientra: lo stato viene sempre riletto dal DB al mount.
+  // ── Polling continuo: gameStarted sempre sincronizzato col DB ────────────
+  // Ogni 2s rilegge lo stato band. Così anche se il pannello viene smontato
+  // e rimontato (navigazione), i controlli STOP/START sono sempre corretti.
   useEffect(() => {
-    const restore = async () => {
+    const syncState = async () => {
       try {
         const state = await getEventState();
-        if (state?.active_module !== 'band' || !state?.active_band) return;
-        const ab = state.active_band;
-        if (ab.status !== 'active') return;
+        const ab = (state?.active_module === 'band') ? state?.active_band : null;
+        const isActive = ab?.status === 'active';
 
-        setGameStarted(true);
-        if (!ab.song) return;
+        setGameStarted(isActive);
 
-        fetch(`/audio/${ab.song}/manifest.json`)
-          .then(r => r.ok ? r.json() : null)
-          .then(data => {
-            if (!data) return;
-            setManifest(data);
-            setSelectedSong({ id: ab.song, title: ab.songTitle || ab.song, artist: '' });
-            const restored = {};
-            (data.instruments || []).forEach(instr => {
-              const found = (ab.assignments || []).find(a => a.instrument === instr.id);
-              restored[instr.id] = found ? { userId: found.userId, nickname: found.nickname } : null;
-            });
-            setAssignments(restored);
-          })
-          .catch(() => {});
-      } catch {
-        // Silenzioso — non blocca il pannello
-      }
+        if (isActive && ab.song) {
+          // Ripristina manifest e assegnazioni se non già caricati
+          setSelectedSong(prev => prev?.id === ab.song ? prev : { id: ab.song, title: ab.songTitle || ab.song, artist: '' });
+          if (!manifest || manifest._song !== ab.song) {
+            fetch(`/audio/${ab.song}/manifest.json`)
+              .then(r => r.ok ? r.json() : null)
+              .then(data => {
+                if (!data) return;
+                data._song = ab.song; // marker per evitare reload inutili
+                setManifest(data);
+                const restored = {};
+                (data.instruments || []).forEach(instr => {
+                  const found = (ab.assignments || []).find(a => a.instrument === instr.id);
+                  restored[instr.id] = found ? { userId: found.userId, nickname: found.nickname } : null;
+                });
+                setAssignments(restored);
+              })
+              .catch(() => {});
+          }
+        }
+      } catch { /* silenzioso */ }
     };
-    restore();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    syncState(); // subito al mount
+    const interval = setInterval(syncState, 2000);
+    return () => clearInterval(interval);
+  }, [manifest]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Carica band_songs.json all'apertura ────────────────────────────────
   useEffect(() => {
