@@ -1241,7 +1241,8 @@ export const startBandSession = async (songId, songTitle, assignments) => {
   //
   // Soluzione: scriviamo startAt (timestamp futuro) nel DB. I telefoni fanno polling
   // ogni 2s e calcolano il ritardo rispetto a startAt. Nessuna race condition.
-  const startAt = new Date(Date.now() + 5000).toISOString(); // 5s di countdown
+  // 10s: polling telefono max 500ms + download chart max ~1s + margine sicurezza
+  const startAt = new Date(Date.now() + 10000).toISOString();
 
   const activeBand = {
     status:      'active',

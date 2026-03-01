@@ -328,6 +328,11 @@ export default function BandMode({ session, pubCode }) {
       else { clearInterval(iv); setCountdown('GO!'); }
     }, 1000);
 
+    // Pre-calcola il ctx.currentTime esatto che corrisponde a startAt.
+    // Se setTimeout firma in ritardo (10-50ms, normale nei browser),
+    // startTimeRef è comunque preciso — non dipende da quando il callback esegue.
+    const ctxAtStart = now + msDelay / 1000;
+
     startTimerRef.current = setTimeout(async () => {
       clearInterval(iv);
       if (baseRef.current) {
@@ -340,7 +345,8 @@ export default function BandMode({ session, pubCode }) {
         el.play().catch(() => {});
       });
 
-      startTimeRef.current = ctx.currentTime;
+      // Usa il tempo pre-calcolato, non ctx.currentTime nel momento del callback
+      startTimeRef.current = ctxAtStart;
       setGameState('playing');
       setCountdown(null);
       startElapsedLoop();

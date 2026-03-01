@@ -111,9 +111,8 @@ export default function BandModeClient({ pubCode, participant }) {
                 const res = await fetch(`/audio/${activeBand.song}/chart_${role}.json`);
                 if (!res.ok) throw new Error(`chart_${role}.json non trovata`);
                 const chartData = await res.json();
-                // Calcola il ritardo rispetto al timestamp DB (può essere negativo se siamo in ritardo)
-                const delay = new Date(activeBand.startAt).getTime() - Date.now();
-                startGameRef.current?.(chartData, Math.max(0, delay));
+                // Passa startAt diretto — startGame calcola il timing ancorato all'UTC del DB
+                startGameRef.current?.(chartData, activeBand.startAt);
               } catch (err) {
                 console.error('BandModeClient: errore caricamento chart', err);
                 setFeedback({ text: 'ERRORE CHART', color: '#ff3b5c', lane: 1 });
@@ -171,7 +170,7 @@ export default function BandModeClient({ pubCode, participant }) {
     };
 
     poll(); // Esegui subito al mount
-    const interval = setInterval(poll, 2000);
+    const interval = setInterval(poll, 500); // 500ms: rilevamento rapido, carico DB minimo
     return () => clearInterval(interval);
   }, [pubCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -264,9 +263,16 @@ export default function BandModeClient({ pubCode, participant }) {
   }, [getElapsed]); // laneLabels tolto dai deps — letto da laneLabelsRef per stabilità
 
   // ── Start Game ─────────────────────────────────────────────────────────────
-  const startGame = useCallback((chartData, delay) => {
-    const adjustedStart = Date.now() + delay - OFFSET_LATENZA;
-    startTimeRef.current = adjustedStart;
+  // Riceve startAt (ISO string assoluto dal DB) invece di delay.
+  // MOTIVO: delay calcolato prima del download della chart porta a un errore
+  // sistematico pari al tempo di download (200-800ms). Ancorando direttamente
+  // a startAt, startTimeRef è invariante rispetto a quando viene chiamata questa
+  // funzione — il telefono è sempre sincronizzato all'UTC del DB.
+  const startGame = useCallback((chartData, startAt) => {
+    // startTimeRef = punto zero del tempo di gioco
+    // elapsed = (Date.now() - startTimeRef) / 1000
+    // OFFSET_LATENZA compensa la propagazione audio TV→orecchie del giocatore
+    startTimeRef.current = new Date(startAt).getTime() - OFFSET_LATENZA;
     notesRef.current = chartData.map((n, i) => ({ ...n, id: i, hit: false, missed: false }));
     scoreRef.current = 0; comboRef.current = 0;
     setScore(0); setCombo(0);
