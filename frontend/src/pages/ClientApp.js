@@ -102,13 +102,12 @@ export default function ClientApp() {
       }
 // ✅ GESTIONE BAND MODE - Cambio automatico tab
 const eventState = await api.getEventState();
-if (eventState?.active_module === 'band') {
+if (eventState?.active_module === 'band' && eventState?.active_band?.status === 'active') {
   if (activeTab !== 'band') {
     setActiveTab('band');
     toast.success("🎸 Band Mode! Pronto a suonare?");
   }
 } else if (activeTab === 'band') {
-  // Quando finisce il band mode, torna alla home
   setActiveTab('home');
 }
 
@@ -285,9 +284,10 @@ if (eventState?.active_module === 'band') {
           </div>
         )}
         {activeTab === "songs" && (<div className="space-y-4"><h2 className="text-xl font-bold">Le Mie Richieste</h2>{myRequests.map(song => (<div key={song.id} className="glass rounded-xl p-4"><p className="font-medium">{song.title}</p><div className="flex justify-between mt-1"><p className="text-sm text-zinc-500">{song.artist}</p><span className={`text-xs uppercase px-2 py-1 rounded ${song.status==='queued' ? 'bg-green-500/20 text-green-400' : 'bg-zinc-800 text-zinc-500'}`}>{song.status}</span></div></div>))}</div>)}
-{activeTab === "band" && (
+{/* BandModeClient sempre montato — riceve broadcast anche da altri tab */}
+<div style={{ display: activeTab === 'band' ? 'block' : 'none' }}>
   <BandModeClient pubCode={localStorage.getItem('discojoys_pub_code')} participant={user} />
-)}
+</div>
         {/* ── TAB ARCADE ── */}
         {activeTab === "arcade" && (
           <ArcadeSection participant={{ id: user?.id, nickname: user?.nickname, avatar_url: user?.avatar_url }} />

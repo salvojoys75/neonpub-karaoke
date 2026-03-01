@@ -845,7 +845,7 @@ export const createOperatorProfile = async (email, name, password, initialCredit
 export const uploadLogo = async (file) => { const fileName = `${Date.now()}_${file.name}`; const { error } = await supabase.storage.from('logos').upload(fileName, file); if (error) throw error; const { data } = supabase.storage.from('logos').getPublicUrl(fileName); return data.publicUrl; }
 export const updateEventSettings = async (data) => { const event = await getAdminEvent(); await supabase.from('events').update({ name: data.name, logo_url: data.logo_url }).eq('id', event.id); return { data: 'ok' }; }
 export const uploadAvatar = async (file) => { const fileName = `${Date.now()}_${file.name}`; const { error } = await supabase.storage.from('avatars').upload(fileName, file); if (error) throw error; const { data } = supabase.storage.from('avatars').getPublicUrl(fileName); return data.publicUrl; }
-export const getEventState = async () => { const pubCode = localStorage.getItem('discojoys_pub_code'); if (!pubCode) return null; const { data } = await supabase.from('events').select('active_module, active_module_id').eq('code', pubCode.toUpperCase()).maybeSingle(); return data; };
+export const getEventState = async () => { const pubCode = localStorage.getItem('discojoys_pub_code'); if (!pubCode) return null; const { data } = await supabase.from('events').select('active_module, active_module_id, active_band, settings').eq('code', pubCode.toUpperCase()).maybeSingle(); return data; };
 export const setEventModule = async (moduleId, specificContentId = null) => {
   const pubCode = localStorage.getItem('discojoys_pub_code');
   const { data: event } = await supabase.from('events').update({ active_module: moduleId, active_module_id: specificContentId }).eq('code', pubCode.toUpperCase()).select().single();
@@ -1196,7 +1196,7 @@ export const rejectSelfie = async (selfieId) => {
 // ─── BAND MODE API ──────────────────────────────────────────────────────────
 
 export const startBandSession = async (songId, songTitle, assignments) => {
-  // assignments è un oggetto: { drums: 'uuid-partecipante', bass: 'uuid...', etc }
+  // assignments è un ARRAY: [{ instrument, userId, nickname }, ...]
   const event = await getAdminEvent();
   
   // Resetta altri moduli per sicurezza
@@ -1205,29 +1205,33 @@ export const startBandSession = async (songId, songTitle, assignments) => {
   await supabase.from('arcade_games').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
   await supabase.from('millionaire_games').update({ status: 'lost' }).eq('event_id', event.id).neq('status', 'lost');
 
-  // Aggiorna lo stato dell'evento per dire "Siamo in modalità Band"
-  // Salviamo le assegnazioni nel campo settings così il Display le può leggere se si ricarica
-  const currentSettings = event.settings || {};
-  
+  // active_band viene letto da getDisplayData (TV) e da getEventState (telefoni)
+  // Contiene tutto il necessario per far partire il gioco anche dopo un reload
+  const activeBand = {
+    status:      'active',
+    song:        songId,
+    songTitle:   songTitle,
+    assignments: assignments, // array completo con instrument + userId + nickname
+    startedAt:   new Date().toISOString(),
+  };
+
   await supabase.from('events').update({ 
     active_module: 'band',
-active_band: { status: 'active', song: songId },
-    settings: { 
-      ...currentSettings, 
-      band_session: { songId, songTitle, assignments, status: 'active' } 
-    }
+    active_band:   activeBand,
   }).eq('id', event.id);
 
-  // Invio segnale immediato a tutti (Telefoni e Display)
+  // Broadcast immediato — il display lo usa per avviare il countdown subito
+  // senza aspettare il prossimo poll (max 1s di ritardo altrimenti)
   const channel = supabase.channel(`band_game_${event.code}`);
+  await new Promise(resolve => setTimeout(resolve, 200)); // attendi subscribe
   await channel.send({
     type: 'broadcast',
     event: 'band_start',
     payload: {
-      song: songId, // es 'deepdown' (nome cartella)
-      songTitle: songTitle, // Titolo leggibile
-      assignments: assignments, // { drums: id_marco, bass: id_luca }
-      startDelay: 4000
+      song:        songId,
+      songTitle:   songTitle,
+      assignments: assignments,
+      startDelay:  4000,
     }
   });
 

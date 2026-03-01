@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { getEventState } from '@/lib/api';
 
 // ── CONFIGURAZIONE ────────────────────────────────────────────────────────────
 const OFFSET_LATENZA = 400;
@@ -53,6 +54,39 @@ export default function BandModeClient({ pubCode, participant }) {
     if (!startTimeRef.current) return -999;
     return (Date.now() - startTimeRef.current) / 1000;
   }, []);
+
+  // ── Legge il ruolo dal DB al mount (sopravvive ai reload) ─────────────────
+  useEffect(() => {
+    const loadRoleFromDB = async () => {
+      try {
+        const state = await getEventState();
+        if (state?.active_module !== 'band' || !state?.active_band) return;
+
+        const activeBand  = state.active_band;
+        const assignments = activeBand.assignments || [];
+        const mine = assignments.find(a =>
+          (userId && a.userId === userId) || a.nickname === nickname
+        );
+
+        if (mine) {
+          setMyRole(mine.instrument);
+          myRoleRef.current  = mine.instrument;
+          songNameRef.current = activeBand.song;
+          setIsSpectator(false);
+          // Se il gioco è già in corso (startedAt esiste), vai in 'assigned'
+          // così quando arriva il prossimo band_start (o se già passato) si parte
+          setGameState('assigned');
+        } else if (assignments.length > 0) {
+          // Band attiva ma non sei tra gli assegnati
+          setIsSpectator(true);
+          setGameState('waiting');
+        }
+      } catch (e) {
+        // Silenzioso — non blocca il componente
+      }
+    };
+    loadRoleFromDB();
+  }, [nickname, userId]); // eslint-disable-line
 
   // ── Render Loop ────────────────────────────────────────────────────────────
   const startDrawLoop = useCallback(() => {

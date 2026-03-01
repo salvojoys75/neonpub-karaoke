@@ -110,9 +110,9 @@ function getActiveMode(data) {
   if (isQuiz)        return 'quiz';
   if (isArcade)      return 'arcade';
   if (isMillionaire) return 'millionaire';
+  if (data.active_band?.status === 'active') return 'band';  // band prima di karaoke
   if (isKaraoke || isVoting) return 'karaoke';
   if (isScore)  return 'score';
-if (data.active_band?.status === 'active') return 'band';
   return 'idle';
 }
 
@@ -1860,13 +1860,13 @@ export default function PubDisplay() {
     else if (isQuiz)           Content = <QuizMode quiz={quiz} result={quizResult} />;
     else if (isArcadeLobby)  Content = <ArcadeLobbyMode arcade={data.active_arcade} pubCode={pubCode} />;
     else if (isArcade)    Content = <ArcadeMode arcade={data.active_arcade || {}} result={data.arcade_result} bookingQueue={data.active_arcade?.booking_queue || []} lastError={data.active_arcade?.last_error} />;
+    else if (data.active_band?.status === 'active')
+      Content = <BandMode session={data.active_band} pubCode={pubCode} />;
     else if (isLobbyKaraoke) Content = <KaraokeLobbyMode lobbyData={lobbyState.data} />;
     else if (isLobbyQuiz)    Content = <QuizLobbyMode lobbyData={lobbyState.data} />;
     else if (isVoting)    Content = <VotingMode perf={perf} />;
     else if (isScore)     Content = <ScoreMode perf={perf} pubCode={pubCode} />;
     else if (isKaraoke)   Content = <KaraokeMode perf={perf} isMuted={isMuted} />;
-else if (data.active_band?.status === 'active')
-  Content = <BandMode session={data.active_band} pubCode={pubCode} />;
     else Content = <IdleMode pub={pub} />;
 
     return (

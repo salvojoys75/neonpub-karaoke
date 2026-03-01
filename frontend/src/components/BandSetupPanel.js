@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { startBandSession, stopBandSession } from '@/lib/api';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 
@@ -31,11 +32,8 @@ export default function BandSetupPanel({ pubCode, participants = [], onClose }) 
   const [assignments, setAssignments] = useState({});
 
   // ── Stato broadcast ─────────────────────────────────────────────────────
-  const [setupSent,   setSetupSent]   = useState(false);
   const [gameStarted, setGameStarted] = useState(false);
   const [sending,     setSending]     = useState(false);
-
-  const channelRef = useRef(null);
 
   // ── Carica band_songs.json all'apertura ────────────────────────────────
   useEffect(() => {
@@ -49,16 +47,6 @@ export default function BandSetupPanel({ pubCode, participants = [], onClose }) 
       .finally(() => setLoadingSongs(false));
   }, []);
 
-  // ── Connetti al canale Supabase ─────────────────────────────────────────
-  useEffect(() => {
-    const ch = supabase.channel(`band_game_${pubCode}`, {
-      config: { broadcast: { self: false } }
-    });
-    ch.subscribe();
-    channelRef.current = ch;
-    return () => supabase.removeChannel(ch);
-  }, [pubCode]);
-
   // ── Carica manifest.json quando si seleziona una canzone ────────────────
   useEffect(() => {
     if (!selectedSong) { setManifest(null); return; }
@@ -67,7 +55,6 @@ export default function BandSetupPanel({ pubCode, participants = [], onClose }) 
     setLoadingManifest(true);
     setManifestError(null);
     setAssignments({});
-    setSetupSent(false);
     setGameStarted(false);
 
     fetch(`/audio/${folder}/manifest.json`)
@@ -113,13 +100,12 @@ export default function BandSetupPanel({ pubCode, participants = [], onClose }) 
 
   const assignmentCount = Object.values(assignments).filter(Boolean).length;
 
-  // ── Invia band_setup ───────────────────────────────────────────────────
-  const sendSetup = useCallback(async () => {
-    if (!manifest || assignmentCount === 0) return;
+  // ── START BAND — unico click che scrive DB + broadcast ────────────────
+  const startBand = useCallback(async () => {
+    if (!manifest || assignmentCount === 0 || sending) return;
     setSending(true);
 
-    const folder = selectedSong.id;
-
+    // Costruisce array assignments nel formato che serve a tutti i componenti
     const assignmentsList = Object.entries(assignments)
       .filter(([, v]) => v !== null)
       .map(([instrumentId, v]) => ({
@@ -129,60 +115,34 @@ export default function BandSetupPanel({ pubCode, participants = [], onClose }) 
       }));
 
     try {
-      await channelRef.current?.send({
-        type: 'broadcast',
-        event: 'band_setup',
-        payload: {
-          song:        folder,
-          title:       manifest.title,
-          artist:      manifest.artist,
-          assignments: assignmentsList,
-        }
-      });
-      setSetupSent(true);
-      toast.success('✅ Setup inviato ai telefoni!');
-    } catch (err) {
-      toast.error('Errore invio setup: ' + err.message);
-    } finally {
-      setSending(false);
-    }
-  }, [manifest, assignments, assignmentCount, selectedSong]);
-
-  // ── Invia band_start ───────────────────────────────────────────────────
-  const sendStart = useCallback(async () => {
-    if (!setupSent || !manifest) return;
-    setSending(true);
-
-    const folder = selectedSong.id;
-    const assignmentsList = Object.entries(assignments)
-      .filter(([, v]) => v !== null)
-      .map(([instrumentId, v]) => ({ instrument: instrumentId, userId: v.userId, nickname: v.nickname }));
-
-    try {
-      await channelRef.current?.send({
-        type: 'broadcast',
-        event: 'band_start',
-        payload: {
-          song:        folder,
-          startDelay:  START_DELAY,
-          assignments: assignmentsList,
-        }
-      });
+      await startBandSession(selectedSong.id, manifest.title, assignmentsList);
       setGameStarted(true);
       toast.success('🎸 BAND PARTITA!');
     } catch (err) {
-      toast.error('Errore start: ' + err.message);
+      toast.error('Errore: ' + err.message);
     } finally {
       setSending(false);
     }
-  }, [setupSent, manifest, assignments, selectedSong]);
+  }, [manifest, assignments, assignmentCount, selectedSong, sending]);
 
-  // ── Reset ──────────────────────────────────────────────────────────────
+  // ── STOP BAND ──────────────────────────────────────────────────────────
+  const stopBand = useCallback(async () => {
+    try {
+      await stopBandSession();
+      setGameStarted(false);
+      setSelectedSong(null);
+      setManifest(null);
+      setAssignments({});
+      toast.success('⏹ Band fermata');
+    } catch (err) {
+      toast.error('Errore stop: ' + err.message);
+    }
+  }, []);
+
   const reset = () => {
     setSelectedSong(null);
     setManifest(null);
     setAssignments({});
-    setSetupSent(false);
     setGameStarted(false);
   };
 
@@ -380,71 +340,56 @@ export default function BandSetupPanel({ pubCode, participants = [], onClose }) 
               })}
             </div>
 
-            {/* Pulsante INVIA SETUP */}
-            {!setupSent && (
+            {/* Pulsante START BAND — unico, fa tutto */}
+            {!gameStarted && (
               <button
-                onClick={sendSetup}
+                onClick={startBand}
                 disabled={assignmentCount === 0 || sending}
-                style={{
-                  padding: '12px',
-                  fontSize: '13px',
-                  fontWeight: 900,
-                  letterSpacing: '0.15em',
-                  background: assignmentCount > 0 ? '#1a1a3a' : '#111',
-                  border: `2px solid ${assignmentCount > 0 ? '#00d4ff' : 'rgba(255,255,255,0.1)'}`,
-                  borderRadius: '10px',
-                  color: assignmentCount > 0 ? '#00d4ff' : 'rgba(255,255,255,0.2)',
-                  cursor: assignmentCount > 0 && !sending ? 'pointer' : 'not-allowed',
-                  fontFamily: "'JetBrains Mono', monospace",
-                  transition: 'all 0.2s',
-                }}
-              >
-                {sending ? '⏳ INVIO...' : `📡 INVIA SETUP (${assignmentCount}/${manifest.instruments.length})`}
-              </button>
-            )}
-
-            {/* Pulsante START BAND */}
-            {setupSent && !gameStarted && (
-              <button
-                onClick={sendStart}
-                disabled={sending}
                 style={{
                   padding: '16px',
                   fontSize: '16px',
                   fontWeight: 900,
                   letterSpacing: '0.2em',
-                  background: '#ffd10022',
-                  border: '3px solid #ffd100',
+                  background: assignmentCount > 0 ? '#ffd10022' : '#111',
+                  border: `3px solid ${assignmentCount > 0 ? '#ffd100' : 'rgba(255,255,255,0.1)'}`,
                   borderRadius: '12px',
-                  color: '#ffd100',
-                  cursor: sending ? 'wait' : 'pointer',
+                  color: assignmentCount > 0 ? '#ffd100' : 'rgba(255,255,255,0.2)',
+                  cursor: assignmentCount > 0 && !sending ? 'pointer' : 'not-allowed',
                   fontFamily: "'JetBrains Mono', monospace",
-                  boxShadow: '0 0 30px rgba(255,209,0,0.2)',
-                  animation: 'pulse 1.5s ease-in-out infinite',
+                  boxShadow: assignmentCount > 0 ? '0 0 30px rgba(255,209,0,0.2)' : 'none',
+                  animation: assignmentCount > 0 ? 'pulse 1.5s ease-in-out infinite' : 'none',
                 }}
               >
-                {sending ? '⏳ PARTENZA...' : '▶ START BAND 🎸'}
+                {sending ? '⏳ AVVIO...' : `▶ START BAND 🎸 (${assignmentCount}/${manifest.instruments.length})`}
               </button>
             )}
 
             {gameStarted && (
-              <div style={{
-                textAlign: 'center',
-                padding: '14px',
-                background: '#39ff8415',
-                border: '2px solid #39ff84',
-                borderRadius: '10px',
-                color: '#39ff84',
-                fontSize: '14px',
-                fontWeight: 900,
-                letterSpacing: '0.2em',
-              }}>
-                🎶 BAND IN CORSO!
+              <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
+                <div style={{
+                  textAlign: 'center', padding: '14px',
+                  background: '#39ff8415', border: '2px solid #39ff84',
+                  borderRadius: '10px', color: '#39ff84',
+                  fontSize: '14px', fontWeight: 900, letterSpacing: '0.2em',
+                }}>
+                  🎶 BAND IN CORSO!
+                </div>
+                <button
+                  onClick={stopBand}
+                  style={{
+                    padding: '10px', fontSize: '12px', fontWeight: 700,
+                    background: '#ff3b5c18', border: '1px solid #ff3b5c66',
+                    borderRadius: '8px', color: '#ff3b5c', cursor: 'pointer',
+                    fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.15em',
+                  }}
+                >
+                  ⏹ FERMA BAND
+                </button>
               </div>
             )}
 
             {/* Reset */}
-            {(setupSent || gameStarted) && (
+            {!gameStarted && (
               <button
                 onClick={reset}
                 style={{
