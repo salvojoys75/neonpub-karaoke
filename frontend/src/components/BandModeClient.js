@@ -2,25 +2,17 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { getEventState } from '@/lib/api';
 
-// ── CONFIGURAZIONE SINCRONIZZAZIONE (Il cuore del problema) ───────────────────
-// Indica quanti millisecondi il telefono deve "ritardare" per aspettare l'audio della TV.
-// VALORI CONSIGLIATI:
-// 200 - 300: TV standard o casse Bluetooth (Latenza media)
-// 0   - 50:  Casse via cavo dirette PC (Latenza bassa)
-// 400 - 500: Impianto audio complesso / Wi-Fi lento
-const SYNC_DELAY = 400; 
+// ── CONFIGURAZIONE ────────────────────────────────────────────────────────────
+// SYNC_DELAY: Ritardo extra per compensare l'audio della TV (es. 200ms)
+const SYNC_DELAY = 200; 
 
-// Tolleranza gioco (per renderlo divertente anche se non perfettamente sincrono)
 const HIT_WINDOW  = 0.25; 
 const GOOD_WINDOW = 0.12;
 const PERF_WINDOW = 0.06;
-const NOTE_LEAD   = 3.0; // Velocità discesa note (più basso = più veloce)
+const NOTE_LEAD   = 3.0; 
 const POINTS      = { perfect: 100, good: 60, hit: 30 };
-
-// Colori fissi per corsia — rosso, giallo, verde
 const LANE_COLORS = ['#ff3b5c', '#ffd100', '#39ff84'];
 
-// Config strumenti (solo UI, niente audio)
 const INSTRUMENT_CONFIG = {
   keys:   { color: '#00d4ff', icon: '🎹', label: 'TASTIERA',  lanes: ['Do', 'Re', 'Mi']         },
   drums:  { color: '#ff3b5c', icon: '🥁', label: 'BATTERIA',  lanes: ['CASSA', 'RUL', 'PIATTO'] },
@@ -28,7 +20,6 @@ const INSTRUMENT_CONFIG = {
   brass:  { color: '#ffd100', icon: '🎺', label: 'FIATI',     lanes: ['LOW', 'MID', 'HIGH']     },
   guitar: { color: '#ff8c00', icon: '🎸', label: 'CHITARRA',  lanes: ['E', 'A', 'D']            },
 };
-
 const DEFAULT_CONFIG = { color: '#ffffff', icon: '🎵', label: 'STRUMENTO', lanes: ['1', '2', '3'] };
 
 export default function BandModeClient({ pubCode, participant }) {
@@ -53,10 +44,12 @@ export default function BandModeClient({ pubCode, participant }) {
   const startGameRef   = useRef(null); 
   const nicknameRef    = useRef(null); 
   const userIdRef      = useRef(null); 
+  
+  // Offset orario (ServerTime - LocalTime)
+  const timeOffsetRef = useRef(0);
 
   const nickname = participant?.nickname || participant?.name || 'Player';
   const userId   = participant?.id || participant?.user_id || null;
-
   const instrConfig = myRole ? (INSTRUMENT_CONFIG[myRole] || DEFAULT_CONFIG) : DEFAULT_CONFIG;
   const { color: instrColor, icon: instrIcon, label: instrLabel, lanes: laneLabels } = instrConfig;
 
@@ -64,12 +57,33 @@ export default function BandModeClient({ pubCode, participant }) {
   useEffect(() => { nicknameRef.current   = nickname; },   [nickname]);
   useEffect(() => { userIdRef.current     = userId; },     [userId]);
 
+  // ── Sync Orologio col Server ──────────────────────────────────────────────
+  const syncClock = async () => {
+    try {
+      const start = Date.now();
+      const res = await fetch(window.location.href, { method: 'HEAD' });
+      const end = Date.now();
+      const dateStr = res.headers.get('date');
+      if (dateStr) {
+        const serverTime = new Date(dateStr).getTime() + ((end - start) / 2); // Compensiamo latenza rete
+        timeOffsetRef.current = serverTime - end;
+        console.log('🕒 Clock synced. Offset:', timeOffsetRef.current, 'ms');
+      }
+    } catch (e) {
+      console.warn('Clock sync failed, using local time');
+    }
+  };
+
+  useEffect(() => { syncClock(); }, []);
+
+  // Calcola tempo trascorso usando l'orario del server simulato
   const getElapsed = useCallback(() => {
     if (!startTimeRef.current) return -999;
-    return (Date.now() - startTimeRef.current) / 1000;
+    const nowServer = Date.now() + timeOffsetRef.current;
+    return (nowServer - startTimeRef.current) / 1000;
   }, []);
 
-  // ── Polling DB ogni 1s ─────────────────────────────────────────────────────
+  // ── Polling DB ─────────────────────────────────────────────────────────────
   useEffect(() => {
     const activeStartAtRef = { current: null };
     const isLoadingRef    = { current: false };
@@ -103,7 +117,7 @@ export default function BandModeClient({ pubCode, participant }) {
                 const chartData = await res.json();
                 startGameRef.current?.(chartData, activeBand.startAt);
               } catch (err) {
-                console.error('Chart load error', err);
+                console.error(err);
                 setFeedback({ text: 'ERRORE CHART', color: '#ff3b5c', lane: 1 });
                 setGameState('assigned');
               } finally {
@@ -135,14 +149,13 @@ export default function BandModeClient({ pubCode, participant }) {
     return () => clearInterval(interval);
   }, [pubCode]); 
 
-  // ── Start Game con CORREZIONE LATENZA ──────────────────────────────────────
-  const startGame = useCallback((chartData, startAt) => {
-    // 1. Prendo l'orario di start del SERVER (es. 22:00:00.000)
-    // 2. Aggiungo SYNC_DELAY (es. +250ms) -> 22:00:00.250
-    //    Questo significa che per il telefono, il "tempo zero" è 250ms DOPO.
-    //    Quindi le note appariranno 250ms più tardi, allineandosi con l'audio lento della TV.
-    const serverStartTime = new Date(startAt).getTime();
-    startTimeRef.current = serverStartTime + SYNC_DELAY; 
+  // ── Start Game Logica ──────────────────────────────────────────────────────
+  const startGame = useCallback((chartData, startAtISO) => {
+    // startTimeRef deve essere in "Server Time Localizzato"
+    // startAtISO è l'orario assoluto del server in cui inizia la canzone
+    // Aggiungiamo SYNC_DELAY per compensare la TV
+    const targetServerTime = new Date(startAtISO).getTime();
+    startTimeRef.current = targetServerTime + SYNC_DELAY; 
 
     notesRef.current = chartData.map((n, i) => ({ ...n, id: i, hit: false, missed: false }));
     scoreRef.current = 0; comboRef.current = 0;
@@ -162,7 +175,6 @@ export default function BandModeClient({ pubCode, participant }) {
     function draw() {
       const elapsed = getElapsed();
       
-      // Gestione resize/visibilità dinamica
       const DPR = window.devicePixelRatio || 1;
       const cW = canvas.offsetWidth;
       const cH = canvas.offsetHeight;
@@ -176,38 +188,45 @@ export default function BandModeClient({ pubCode, participant }) {
 
       ctx.clearRect(0, 0, cW, cH);
 
-      // Sfondo corsie
+      if (elapsed < 0) {
+        const sec  = Math.ceil(Math.abs(elapsed));
+        const text = sec > 0 ? String(sec) : 'GO!';
+        for (let l = 0; l < 3; l++) {
+          ctx.fillStyle = `${LANE_COLORS[l]}11`;
+          ctx.fillRect(l * lW, 0, lW, cH);
+          if (l > 0) { ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(l*lW,0); ctx.lineTo(l*lW,cH); ctx.stroke(); }
+        }
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 80px monospace';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(text, cW / 2, cH / 2);
+        animRef.current = requestAnimationFrame(draw);
+        return;
+      }
+
       for (let l = 0; l < 3; l++) {
         ctx.fillStyle = `${LANE_COLORS[l]}0d`;
         ctx.fillRect(l * lW, 0, lW, cH);
       }
-      // Linee divisorie
       ctx.lineWidth = 1;
       for (let l = 1; l < 3; l++) {
         ctx.strokeStyle = 'rgba(255,255,255,0.06)';
         ctx.beginPath(); ctx.moveTo(l*lW, 0); ctx.lineTo(l*lW, cH); ctx.stroke();
       }
 
-      // Hit line
-      ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 2; ctx.setLineDash([6,4]);
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 2; ctx.setLineDash([6,4]);
       ctx.beginPath(); ctx.moveTo(0, hitY); ctx.lineTo(cW, hitY); ctx.stroke(); ctx.setLineDash([]);
 
-      // Tasti (Cerchi)
       for (let l = 0; l < 3; l++) {
         const cx = l * lW + lW / 2;
         ctx.strokeStyle = LANE_COLORS[l] + '66'; ctx.lineWidth = 3;
         ctx.beginPath(); ctx.arc(cx, hitY, 16, 0, Math.PI * 2); ctx.stroke();
       }
 
-      // Note
       for (const note of notesRef.current) {
         if (note.hit || note.missed) continue;
         const tti = note.time - elapsed;
         
-        // Non disegnare note troppo future
         if (tti > NOTE_LEAD + 0.1) continue;
-        
-        // Missed (troppo tardi)
         if (tti < -HIT_WINDOW - 0.15) { 
             note.missed = true; 
             comboRef.current = 0; 
@@ -228,7 +247,6 @@ export default function BandModeClient({ pubCode, participant }) {
         ctx.restore();
       }
 
-      // Labels
       ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
       for (let l = 0; l < 3; l++) {
         ctx.fillStyle = LANE_COLORS[l] + 'aa';
@@ -240,19 +258,15 @@ export default function BandModeClient({ pubCode, participant }) {
     animRef.current = requestAnimationFrame(draw);
   }, [getElapsed]);
 
-  // ── Hit Handler ────────────────────────────────────────────────────────────
   const handleHit = useCallback(async (lane) => {
     if (gameState !== 'playing') return;
     const elapsed = getElapsed();
-    
-    // Ignora tap prima che la canzone inizi davvero
     if (elapsed < -0.5) return;
 
     let best = null, bestDist = Infinity;
     for (const note of notesRef.current) {
       if (note.hit || note.missed || note.lane !== lane) continue;
       const d = Math.abs(note.time - elapsed);
-      // Cerchiamo la nota più vicina in assoluto
       if (d < HIT_WINDOW && d < bestDist) { best = note; bestDist = d; }
     }
 
@@ -260,16 +274,12 @@ export default function BandModeClient({ pubCode, participant }) {
       best.hit = true;
       const isPerfect = bestDist < PERF_WINDOW;
       const isGood    = bestDist < GOOD_WINDOW;
-      
       const label = isPerfect ? '✨ PERFECT!' : isGood ? '⚡ GOOD!' : '✓ HIT';
       const col   = isPerfect ? '#ffd100'     : isGood ? '#39ff84' : LANE_COLORS[lane];
       const pts   = isPerfect ? POINTS.perfect : isGood ? POINTS.good : POINTS.hit;
 
-      scoreRef.current += pts; 
-      comboRef.current += 1;
-      setScore(scoreRef.current); 
-      setCombo(comboRef.current);
-      
+      scoreRef.current += pts; comboRef.current += 1;
+      setScore(scoreRef.current); setCombo(comboRef.current);
       setFeedback({ text: label, color: col, lane });
       setTimeout(() => setFeedback(null), 600);
 
@@ -278,10 +288,7 @@ export default function BandModeClient({ pubCode, participant }) {
         payload: { nickname, instrument: myRoleRef.current, lane, accuracy: bestDist, points: pts }
       });
     } else {
-      // Miss se preme a vuoto (ma solo se non ci sono note vicine, per essere gentili)
-      // Qui penalizziamo sempre per evitare spam
-      comboRef.current = 0; 
-      setCombo(0);
+      comboRef.current = 0; setCombo(0);
       setFeedback({ text: '✗ MISS', color: '#ff3b5c88', lane });
       setTimeout(() => setFeedback(null), 400);
       await channelRef.current?.send({
@@ -291,7 +298,6 @@ export default function BandModeClient({ pubCode, participant }) {
     }
   }, [gameState, getElapsed, nickname]);
 
-  // ── Channel Supabase (Solo output) ─────────────────────────────────────────
   useEffect(() => {
     const ch = supabase.channel(`band_game_${pubCode}`);
     ch.subscribe(status => setConnected(status === 'SUBSCRIBED'));
@@ -299,7 +305,6 @@ export default function BandModeClient({ pubCode, participant }) {
     return () => { supabase.removeChannel(ch); cancelAnimationFrame(animRef.current); };
   }, [pubCode]);
 
-  // ── Render UI Stati ────────────────────────────────────────────────────────
   const renderWaiting = () => (
     <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:'16px', padding:'24px' }}>
       <div style={{ fontSize:'48px' }}>🎵</div>
@@ -330,8 +335,6 @@ export default function BandModeClient({ pubCode, participant }) {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100vh', background:'#08080f', fontFamily:"'JetBrains Mono',monospace", overflow:'hidden', userSelect:'none', WebkitUserSelect:'none' }}>
-
-      {/* Header */}
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 16px', background:'#0d0d18', borderBottom:'1px solid rgba(255,255,255,0.07)', flexShrink:0 }}>
         <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
           <span style={{ fontSize:'20px' }}>{instrIcon}</span>
@@ -348,7 +351,6 @@ export default function BandModeClient({ pubCode, participant }) {
         </div>
       </div>
 
-      {/* Canvas Area */}
       {(gameState === 'playing' || gameState === 'loading') && (
         <div style={{ flex:'0 0 32vh', position:'relative' }}>
           <canvas ref={canvasRef} style={{ width:'100%', height:'100%', display:'block' }} />
@@ -365,12 +367,10 @@ export default function BandModeClient({ pubCode, participant }) {
         </div>
       )}
 
-      {/* Stati non giocabili */}
       {gameState === 'waiting'  && !isSpectator && renderWaiting()}
       {gameState === 'waiting'  && isSpectator  && renderSpectator()}
       {gameState === 'assigned' && renderAssigned()}
 
-      {/* Controller Tasti */}
       {gameState === 'playing' && (
         <div style={{ flex:1, display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'4px', padding:'4px', background:'#050508' }}>
           {[0,1,2].map(l => {
@@ -390,7 +390,6 @@ export default function BandModeClient({ pubCode, participant }) {
           })}
         </div>
       )}
-
       <style>{`
         @keyframes feedPop { 0% { opacity:1; transform:translateX(-50%) scale(1.2); } 100% { opacity:0; transform:translateX(-50%) translateY(-30px) scale(0.9); } }
         @keyframes spin { to { transform:rotate(360deg); } }
