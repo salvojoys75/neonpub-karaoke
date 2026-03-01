@@ -64,6 +64,7 @@ export default function ClientApp() {
         api.getActiveQuiz(),
         api.getActiveArcadeGame(),
         api.getActiveMillionaireGame(),
+        api.getEventState(),
       ]);
       setQueue(queueRes.data || []);
       setMyRequests(myRes.data || []);
@@ -99,6 +100,17 @@ export default function ClientApp() {
       } else {
         setActiveArcade(null);
       }
+// ✅ GESTIONE BAND MODE - Cambio automatico tab
+const eventState = await api.getEventState();
+if (eventState?.active_module === 'band') {
+  if (activeTab !== 'band') {
+    setActiveTab('band');
+    toast.success("🎸 Band Mode! Pronto a suonare?");
+  }
+} else if (activeTab === 'band') {
+  // Quando finisce il band mode, torna alla home
+  setActiveTab('home');
+}
 
       // ✅ GESTIONE MILIONARIO
       const serverMill = millionaireRes?.data;

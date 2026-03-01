@@ -1211,6 +1211,7 @@ export const startBandSession = async (songId, songTitle, assignments) => {
   
   await supabase.from('events').update({ 
     active_module: 'band',
+active_band: { status: 'active', song: songId },
     settings: { 
       ...currentSettings, 
       band_session: { songId, songTitle, assignments, status: 'active' } 
@@ -1243,6 +1244,7 @@ export const stopBandSession = async () => {
 
   await supabase.from('events').update({ 
     active_module: 'karaoke', // O 'idle' se preferisci
+    active_band: null,
     settings: newSettings
   }).eq('id', event.id);
   
