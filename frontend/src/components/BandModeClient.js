@@ -8,7 +8,7 @@ import { getEventState } from '@/lib/api';
 // 200 - 300: TV standard o casse Bluetooth (Latenza media)
 // 0   - 50:  Casse via cavo dirette PC (Latenza bassa)
 // 400 - 500: Impianto audio complesso / Wi-Fi lento
-const SYNC_DELAY = 250; 
+const SYNC_DELAY = 400; 
 
 // Tolleranza gioco (per renderlo divertente anche se non perfettamente sincrono)
 const HIT_WINDOW  = 0.25; 
