@@ -333,6 +333,7 @@ export const endArcadeGame = async (gameId) => {
       .update({ status: 'ended', ended_at: new Date().toISOString() })
       .eq('id', gameId).select().single();
     if (error) throw error;
+    // Notifica la TV di pulire la schermata vincitore/arcade
     const tvChannel = supabase.channel('tv_ctrl');
     await tvChannel.send({ type: 'broadcast', event: 'control', payload: { command: 'clear_arcade' } });
     return { data };
@@ -1220,19 +1221,6 @@ export const rejectSelfie = async (selfieId) => {
 };
 
 // ─── BAND MODE API ──────────────────────────────────────────────────────────
-
-const getServerTime = async () => {
-  try {
-    const res = await fetch(window.location.href, { method: 'HEAD' });
-    const dateStr = res.headers.get('date');
-    if (dateStr) {
-      return new Date(dateStr).getTime();
-    }
-    return Date.now();
-  } catch {
-    return Date.now();
-  }
-};
 
 export const startBandSession = async (songId, songTitle, assignments) => {
   const event = await getAdminEvent();
