@@ -1,383 +1,472 @@
-import { useState, useEffect, useCallback } from 'react';
-import * as api from '@/lib/api';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { supabase } from '@/lib/supabase';
+import { startBandSession, stopBandSession, getEventState } from '@/lib/api';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
 
 // Metadati strumenti
 const INSTRUMENT_META = {
-  keys:   { label: 'Tastiera', icon: '🎹', color: '#00d4ff' },
-  drums:  { label: 'Batteria', icon: '🥁', color: '#ff3b5c' },
-  bass:   { label: 'Basso',    icon: '🎸', color: '#39ff84' },
-  brass:  { label: 'Fiati',    icon: '🎺', color: '#ffd100' },
-  guitar: { label: 'Chitarra', icon: '🎸', color: '#ff8c00' },
+  keys:   { label: 'Tastiera',  icon: '🎹', color: '#00d4ff' },
+  drums:  { label: 'Batteria',  icon: '🥁', color: '#ff3b5c' },
+  bass:   { label: 'Basso',     icon: '🎸', color: '#39ff84' },
+  brass:  { label: 'Fiati',     icon: '🎺', color: '#ffd100' },
+  guitar: { label: 'Chitarra',  icon: '🎸', color: '#ff8c00' },
 };
 
-export default function BandSetupPanel({ participants = [], onClose }) {
-  const [songs, setSongs] = useState([]);
-  const [selectedSong, setSelectedSong] = useState(null);
-  const [manifest, setManifest] = useState(null);
+const START_DELAY = 4000;
+
+// Props: pubCode, participants, onClose
+// songPool NON serve più — le canzoni vengono da /audio/band_songs.json
+export default function BandSetupPanel({ pubCode, participants = [], onClose }) {
+  // ── Canzoni disponibili (da band_songs.json) ────────────────────────────
+  const [bandSongs,      setBandSongs]      = useState([]);
+  const [loadingSongs,   setLoadingSongs]   = useState(true);
+
+  // ── Stato selezione canzone ─────────────────────────────────────────────
+  const [selectedSong,    setSelectedSong]    = useState(null);
+  const [manifest,        setManifest]        = useState(null);
+  const [loadingManifest, setLoadingManifest] = useState(false);
+  const [manifestError,   setManifestError]   = useState(null);
+
+  // ── Stato assegnazioni ──────────────────────────────────────────────────
   const [assignments, setAssignments] = useState({});
+
+  // ── Stato broadcast ─────────────────────────────────────────────────────
   const [gameStarted, setGameStarted] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [sending,     setSending]     = useState(false);
 
-  // Carica lista canzoni
+  // ── Al mount: ripristina stato se c'è già una band attiva nel DB ────────
+  // Risolve il problema del pannello che "perde lo stato" quando si naviga
+  // via e si rientra: lo stato viene sempre riletto dal DB al mount.
   useEffect(() => {
-    fetch('/audio/band_songs.json')
-      .then(r => r.json())
-      .then(setSongs)
-      .catch(() => setSongs([]));
-  }, []);
-
-  // Recovery: controlla se c'è già una sessione attiva
-  useEffect(() => {
-    const checkActive = async () => {
+    const restore = async () => {
       try {
-        const state = await api.getEventState();
-        if (state?.active_module === 'band' && state?.active_band?.status === 'active') {
-          setGameStarted(true);
-          setSelectedSong({ id: state.active_band.song, title: state.active_band.songTitle });
-          
-          // Carica manifest per mostrare gli strumenti
-          const manifestRes = await fetch(`/audio/${state.active_band.song}/manifest.json`);
-          if (manifestRes.ok) {
-            const m = await manifestRes.json();
-            setManifest(m);
-            
-            // Ricostruisci assignments
-            const ass = {};
-            (state.active_band.assignments || []).forEach(a => {
-              ass[a.instrument] = { userId: a.userId, nickname: a.nickname };
+        const state = await getEventState();
+        if (state?.active_module !== 'band' || !state?.active_band) return;
+        const ab = state.active_band;
+        if (ab.status !== 'active') return;
+
+        setGameStarted(true);
+        if (!ab.song) return;
+
+        fetch(`/audio/${ab.song}/manifest.json`)
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (!data) return;
+            setManifest(data);
+            setSelectedSong({ id: ab.song, title: ab.songTitle || ab.song, artist: '' });
+            const restored = {};
+            (data.instruments || []).forEach(instr => {
+              const found = (ab.assignments || []).find(a => a.instrument === instr.id);
+              restored[instr.id] = found ? { userId: found.userId, nickname: found.nickname } : null;
             });
-            setAssignments(ass);
-          }
-        }
-      } catch (e) {
-        console.error('Recovery check error:', e);
+            setAssignments(restored);
+          })
+          .catch(() => {});
+      } catch {
+        // Silenzioso — non blocca il pannello
       }
     };
-    checkActive();
+    restore();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Carica band_songs.json all'apertura ────────────────────────────────
+  useEffect(() => {
+    fetch('/audio/band_songs.json')
+      .then(r => {
+        if (!r.ok) throw new Error('band_songs.json non trovato');
+        return r.json();
+      })
+      .then(data => setBandSongs(data || []))
+      .catch(() => setBandSongs([]))
+      .finally(() => setLoadingSongs(false));
   }, []);
 
-  // Carica manifest quando si seleziona una canzone
+  // ── Carica manifest.json quando si seleziona una canzone ────────────────
   useEffect(() => {
-    if (!selectedSong) {
-      setManifest(null);
-      setAssignments({});
-      return;
-    }
+    if (!selectedSong) { setManifest(null); return; }
 
-    fetch(`/audio/${selectedSong.id}/manifest.json`)
-      .then(r => r.json())
-      .then(m => {
-        setManifest(m);
-        // Inizializza assignments vuoti
+    const folder = selectedSong.id;
+    setLoadingManifest(true);
+    setManifestError(null);
+    setAssignments({});
+    setGameStarted(false);
+
+    fetch(`/audio/${folder}/manifest.json`)
+      .then(r => {
+        if (!r.ok) throw new Error(`manifest.json non trovato in /audio/${folder}/`);
+        return r.json();
+      })
+      .then(data => {
+        setManifest(data);
+        // Inizializza assignments vuoti per ogni strumento
         const init = {};
-        (m.instruments || []).forEach(i => {
-          init[i.id] = null;
-        });
+        (data.instruments || []).forEach(i => { init[i.id] = null; });
         setAssignments(init);
       })
-      .catch(() => {
+      .catch(err => {
+        setManifestError(err.message);
         setManifest(null);
-        setError('Errore caricamento manifest');
-      });
+      })
+      .finally(() => setLoadingManifest(false));
   }, [selectedSong]);
 
-  // Assegna partecipante a strumento
+  // ── Assegna partecipante a strumento ───────────────────────────────────
   const assign = useCallback((instrumentId, participant) => {
     setAssignments(prev => {
-      const next = { ...prev };
-      
-      // Rimuovi questo partecipante da altri strumenti
-      if (participant) {
-        Object.keys(next).forEach(key => {
-          if (next[key]?.odecluttererId === participant.id) {
-            next[key] = null;
-          }
-        });
-      }
-      
-      // Assegna al nuovo strumento
-      next[instrumentId] = participant ? {
-        userId: participant.id,
-        nickname: participant.nickname
-      } : null;
-      
-      return next;
+      // Rimuovi lo stesso participant da eventuali altri strumenti
+      const cleaned = {};
+      Object.entries(prev).forEach(([k, v]) => {
+        cleaned[k] = (v && v.userId === participant?.id) ? null : v;
+      });
+      cleaned[instrumentId] = participant
+        ? { userId: participant.id, nickname: participant.nickname }
+        : null;
+      return cleaned;
     });
   }, []);
 
-  // Avvia band
-  const startBand = async () => {
-    if (!selectedSong || !manifest) return;
-    
-    setLoading(true);
-    setError(null);
+  // ── Partecipanti già assegnati (per grayout) ────────────────────────────
+  const assignedUserIds = new Set(
+    Object.values(assignments)
+      .filter(Boolean)
+      .map(a => a.userId)
+  );
+
+  const assignmentCount = Object.values(assignments).filter(Boolean).length;
+
+  // ── START BAND — unico click che scrive DB + broadcast ────────────────
+  const startBand = useCallback(async () => {
+    if (!manifest || assignmentCount === 0 || sending) return;
+    setSending(true);
+
+    // Costruisce array assignments nel formato che serve a tutti i componenti
+    const assignmentsList = Object.entries(assignments)
+      .filter(([, v]) => v !== null)
+      .map(([instrumentId, v]) => ({
+        instrument: instrumentId,
+        userId:     v.userId,
+        nickname:   v.nickname,
+      }));
 
     try {
-      // Costruisci array assignments
-      const assignmentsList = Object.entries(assignments)
-        .filter(([_, p]) => p !== null)
-        .map(([instrument, p]) => ({
-          instrument,
-          odecluttererId: p.userId,
-          nickname: p.nickname
-        }));
-
-      if (assignmentsList.length === 0) {
-        setError('Assegna almeno un musicista');
-        setLoading(false);
-        return;
-      }
-
-      await api.startBandSession(selectedSong.id, manifest.title || selectedSong.title, assignmentsList);
+      await startBandSession(selectedSong.id, manifest.title, assignmentsList);
       setGameStarted(true);
-    } catch (e) {
-      setError(e.message || 'Errore avvio band');
+      toast.success('🎸 BAND PARTITA!');
+    } catch (err) {
+      toast.error('Errore: ' + err.message);
     } finally {
-      setLoading(false);
+      setSending(false);
     }
-  };
+  }, [manifest, assignments, assignmentCount, selectedSong, sending]);
 
-  // Ferma band
-  const stopBand = async () => {
-    setLoading(true);
+  // ── STOP BAND ──────────────────────────────────────────────────────────
+  const stopBand = useCallback(async () => {
     try {
-      await api.stopBandSession();
+      await stopBandSession();
       setGameStarted(false);
       setSelectedSong(null);
       setManifest(null);
       setAssignments({});
-    } catch (e) {
-      setError(e.message || 'Errore stop band');
-    } finally {
-      setLoading(false);
+      toast.success('⏹ Band fermata');
+    } catch (err) {
+      toast.error('Errore stop: ' + err.message);
     }
+  }, []);
+
+  const reset = () => {
+    setSelectedSong(null);
+    setManifest(null);
+    setAssignments({});
+    setGameStarted(false);
   };
 
-  // Set di userId già assegnati
-  const assignedUserIds = new Set(
-    Object.values(assignments)
-      .filter(a => a !== null)
-      .map(a => a.userId)
-  );
-
-  const assignmentCount = Object.values(assignments).filter(a => a !== null).length;
-  const totalInstruments = manifest?.instruments?.length || 0;
-
+  // ══════════════════════════════════════════════════════════════════════
+  // RENDER
+  // ══════════════════════════════════════════════════════════════════════
   return (
     <div style={{
-      padding: '20px',
-      background: '#0a0a14',
-      borderRadius: '12px',
+      background: '#0d0d1a',
+      border: '1px solid rgba(255,255,255,0.08)',
+      borderRadius: '16px',
+      padding: '24px',
       color: '#fff',
       fontFamily: "'JetBrains Mono', monospace",
-      maxWidth: '500px',
-      width: '100%'
+      maxWidth: '560px',
+      width: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '20px',
     }}>
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '20px'
-      }}>
-        <h2 style={{ margin: 0, fontSize: '18px', color: '#ffd100' }}>🎸 BAND MODE</h2>
-        {onClose && (
-          <button
-            onClick={onClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: '#888',
-              fontSize: '20px',
-              cursor: 'pointer'
-            }}
-          >
-            ×
-          </button>
-        )}
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span style={{ fontSize: '22px' }}>🎸</span>
+          <div>
+            <div style={{ fontSize: '16px', fontWeight: 900, color: '#ffd100' }}>BAND SETUP</div>
+            <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', letterSpacing: '0.2em' }}>
+              {participants.length} PARTECIPANTI CONNESSI
+            </div>
+          </div>
+        </div>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '18px' }}>✕</button>
       </div>
 
-      {gameStarted ? (
-        // Band in corso
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '48px', marginBottom: '16px' }}>🎤</div>
-          <div style={{ fontSize: '16px', color: '#39ff84', marginBottom: '8px' }}>
-            BAND IN CORSO
-          </div>
-          <div style={{ fontSize: '14px', color: '#888', marginBottom: '24px' }}>
-            {selectedSong?.title || 'Canzone in corso'}
-          </div>
-          <button
-            onClick={stopBand}
-            disabled={loading}
-            style={{
-              padding: '12px 32px',
-              background: '#ff3b5c',
-              border: 'none',
-              borderRadius: '8px',
-              color: '#fff',
-              fontSize: '14px',
-              fontWeight: 'bold',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              opacity: loading ? 0.5 : 1
-            }}
-          >
-            {loading ? 'FERMANDO...' : 'FERMA BAND'}
-          </button>
-        </div>
-      ) : (
-        // Setup
-        <>
-          {/* Selezione canzone */}
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{ display: 'block', fontSize: '12px', color: '#888', marginBottom: '8px' }}>
-              SELEZIONA CANZONE
-            </label>
-            <select
-              value={selectedSong?.id || ''}
-              onChange={(e) => {
-                const s = songs.find(s => s.id === e.target.value);
-                setSelectedSong(s || null);
-              }}
-              style={{
-                width: '100%',
-                padding: '12px',
-                background: '#1a1a24',
-                border: '1px solid rgba(255,255,255,0.1)',
-                borderRadius: '8px',
-                color: '#fff',
-                fontSize: '14px'
-              }}
-            >
-              <option value="">-- Scegli una canzone --</option>
-              {songs.map(s => (
-                <option key={s.id} value={s.id}>{s.title} - {s.artist}</option>
-              ))}
-            </select>
-          </div>
+      {/* Step 1: Selezione canzone */}
+      <Section label="1 — CANZONE" icon="🎵">
+        <select
+          value={selectedSong?.id || ''}
+          onChange={e => {
+            const s = bandSongs.find(s => s.id === e.target.value);
+            setSelectedSong(s || null);
+          }}
+          style={{
+            width: '100%',
+            background: '#171728',
+            border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: '8px',
+            color: '#fff',
+            padding: '10px 14px',
+            fontSize: '13px',
+            fontFamily: "'JetBrains Mono', monospace",
+            outline: 'none',
+            cursor: 'pointer',
+          }}
+        >
+          <option value="">
+            {loadingSongs ? '⏳ Carico canzoni...' : bandSongs.length === 0 ? '⚠️ Nessuna canzone trovata' : '— Seleziona canzone —'}
+          </option>
+          {bandSongs.map(s => (
+            <option key={s.id} value={s.id}>
+              {s.title} — {s.artist}
+            </option>
+          ))}
+        </select>
 
-          {/* Assegnazione strumenti */}
-          {manifest && (
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: '12px'
-              }}>
-                <label style={{ fontSize: '12px', color: '#888' }}>
-                  ASSEGNA STRUMENTI
-                </label>
-                <span style={{ fontSize: '12px', color: '#ffd100' }}>
-                  {assignmentCount}/{totalInstruments}
-                </span>
-              </div>
+        {loadingManifest && (
+          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginTop: '8px' }}>
+            ⏳ Carico strumenti disponibili...
+          </div>
+        )}
+        {manifestError && (
+          <div style={{ fontSize: '11px', color: '#ff3b5c', marginTop: '8px' }}>
+            ⚠️ {manifestError}
+          </div>
+        )}
+        {manifest && !loadingManifest && (
+          <div style={{ fontSize: '11px', color: '#39ff84', marginTop: '8px' }}>
+            ✅ {manifest.instruments?.length || 0} strumenti disponibili · {manifest.bpm} BPM
+          </div>
+        )}
+      </Section>
 
-              {manifest.instruments?.map(instr => {
-                const meta = INSTRUMENT_META[instr.id] || {};
-                const current = assignments[instr.id];
+      {/* Step 2: Assegnazione strumenti */}
+      {manifest && (
+        <Section label="2 — ASSEGNA STRUMENTI" icon="🎹">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {manifest.instruments.map(instr => {
+              const meta    = INSTRUMENT_META[instr.id] || { label: instr.label, icon: instr.icon || '🎵', color: instr.color || '#fff' };
+              const current = assignments[instr.id];
 
-                return (
-                  <div
-                    key={instr.id}
+              return (
+                <div key={instr.id} style={{
+                  display: 'flex', alignItems: 'center', gap: '12px',
+                  background: 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${current ? meta.color + '44' : 'rgba(255,255,255,0.06)'}`,
+                  borderRadius: '10px',
+                  padding: '10px 14px',
+                  transition: 'border-color 0.2s',
+                }}>
+                  {/* Icona strumento */}
+                  <div style={{ fontSize: '24px', flexShrink: 0 }}>{meta.icon}</div>
+
+                  {/* Nome strumento */}
+                  <div style={{ flex: '0 0 80px' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: meta.color }}>{meta.label}</div>
+                    <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.2)', letterSpacing: '0.15em' }}>{instr.id.toUpperCase()}</div>
+                  </div>
+
+                  {/* Dropdown partecipanti */}
+                  <select
+                    value={current?.userId || ''}
+                    onChange={e => {
+                      const p = participants.find(p => String(p.id) === e.target.value);
+                      assign(instr.id, p || null);
+                    }}
+                    disabled={gameStarted}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '12px',
-                      padding: '12px',
-                      background: 'rgba(255,255,255,0.03)',
-                      borderRadius: '8px',
-                      marginBottom: '8px',
-                      border: current ? `1px solid ${meta.color || '#fff'}40` : '1px solid transparent'
+                      flex: 1,
+                      background: '#101020',
+                      border: `1px solid ${current ? meta.color + '66' : 'rgba(255,255,255,0.1)'}`,
+                      borderRadius: '6px',
+                      color: current ? '#fff' : 'rgba(255,255,255,0.3)',
+                      padding: '6px 10px',
+                      fontSize: '12px',
+                      fontFamily: "'JetBrains Mono', monospace",
+                      outline: 'none',
+                      cursor: gameStarted ? 'not-allowed' : 'pointer',
                     }}
                   >
-                    <div style={{
-                      fontSize: '24px',
-                      width: '40px',
-                      textAlign: 'center'
-                    }}>
-                      {meta.icon || '🎵'}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{
-                        fontSize: '13px',
-                        fontWeight: 'bold',
-                        color: meta.color || '#fff',
-                        marginBottom: '4px'
-                      }}>
-                        {meta.label || instr.id}
-                      </div>
-                      <select
-                        value={current?.userId || ''}
-                        onChange={(e) => {
-                          const p = participants.find(p => p.id === e.target.value);
-                          assign(instr.id, p || null);
-                        }}
-                        style={{
-                          width: '100%',
-                          padding: '8px',
-                          background: '#1a1a24',
-                          border: '1px solid rgba(255,255,255,0.1)',
-                          borderRadius: '6px',
-                          color: '#fff',
-                          fontSize: '13px'
-                        }}
+                    <option value="">— nessuno —</option>
+                    {participants.map(p => (
+                      <option
+                        key={p.id}
+                        value={p.id}
+                        disabled={assignedUserIds.has(p.id) && current?.userId !== p.id}
+                        style={{ color: assignedUserIds.has(p.id) && current?.userId !== p.id ? '#555' : '#fff' }}
                       >
-                        <option value="">-- Non assegnato --</option>
-                        {participants.map(p => (
-                          <option
-                            key={p.id}
-                            value={p.id}
-                            disabled={assignedUserIds.has(p.id) && current?.userId !== p.id}
-                          >
-                            {p.nickname}
-                            {assignedUserIds.has(p.id) && current?.userId !== p.id ? ' (assegnato)' : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                        {p.nickname}
+                        {assignedUserIds.has(p.id) && current?.userId !== p.id ? ' (già assegnato)' : ''}
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* Badge assegnato */}
+                  {current && (
+                    <div style={{
+                      fontSize: '10px', fontWeight: 700,
+                      color: meta.color,
+                      background: meta.color + '18',
+                      border: `1px solid ${meta.color}44`,
+                      borderRadius: '4px',
+                      padding: '2px 6px',
+                      flexShrink: 0,
+                    }}>✓</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {participants.length === 0 && (
+            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.25)', marginTop: '8px', textAlign: 'center' }}>
+              ⚠️ Nessun partecipante connesso. Fai entrare il pubblico prima.
+            </div>
+          )}
+        </Section>
+      )}
+
+      {/* Step 3: Azioni */}
+      {manifest && (
+        <Section label="3 — AZIONI" icon="🚀">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+
+            {/* Riepilogo assegnazioni */}
+            <div style={{
+              background: 'rgba(255,255,255,0.02)',
+              border: '1px solid rgba(255,255,255,0.06)',
+              borderRadius: '8px',
+              padding: '10px 14px',
+              fontSize: '11px',
+              color: 'rgba(255,255,255,0.4)',
+              lineHeight: 1.7,
+            }}>
+              {manifest.instruments.map(instr => {
+                const meta    = INSTRUMENT_META[instr.id] || {};
+                const current = assignments[instr.id];
+                return (
+                  <div key={instr.id} style={{ display: 'flex', gap: '8px' }}>
+                    <span>{meta.icon || '🎵'}</span>
+                    <span style={{ color: current ? (meta.color || '#fff') : 'rgba(255,255,255,0.2)' }}>
+                      {meta.label || instr.id}: {current ? current.nickname : '—'}
+                    </span>
                   </div>
                 );
               })}
             </div>
-          )}
 
-          {/* Errore */}
-          {error && (
-            <div style={{
-              padding: '12px',
-              background: 'rgba(255,59,92,0.1)',
-              border: '1px solid #ff3b5c',
-              borderRadius: '8px',
-              color: '#ff3b5c',
-              fontSize: '13px',
-              marginBottom: '16px'
-            }}>
-              {error}
-            </div>
-          )}
+            {/* Pulsante START BAND — unico, fa tutto */}
+            {!gameStarted && (
+              <button
+                onClick={startBand}
+                disabled={assignmentCount === 0 || sending}
+                style={{
+                  padding: '16px',
+                  fontSize: '16px',
+                  fontWeight: 900,
+                  letterSpacing: '0.2em',
+                  background: assignmentCount > 0 ? '#ffd10022' : '#111',
+                  border: `3px solid ${assignmentCount > 0 ? '#ffd100' : 'rgba(255,255,255,0.1)'}`,
+                  borderRadius: '12px',
+                  color: assignmentCount > 0 ? '#ffd100' : 'rgba(255,255,255,0.2)',
+                  cursor: assignmentCount > 0 && !sending ? 'pointer' : 'not-allowed',
+                  fontFamily: "'JetBrains Mono', monospace",
+                  boxShadow: assignmentCount > 0 ? '0 0 30px rgba(255,209,0,0.2)' : 'none',
+                  animation: assignmentCount > 0 ? 'pulse 1.5s ease-in-out infinite' : 'none',
+                }}
+              >
+                {sending ? '⏳ AVVIO...' : `▶ START BAND 🎸 (${assignmentCount}/${manifest.instruments.length})`}
+              </button>
+            )}
 
-          {/* Bottone start */}
-          <button
-            onClick={startBand}
-            disabled={loading || !selectedSong || assignmentCount === 0}
-            style={{
-              width: '100%',
-              padding: '14px',
-              background: (!selectedSong || assignmentCount === 0) ? '#333' : '#ffd100',
-              border: 'none',
-              borderRadius: '8px',
-              color: (!selectedSong || assignmentCount === 0) ? '#666' : '#000',
-              fontSize: '14px',
-              fontWeight: 'bold',
-              cursor: (!selectedSong || assignmentCount === 0 || loading) ? 'not-allowed' : 'pointer',
-              opacity: loading ? 0.5 : 1
-            }}
-          >
-            {loading ? 'AVVIO IN CORSO...' : 'START BAND'}
-          </button>
-        </>
+            {gameStarted && (
+              <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
+                <div style={{
+                  textAlign: 'center', padding: '14px',
+                  background: '#39ff8415', border: '2px solid #39ff84',
+                  borderRadius: '10px', color: '#39ff84',
+                  fontSize: '14px', fontWeight: 900, letterSpacing: '0.2em',
+                }}>
+                  🎶 BAND IN CORSO!
+                </div>
+                <button
+                  onClick={stopBand}
+                  style={{
+                    padding: '10px', fontSize: '12px', fontWeight: 700,
+                    background: '#ff3b5c18', border: '1px solid #ff3b5c66',
+                    borderRadius: '8px', color: '#ff3b5c', cursor: 'pointer',
+                    fontFamily: "'JetBrains Mono', monospace", letterSpacing: '0.15em',
+                  }}
+                >
+                  ⏹ FERMA BAND
+                </button>
+              </div>
+            )}
+
+            {/* Reset */}
+            {!gameStarted && (
+              <button
+                onClick={reset}
+                style={{
+                  padding: '8px',
+                  fontSize: '11px',
+                  background: 'none',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '6px',
+                  color: 'rgba(255,255,255,0.3)',
+                  cursor: 'pointer',
+                  fontFamily: "'JetBrains Mono', monospace",
+                  letterSpacing: '0.15em',
+                }}
+              >
+                ↺ RESET NUOVA BAND
+              </button>
+            )}
+          </div>
+        </Section>
       )}
+
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { box-shadow: 0 0 20px rgba(255,209,0,0.2); }
+          50%       { box-shadow: 0 0 40px rgba(255,209,0,0.5); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ── Componente Section helper ─────────────────────────────────────────────────
+function Section({ label, icon, children }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <span style={{ fontSize: '14px' }}>{icon}</span>
+        <span style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.3em' }}>
+          {label}
+        </span>
+      </div>
+      {children}
     </div>
   );
 }
