@@ -1653,6 +1653,7 @@ export default function PubDisplay() {
                 }
 
                 // arcade_result è già calcolato da getDisplayData (con auto-expire 15s)
+                const arcade = finalData.active_arcade;
                 if (arcade && ['active', 'setup', 'waiting'].includes(arcade.status)) {
                     const { data: allBookings } = await api.getArcadeBookings(arcade.id);
                     const pendingQueue = allBookings?.filter(b => b.status === 'pending').sort((a, b) => a.booking_order - b.booking_order) || [];
