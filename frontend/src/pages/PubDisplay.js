@@ -1652,7 +1652,7 @@ export default function PubDisplay() {
                     finalData = { ...finalData, active_quiz: { ...q, leaderboard: finalData.leaderboard } };
                 }
 
-                // arcade_result è già calcolato da getDisplayData (con auto-expire 15s)
+                // arcade_result è calcolato da getDisplayData — mostrato finché admin non preme clear_arcade
                 const arcade = finalData.active_arcade;
                 if (arcade && ['active', 'setup', 'waiting'].includes(arcade.status)) {
                     const { data: allBookings } = await api.getArcadeBookings(arcade.id);

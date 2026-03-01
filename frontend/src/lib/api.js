@@ -60,18 +60,15 @@ export const getDisplayData = async (pubCode) => {
     .filter(q => !liveRequestId || q.id !== liveRequestId)
     .map(q => ({...q, user_nickname: q.participants?.nickname, user_avatar: q.participants?.avatar_url}));
 
-  // ── Arcade winner: mostrato solo per 15s dopo la fine. Poi sparisce da solo.
+  // ── Arcade winner: mostrato finché l'admin non preme "clear_arcade".
+  // La schermata vincitore rimane visibile finché active_band non viene azzerata.
   const arcadeRaw = activeArcade.data;
   let arcadeResult = null;
   if (arcadeRaw && arcadeRaw.status === 'ended' && arcadeRaw.winner_id) {
-    const endedAt = arcadeRaw.ended_at ? new Date(arcadeRaw.ended_at) : null;
-    const withinWindow = !endedAt || (Date.now() - endedAt.getTime()) < 15000;
-    if (withinWindow) {
-      const { data: winner } = await supabase
-        .from('participants').select('id, nickname, avatar_url')
-        .eq('id', arcadeRaw.winner_id).single();
-      arcadeResult = { winner: winner || { nickname: 'Vincitore', avatar_url: null } };
-    }
+    const { data: winner } = await supabase
+      .from('participants').select('id, nickname, avatar_url')
+      .eq('id', arcadeRaw.winner_id).single();
+    arcadeResult = { winner: winner || { nickname: 'Vincitore', avatar_url: null } };
   }
 
   return {
@@ -312,7 +309,18 @@ export const createArcadeGame = async ({
 export const startArcadeGame = async (gameId) => { try { const { data, error } = await supabase.from('arcade_games').update({ status: 'active', started_at: new Date().toISOString() }).eq('id', gameId).select().single(); if (error) throw error; return { data }; } catch (error) { throw error; } }
 export const pauseArcadeGame = async (gameId) => { try { const { data, error } = await supabase.from('arcade_games').update({ status: 'paused' }).eq('id', gameId).select().single(); if (error) throw error; return { data }; } catch (error) { throw error; } }
 export const resumeArcadeGame = async (gameId) => { try { const { data, error } = await supabase.from('arcade_games').update({ status: 'active' }).eq('id', gameId).select().single(); if (error) throw error; return { data }; } catch (error) { throw error; } }
-export const endArcadeGame = async (gameId) => { try { const { data, error } = await supabase.from('arcade_games').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', gameId).select().single(); if (error) throw error; return { data }; } catch (error) { throw error; } }
+export const endArcadeGame = async (gameId) => {
+  try {
+    const { data, error } = await supabase.from('arcade_games')
+      .update({ status: 'ended', ended_at: new Date().toISOString() })
+      .eq('id', gameId).select().single();
+    if (error) throw error;
+    // Notifica la TV di pulire la schermata vincitore/arcade
+    const tvChannel = supabase.channel('tv_ctrl');
+    await tvChannel.send({ type: 'broadcast', event: 'control', payload: { command: 'clear_arcade' } });
+    return { data };
+  } catch (error) { throw error; }
+}
 
 export const bookArcadeAnswer = async (gameId, participantId) => {
   try {
@@ -1220,51 +1228,27 @@ export const startBandSession = async (songId, songTitle, assignments) => {
   await supabase.from('arcade_games').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
   await supabase.from('millionaire_games').update({ status: 'lost' }).eq('event_id', event.id).neq('status', 'lost');
 
-  // active_band viene letto da getDisplayData (TV) e da getEventState (telefoni)
-  // Contiene tutto il necessario per far partire il gioco anche dopo un reload
+  // ── DESIGN: Il DB è l'unica fonte di verità per l'avvio del gioco.
+  // Non usiamo broadcast WebSocket per band_start perché "send() falling back to REST"
+  // significa che il messaggio NON viene consegnato ai subscriber WebSocket — la causa
+  // del comportamento intermittente (funziona solo quando il WS è già joined).
+  //
+  // Soluzione: scriviamo startAt (timestamp futuro) nel DB. I telefoni fanno polling
+  // ogni 2s e calcolano il ritardo rispetto a startAt. Nessuna race condition.
+  const startAt = new Date(Date.now() + 5000).toISOString(); // 5s di countdown
+
   const activeBand = {
     status:      'active',
     song:        songId,
     songTitle:   songTitle,
-    assignments: assignments, // array completo con instrument + userId + nickname
-    startedAt:   new Date().toISOString(),
+    assignments: assignments,
+    startAt:     startAt, // i telefoni si sincronizzano su questo timestamp
   };
 
   await supabase.from('events').update({ 
     active_module: 'band',
     active_band:   activeBand,
   }).eq('id', event.id);
-
-  // ── Broadcast: subscribe prima di inviare, altrimenti il messaggio viene perso.
-  // Sequenza: 1) band_setup (imposta ruoli sui client già connessi)
-  //           2) pausa 400ms (i client registrano il ruolo)
-  //           3) band_start (avvia countdown su TV e telefoni)
-  await new Promise((resolve, reject) => {
-    const channel = supabase.channel(`band_game_${event.code}`);
-    const timeout = setTimeout(() => {
-      supabase.removeChannel(channel);
-      reject(new Error('Timeout broadcast band'));
-    }, 8000);
-
-    channel.subscribe(async (status) => {
-      if (status !== 'SUBSCRIBED') return;
-      try {
-        await channel.send({
-          type: 'broadcast', event: 'band_setup',
-          payload: { song: songId, assignments },
-        });
-        await new Promise(r => setTimeout(r, 400));
-        await channel.send({
-          type: 'broadcast', event: 'band_start',
-          payload: { song: songId, songTitle, assignments, startDelay: 4000 },
-        });
-      } finally {
-        clearTimeout(timeout);
-        supabase.removeChannel(channel);
-        resolve();
-      }
-    });
-  });
 
   return { success: true };
 };
@@ -1283,22 +1267,8 @@ export const stopBandSession = async () => {
     settings: newSettings
   }).eq('id', event.id);
   
-  // ── Broadcast band_stop: subscribe prima di inviare
-  await new Promise((resolve) => {
-    const channel = supabase.channel(`band_game_${event.code}`);
-    const timeout = setTimeout(() => { supabase.removeChannel(channel); resolve(); }, 5000);
-    channel.subscribe(async (status) => {
-      if (status !== 'SUBSCRIBED') return;
-      try {
-        await channel.send({ type: 'broadcast', event: 'band_stop', payload: {} });
-      } finally {
-        clearTimeout(timeout);
-        supabase.removeChannel(channel);
-        resolve();
-      }
-    });
-  });
-
+  // ── Stop: il DB viene azzerato. I telefoni vedono active_band = null
+  // al prossimo poll (max 2s) e si resettano automaticamente.
   return { success: true };
 };
 
