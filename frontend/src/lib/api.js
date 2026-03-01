@@ -13,16 +13,16 @@ function getParticipantFromToken() {
 async function getAdminEvent() {
   const pubCode = localStorage.getItem('discojoys_pub_code')
   if (!pubCode) throw new Error('No event selected')
-
+  
   const { data, error } = await supabase
     .from('events')
     .select('*')
     .eq('code', pubCode.toUpperCase())
     .single()
-
+  
   if (error) throw error
   if (data.status === 'ended' || (data.expires_at && new Date(data.expires_at) < new Date())) {
-      throw new Error(\"Evento scaduto\");
+      throw new Error("Evento scaduto");
   }
 
   return data
@@ -30,14 +30,14 @@ async function getAdminEvent() {
 
 export const getDisplayData = async (pubCode) => {
   const { data: event } = await supabase.from('events').select('*').eq('code', pubCode.toUpperCase()).single()
-
+  
   if (!event || event.status === 'ended' || (event.expires_at && new Date(event.expires_at) < new Date())) {
       return { data: null };
   }
 
   const [perf, queue, lb, activeQuiz, adminMsg, approvedMsgs, activeArcade, activeMill] = await Promise.all([
     supabase.from('performances').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).in('status', ['live','voting','paused','ended']).order('started_at', {ascending: false}).limit(1).maybeSingle(),
-    supabase.from('song_requests').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).eq('status', 'queued').order('position', {ascending: true}).limit(20),
+    supabase.from('song_requests').select('*, participants(nickname, avatar_url)').eq('event_id', event.id).eq('status', 'queued').order('position', {ascending: true}).limit(20), 
     supabase.from('participants').select('nickname, score, avatar_url').eq('event_id', event.id).order('score', {ascending:false}).limit(20),
     supabase.from('quizzes').select('*').eq('event_id', event.id).in('status', ['active', 'closed', 'showing_results', 'leaderboard']).maybeSingle(),
     supabase.from('messages').select('*').eq('event_id', event.id).is('participant_id', null).eq('status', 'approved').order('created_at', {ascending: false}).limit(1).maybeSingle(),
@@ -50,7 +50,7 @@ export const getDisplayData = async (pubCode) => {
   if (currentPerformance && currentPerformance.status === 'ended') {
       const endedAt = new Date(currentPerformance.ended_at);
       const now = new Date();
-      if ((now - endedAt) > 3 * 1000) {
+      if ((now - endedAt) > 3 * 1000) { 
           currentPerformance = null;
       }
   }
@@ -96,14 +96,14 @@ export const getDisplayData = async (pubCode) => {
 export const sendReaction = async (data) => {
   const participant = getParticipantFromToken()
   const nicknameToSend = participant.nickname || 'Anonimo';
-
+  
   const { data: reaction, error } = await supabase.from('reactions').insert({
-      event_id: participant.event_id,
-      participant_id: participant.participant_id,
-      emoji: data.emoji,
-      nickname: nicknameToSend
+      event_id: participant.event_id, 
+      participant_id: participant.participant_id, 
+      emoji: data.emoji, 
+      nickname: nicknameToSend 
     }).select().single()
-
+  
   if (error) throw error
   return { data: reaction }
 }
@@ -111,13 +111,13 @@ export const sendReaction = async (data) => {
 export const getMyVenues = async () => {
   const { data: user } = await supabase.auth.getUser()
   if (!user?.user) throw new Error('Not authenticated')
-
+  
   const { data, error } = await supabase
     .from('venues')
     .select('*')
     .eq('operator_id', user.user.id)
     .order('name')
-
+  
   if (error) throw error
   return { data }
 }
@@ -125,7 +125,7 @@ export const getMyVenues = async () => {
 export const createVenue = async (venueData) => {
   const { data: user } = await supabase.auth.getUser()
   if (!user?.user) throw new Error('Not authenticated')
-
+  
   const { data, error } = await supabase
     .from('venues')
     .insert({
@@ -136,7 +136,7 @@ export const createVenue = async (venueData) => {
     })
     .select()
     .single()
-
+  
   if (error) throw error
   return { data }
 }
@@ -152,7 +152,7 @@ export const updateVenue = async (venueId, venueData) => {
     .eq('id', venueId)
     .select()
     .single()
-
+  
   if (error) throw error
   return { data }
 }
@@ -162,7 +162,7 @@ export const deleteVenue = async (venueId) => {
     .from('venues')
     .delete()
     .eq('id', venueId)
-
+  
   if (error) throw error
   return { data: 'ok' }
 }
@@ -172,17 +172,17 @@ export const createPub = async (data) => {
   if (!user?.user) throw new Error('Not authenticated')
 
   const { data: profile } = await supabase.from('profiles').select('credits, is_active').eq('id', user.user.id).single();
-
-  if (!profile) throw new Error(\"Profilo utente non trovato.\");
-  if (!profile.is_active) throw new Error(\"Utente disabilitato.\");
-
-  if (profile.credits < 1) throw new Error(\"Crediti insufficienti! Ricarica i crediti per creare un evento.\");
+  
+  if (!profile) throw new Error("Profilo utente non trovato.");
+  if (!profile.is_active) throw new Error("Utente disabilitato.");
+  
+  if (profile.credits < 1) throw new Error("Crediti insufficienti! Ricarica i crediti per creare un evento.");
 
   const { error: creditError } = await supabase.from('profiles')
     .update({ credits: profile.credits - 1 })
     .eq('id', user.user.id);
-
-  if (creditError) throw new Error(\"Errore aggiornamento crediti\");
+  
+  if (creditError) throw new Error("Errore aggiornamento crediti");
 
   const code = Math.random().toString(36).substring(2, 8).toUpperCase()
   const expiresAt = new Date();
@@ -226,18 +226,18 @@ export const getActiveEventsForUser = async () => {
     .gt('expires_at', now)
     .order('created_at', { ascending: false });
 
-  if (error) console.error(\"Error fetching active events:\", error);
+  if (error) console.error("Error fetching active events:", error);
   return data || [];
 }
 
 export const requestSong = async (data) => {
   const participant = getParticipantFromToken()
   const { data: request, error } = await supabase.from('song_requests').insert({
-      event_id: participant.event_id,
-      participant_id: participant.participant_id,
-      title: data.title,
-      artist: data.artist,
-      youtube_url: data.youtube_url,
+      event_id: participant.event_id, 
+      participant_id: participant.participant_id, 
+      title: data.title, 
+      artist: data.artist, 
+      youtube_url: data.youtube_url, 
       status: 'pending'
     }).select().single()
   if (error) throw error
@@ -258,7 +258,7 @@ export const getSongQueue = async () => {
 export const getMyRequests = async () => {
   const participant = getParticipantFromToken()
   const { data, error } = await supabase.from('song_requests').select('*').eq('participant_id', participant.participant_id).order('requested_at', { ascending: false })
-  if (error) throw error;
+  if (error) throw error; 
   return { data }
 }
 
@@ -286,7 +286,7 @@ export const getActiveArcadeGame = async () => {
       .in('status', ['setup', 'waiting', 'active', 'paused', 'ended'])
       .order('created_at', { ascending: false })
       .limit(1);
-
+    
     if (error) throw error;
     return { data: data?.[0] || null };
   } catch (error) {
@@ -330,35 +330,35 @@ export const validateArcadeAnswer = async (bookingId, isCorrect, givenAnswer = n
   try {
     const { data: booking, error: bookingError } = await supabase.from('arcade_bookings').select('*, arcade_games(*)').eq('id', bookingId).single();
     if (bookingError) throw bookingError;
-
+    
     const game = booking.arcade_games;
     let pointsAwarded = isCorrect ? game.points_reward : 0;
-
+    
     const { data: updatedBooking, error: updateError } = await supabase.from('arcade_bookings')
-      .update({
-        status: isCorrect ? 'correct' : 'wrong',
-        validated_at: new Date().toISOString(),
-        points_awarded: pointsAwarded,
-        given_answer: givenAnswer
+      .update({ 
+        status: isCorrect ? 'correct' : 'wrong', 
+        validated_at: new Date().toISOString(), 
+        points_awarded: pointsAwarded, 
+        given_answer: givenAnswer 
       })
       .eq('id', bookingId)
       .select().single();
-
+    
     if (updateError) throw updateError;
-
+    
     if (isCorrect) {
       const { data: p } = await supabase.from('participants').select('score').eq('id', booking.participant_id).single();
       await supabase.from('participants').update({ score: (p?.score || 0) + pointsAwarded }).eq('id', booking.participant_id);
-
+      
       await supabase.from('arcade_games')
-        .update({
-          status: 'ended',
-          winner_id: booking.participant_id,
-          ended_at: new Date().toISOString()
+        .update({ 
+          status: 'ended', 
+          winner_id: booking.participant_id, 
+          ended_at: new Date().toISOString() 
         })
         .eq('id', game.id);
     }
-
+    
     return { data: updatedBooking, isCorrect };
   } catch (error) { throw error; }
 }
@@ -377,7 +377,7 @@ export const getPub = async (pubCode) => {
 
 export const joinPub = async ({ pub_code, nickname, avatar_url }) => {
   const { data: event } = await supabase.from('events').select('id, name, status, expires_at').eq('code', pub_code.toUpperCase()).single()
-  if (!event || event.status !== 'active') throw new Error(\"Evento non valido\");
+  if (!event || event.status !== 'active') throw new Error("Evento non valido");
   const { data: existing } = await supabase.from('participants').select('*').eq('event_id', event.id).eq('nickname', nickname).maybeSingle();
   let participant;
   if (existing) {
@@ -419,7 +419,7 @@ export const startPerformance = async (requestId, youtubeUrl) => {
   await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', request.event_id).neq('status', 'ended');
 
   const { data: performance, error } = await supabase.from('performances').insert({
-      event_id: request.event_id, song_request_id: request.id, participant_id: request.participant_id, song_title: request.title, song_artist: request.artist, youtube_url: youtubeUrl || request.youtube_url, status: 'live', average_score: 0
+      event_id: request.event_id, song_request_id: request.id, participant_id: request.participant_id, song_title: request.title, song_artist: request.artist, youtube_url: youtubeUrl || request.youtube_url, status: 'live', average_score: 0 
     }).select().single()
   if (error) throw error
   await supabase.from('song_requests').update({ status: 'performing' }).eq('id', requestId)
@@ -429,13 +429,13 @@ export const startPerformance = async (requestId, youtubeUrl) => {
 
 export const endPerformance = async (performanceId) => {
   const { data, error } = await supabase.from('performances').update({ status: 'voting', ended_at: new Date().toISOString() }).eq('id', performanceId).select().single();
-  if (error) throw error;
+  if (error) throw error; 
   return { data }
 }
 
 export const closeVoting = async (performanceId) => {
   const { data: perf } = await supabase.from('performances').select('*, participants(score)').eq('id', performanceId).single();
-  if (!perf) throw new Error(\"Performance not found\");
+  if (!perf) throw new Error("Performance not found");
   const { data, error } = await supabase.from('performances').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', performanceId).select();
   if (error) throw error;
   if (perf.song_request_id) {
@@ -451,7 +451,7 @@ export const closeVoting = async (performanceId) => {
 
 export const stopAndNext = async (performanceId) => {
     const { data, error } = await supabase.from('performances').update({ status: 'ended', ended_at: new Date().toISOString() }).eq('id', performanceId).select()
-    if (error) throw error;
+    if (error) throw error; 
     return { data };
 }
 
@@ -524,7 +524,7 @@ export const sendMessage = async (data) => {
            return { data: message };
       }
   }
-  throw new Error(\"Errore invio messaggio: autenticazione non valida.\");
+  throw new Error("Errore invio messaggio: autenticazione non valida.");
 }
 
 export const getAdminPendingMessages = async () => {
@@ -550,12 +550,12 @@ export const startQuiz = async (data) => {
   const { data: quiz, error } = await supabase.from('quizzes').insert({
     event_id: event.id, category: data.category, question: data.question, options: data.options, correct_index: data.correct_index, points: data.points, status: 'active', started_at: new Date().toISOString(), media_url: data.media_url || null, media_type: data.media_type || 'text', quiz_catalog_id: data.quiz_catalog_id || null
   }).select().single()
-  if (error) throw error;
-
+  if (error) throw error; 
+  
   const { data: current } = await supabase.from('events').select('settings').eq('id', event.id).single();
   const currentSettings = current?.settings || {};
-  await supabase.from('events').update({
-    active_module: 'quiz',
+  await supabase.from('events').update({ 
+    active_module: 'quiz', 
     active_module_id: quiz.id,
     settings: { ...currentSettings, quiz_lobby: false }
   }).eq('id', event.id);
@@ -573,7 +573,7 @@ export const showQuizResults = async (quizId) => {
     .select('participant_id, points_earned')
     .eq('quiz_id', quizId)
     .eq('is_correct', true);
-
+  
   if (correctAnswers && correctAnswers.length > 0) {
     for (const ans of correctAnswers) {
       const pts = ans.points_earned || 0;
@@ -604,11 +604,11 @@ export const getQuizResults = async (quizId) => {
   const correctAnswers = answers.filter(a => a.is_correct)
   return {
     data: {
-      quiz_id: quizId, question: quiz.question, correct_option: quiz.options[quiz.correct_index], correct_index: quiz.correct_index, total_answers: answers.length, correct_count: correctAnswers.length,
-      winners: correctAnswers.map(a => ({
-        id: a.participants?.id,
-        nickname: a.participants?.nickname || 'Unknown',
-        avatar: a.participants?.avatar_url || null,
+      quiz_id: quizId, question: quiz.question, correct_option: quiz.options[quiz.correct_index], correct_index: quiz.correct_index, total_answers: answers.length, correct_count: correctAnswers.length, 
+      winners: correctAnswers.map(a => ({ 
+        id: a.participants?.id, 
+        nickname: a.participants?.nickname || 'Unknown', 
+        avatar: a.participants?.avatar_url || null, 
         points: a.points_earned || quiz.points
       })),
       points: quiz.points
@@ -861,9 +861,9 @@ export const getQuizCatalog = async (venueId = null, daysThreshold = 30) => {
   const pubCode = localStorage.getItem('discojoys_pub_code');
   if (!pubCode) return { data: [] };
   const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
-
+  
   const { data: eventQuestions } = await supabase.from('event_quiz_catalog').select('quiz_catalog_id').eq('event_id', event.id);
-
+  
   let catalog;
   if (eventQuestions && eventQuestions.length > 0) {
     const questionIds = eventQuestions.map(eq => eq.quiz_catalog_id);
@@ -891,7 +891,7 @@ export const deleteQuizQuestion = async (catalogId) => { await supabase.from('qu
 export const getChallengeCatalog = async () => { const { data } = await supabase.from('challenge_catalog').select('*'); return { data: data || [] }; };
 export const importQuizCatalog = async (jsonString) => { return { success: true, count: 0 }; }
 export const getQuizModules = async () => { const { data } = await supabase.from('quiz_library').select('*'); return { data: data || [] }; }
-export const loadQuizModule = async (moduleId) => {
+export const loadQuizModule = async (moduleId) => { 
     const pubCode = localStorage.getItem('discojoys_pub_code');
     const { data: event } = await supabase.from('events').select('id').eq('code', pubCode.toUpperCase()).single();
     const { data: module } = await supabase.from('quiz_library').select('*').eq('id', moduleId).single();
@@ -1140,10 +1140,12 @@ export const setQuizLobby = async (active) => {
     return { data: 'ok' };
 };
 
-// ─── SELFIE ───────────────────────────────────────────────────────────────────
+
+// ─── SELFIE ──────────────────────────────────────────────────────────────────
 
 export const submitSelfie = async (imageDataUrl, nickname) => {
   const participant = getParticipantFromToken();
+  // La tabella pending_selfies non ha participant_id — usiamo solo event_id e nickname
   const { data, error } = await supabase.from('pending_selfies').insert({
     event_id: participant.event_id,
     nickname: nickname || participant.nickname || 'Anonimo',
@@ -1167,11 +1169,13 @@ export const getPendingSelfies = async () => {
 };
 
 export const approveSelfie = async (selfieId, imageDataUrl, nickname) => {
+  // Invia subito al display via broadcast
   await supabase.channel('tv_ctrl').send({
     type: 'broadcast',
     event: 'control',
     payload: { command: 'selfie', selfieId: selfieId, url: imageDataUrl, nickname: nickname },
   });
+  // Cancella definitivamente dal DB — non serve tenerlo
   const { error } = await supabase
     .from('pending_selfies')
     .delete()
@@ -1189,128 +1193,66 @@ export const rejectSelfie = async (selfieId) => {
   return { data: 'ok' };
 };
 
-// ─── BAND MODE API (SISTEMATO) ────────────────────────────────────────────────
+// ─── BAND MODE API ──────────────────────────────────────────────────────────
 
-/**
- * Avvia la sessione band.
- * FIX: Usa un singolo broadcast unificato per evitare race condition.
- * Il payload contiene sia setup che start info insieme.
- */
 export const startBandSession = async (songId, songTitle, assignments) => {
+  // assignments è un oggetto: { drums: 'uuid-partecipante', bass: 'uuid...', etc }
   const event = await getAdminEvent();
-
-  // Resetta altri moduli in parallelo
-  await Promise.all([
-    supabase.from('performances').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended'),
-    supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended'),
-    supabase.from('arcade_games').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended'),
-    supabase.from('millionaire_games').update({ status: 'lost' }).eq('event_id', event.id).neq('status', 'lost'),
-  ]);
-
-  // Genera un ID univoco per la sessione e timestamp server
-  const sessionId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  const serverTime = Date.now();
   
-  // active_band contiene tutto il necessario per recovery dopo reload
-  const activeBand = {
-    status: 'active',
-    song: songId,
-    songTitle: songTitle,
-    assignments: assignments,
-    sessionId: sessionId,
-    serverStartTime: serverTime,
-    startedAt: new Date().toISOString(),
-  };
+  // Resetta altri moduli per sicurezza
+  await supabase.from('performances').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
+  await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
+  await supabase.from('arcade_games').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
+  await supabase.from('millionaire_games').update({ status: 'lost' }).eq('event_id', event.id).neq('status', 'lost');
 
-  // Salva nel DB PRIMA del broadcast (così i client che ricaricano possono recuperare)
-  await supabase.from('events').update({
+  // Aggiorna lo stato dell'evento per dire "Siamo in modalità Band"
+  // Salviamo le assegnazioni nel campo settings così il Display le può leggere se si ricarica
+  const currentSettings = event.settings || {};
+  
+  await supabase.from('events').update({ 
     active_module: 'band',
-    active_band: activeBand,
+    settings: { 
+      ...currentSettings, 
+      band_session: { songId, songTitle, assignments, status: 'active' } 
+    }
   }).eq('id', event.id);
 
-  // Broadcast unificato con timeout
-  const broadcastPromise = new Promise((resolve) => {
-    const channel = supabase.channel(`band_game_${event.code}`);
-    const timeout = setTimeout(() => {
-      try { supabase.removeChannel(channel); } catch(e) {}
-      resolve({ broadcast: false, reason: 'timeout' });
-    }, 5000);
-
-    channel.subscribe(async (status) => {
-      if (status !== 'SUBSCRIBED') return;
-      
-      try {
-        // FIX: Singolo evento unificato - elimina race condition
-        await channel.send({
-          type: 'broadcast',
-          event: 'band_init',
-          payload: {
-            type: 'start',
-            song: songId,
-            songTitle: songTitle,
-            assignments: assignments,
-            sessionId: sessionId,
-            serverTime: serverTime,
-            startDelay: 4000,
-          },
-        });
-        
-        clearTimeout(timeout);
-        await new Promise(r => setTimeout(r, 200));
-        supabase.removeChannel(channel);
-        resolve({ broadcast: true });
-      } catch (err) {
-        clearTimeout(timeout);
-        try { supabase.removeChannel(channel); } catch(e) {}
-        resolve({ broadcast: false, reason: err.message });
-      }
-    });
+  // Invio segnale immediato a tutti (Telefoni e Display)
+  const channel = supabase.channel(`band_game_${event.code}`);
+  await channel.send({
+    type: 'broadcast',
+    event: 'band_start',
+    payload: {
+      song: songId, // es 'deepdown' (nome cartella)
+      songTitle: songTitle, // Titolo leggibile
+      assignments: assignments, // { drums: id_marco, bass: id_luca }
+      startDelay: 4000
+    }
   });
 
-  await broadcastPromise;
-  return { success: true, sessionId };
-};
-
-/**
- * Ferma la sessione band.
- */
-export const stopBandSession = async () => {
-  const event = await getAdminEvent();
-
-  // Aggiorna DB prima del broadcast
-  await supabase.from('events').update({
-    active_module: 'karaoke',
-    active_band: null,
-  }).eq('id', event.id);
-
-  // Broadcast stop
-  const broadcastPromise = new Promise((resolve) => {
-    const channel = supabase.channel(`band_game_${event.code}`);
-    const timeout = setTimeout(() => {
-      try { supabase.removeChannel(channel); } catch(e) {}
-      resolve();
-    }, 3000);
-
-    channel.subscribe(async (status) => {
-      if (status !== 'SUBSCRIBED') return;
-      try {
-        await channel.send({
-          type: 'broadcast',
-          event: 'band_init',
-          payload: { type: 'stop' },
-        });
-      } finally {
-        clearTimeout(timeout);
-        await new Promise(r => setTimeout(r, 100));
-        try { supabase.removeChannel(channel); } catch(e) {}
-        resolve();
-      }
-    });
-  });
-
-  await broadcastPromise;
   return { success: true };
 };
+
+export const stopBandSession = async () => {
+  const event = await getAdminEvent();
+  
+  // Rimuoviamo la sessione band dai settings e torniamo al karaoke (o idle)
+  const currentSettings = event.settings || {};
+  const newSettings = { ...currentSettings };
+  delete newSettings.band_session;
+
+  await supabase.from('events').update({ 
+    active_module: 'karaoke', // O 'idle' se preferisci
+    settings: newSettings
+  }).eq('id', event.id);
+  
+  // Segnale di stop ai telefoni
+  const channel = supabase.channel(`band_game_${event.code}`);
+  await channel.send({ type: 'broadcast', event: 'band_stop', payload: {} });
+  
+  return { success: true };
+};
+
 
 export default {
     getDisplayData, sendReaction, getActiveArcadeGame, createPub, updateEventSettings, uploadLogo, getPub, joinPub, uploadAvatar, adminLogin, getMe,
@@ -1319,10 +1261,10 @@ export default {
     requestSong, getSongQueue, getMyRequests, getAdminQueue, approveRequest, rejectRequest, deleteRequest,
     startPerformance, pausePerformance, resumePerformance, endPerformance, closeVoting, stopAndNext, restartPerformance, toggleMute,
     getCurrentPerformance, getAdminCurrentPerformance,
-    submitVote, sendMessage, sendAdminMessage, getAdminPendingMessages, approveMessage, rejectMessage, deleteAdminMessage, deleteApprovedMessage,
+    submitVote, sendMessage, sendAdminMessage, getAdminPendingMessages, approveMessage, rejectMessage, deleteAdminMessage, deleteApprovedMessage, 
     createArcadeGame, startArcadeGame, pauseArcadeGame, resumeArcadeGame, endArcadeGame, bookArcadeAnswer, validateArcadeAnswer, getArcadeBookings, getCurrentBooking, cancelArcadeBooking, getArcadeLeaderboard,
     importCustomQuiz, startQuiz, endQuiz, answerQuiz, getActiveQuiz, closeQuizVoting, showQuizResults, showQuizLeaderboard,
-    getQuizResults, getAdminLeaderboard, getLeaderboard,
+    getQuizResults, getAdminLeaderboard, getLeaderboard, 
     getActiveEventsForUser, deleteQuizQuestion, getQuizModules, loadQuizModule,
     getMyVenues, createVenue, updateVenue, deleteVenue, trackQuizUsage, resetQuizUsageForVenue,
     getRandomSongPool, addSongToPool, updateSongInPool, deleteSongFromPool, importSongsToPool, extractRandomKaraoke, clearExtraction,
@@ -1330,5 +1272,5 @@ export default {
     createMillionaireGame, startMillionaireGame, answerMillionaire, retireMillionaire, useLifeline5050, useLifelinePass, startAudienceVote, submitAudienceVote, closeAudienceVote, getActiveMillionaireGame, endMillionaireGame,
     setQuizLobby,
     submitSelfie, getPendingSelfies, approveSelfie, rejectSelfie,
-    startBandSession, stopBandSession
+    startBandSession, stopBandSession 
 };
