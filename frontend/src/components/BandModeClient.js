@@ -59,11 +59,11 @@ export default function BandModeClient({ pubCode, participant }) {
   const instrConfig = myRole ? (INSTRUMENT_CONFIG[myRole] || DEFAULT_CONFIG) : DEFAULT_CONFIG;
   const { color: instrColor, icon: instrIcon, label: instrLabel, lanes: laneLabels } = instrConfig;
 
-  // Sincronizza i ref con i valori correnti
-  useEffect(() => { laneLabelsRef.current = laneLabels; },    [laneLabels]);
-  useEffect(() => { startGameRef.current  = startGame; },     [startGame]);
-  useEffect(() => { nicknameRef.current   = nickname; },      [nickname]);
-  useEffect(() => { userIdRef.current     = userId; },        [userId]);
+  // Sync refs che non dipendono da funzioni dichiarate più avanti
+  useEffect(() => { laneLabelsRef.current = laneLabels; }, [laneLabels]);
+  useEffect(() => { nicknameRef.current   = nickname; },   [nickname]);
+  useEffect(() => { userIdRef.current     = userId; },     [userId]);
+  // startGameRef.current viene sincronizzato subito dopo la dichiarazione di startGame
 
   const getElapsed = useCallback(() => {
     if (!startTimeRef.current) return -999;
@@ -201,6 +201,9 @@ export default function BandModeClient({ pubCode, participant }) {
     setGameState('playing');
     startDrawLoop();
   }, [startDrawLoop]);
+
+  // startGameRef sempre aggiornato — usato nel canale Supabase (che non si ricrea)
+  useEffect(() => { startGameRef.current = startGame; }, [startGame]);
 
   // ── Hit Handler — manda segnale al PC, nessun audio locale ───────────────
   const handleHit = useCallback(async (lane) => {
