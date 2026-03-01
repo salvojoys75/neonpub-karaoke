@@ -869,6 +869,31 @@ export const createOperatorProfile = async (email, name, password, initialCredit
 export const uploadLogo = async (file) => { const fileName = `${Date.now()}_${file.name}`; const { error } = await supabase.storage.from('logos').upload(fileName, file); if (error) throw error; const { data } = supabase.storage.from('logos').getPublicUrl(fileName); return data.publicUrl; }
 export const updateEventSettings = async (data) => { const event = await getAdminEvent(); await supabase.from('events').update({ name: data.name, logo_url: data.logo_url }).eq('id', event.id); return { data: 'ok' }; }
 export const uploadAvatar = async (file) => { const fileName = `${Date.now()}_${file.name}`; const { error } = await supabase.storage.from('avatars').upload(fileName, file); if (error) throw error; const { data } = supabase.storage.from('avatars').getPublicUrl(fileName); return data.publicUrl; }
+// ── Clock Sync (algoritmo NTP semplificato) ──────────────────────────────────
+// Misura l'offset tra il clock locale e il clock del server Postgres.
+// Algoritmo documentato e usato da Kahoot, Jackbox, e tutti i multiplayer browser game:
+//   t0 = Date.now() prima della request
+//   server risponde con il suo timestamp corrente
+//   t1 = Date.now() dopo la response
+//   rtt = t1 - t0  (round trip)
+//   offset = serverTime - (t0 + rtt/2)
+// Risultato: Date.now() + offset = ora corretta del server.
+// Fare 3 misurazioni e prendere quella con RTT minore (meno rumore di rete).
+export const getServerTime = async () => {
+  let bestOffset = 0;
+  let bestRtt    = Infinity;
+  for (let i = 0; i < 3; i++) {
+    const t0 = Date.now();
+    const { data } = await supabase.rpc('get_server_time');
+    const t1  = Date.now();
+    if (data == null) continue;
+    const rtt    = t1 - t0;
+    const offset = Number(data) - (t0 + rtt / 2);
+    if (rtt < bestRtt) { bestRtt = rtt; bestOffset = offset; }
+  }
+  return bestOffset; // ms da aggiungere a Date.now() per avere ora server
+};
+
 export const getEventState = async () => { const pubCode = localStorage.getItem('discojoys_pub_code'); if (!pubCode) return null; const { data } = await supabase.from('events').select('active_module, active_module_id, active_band, settings').eq('code', pubCode.toUpperCase()).maybeSingle(); return data; };
 export const setEventModule = async (moduleId, specificContentId = null) => {
   const pubCode = localStorage.getItem('discojoys_pub_code');

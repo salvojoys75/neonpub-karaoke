@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import { getEventState } from '@/lib/api';
+import { getEventState, getServerTime } from '@/lib/api';
 
 // ── CONFIGURAZIONE ────────────────────────────────────────────────────────────
 // Latenza audio: 0 = note allineate al beat TV. Aumentare (es. 100) solo se
@@ -51,7 +51,8 @@ export default function BandModeClient({ pubCode, participant }) {
   // del canale, ogni cambio di stato ricrea il canale esattamente mentre arrivano
   // i broadcast — causando la perdita degli eventi (race condition deterministica).
   const laneLabelsRef  = useRef([]);   // aggiornato quando myRole cambia
-  const startGameRef   = useRef(null); // aggiornato quando startGame cambia
+  const startGameRef    = useRef(null); // aggiornato quando startGame cambia
+  const clockOffsetRef  = useRef(0);    // offset ms tra clock locale e server (NTP)
   const nicknameRef    = useRef(null); // costante per sessione
   const userIdRef      = useRef(null); // costante per sessione
 
@@ -67,9 +68,18 @@ export default function BandModeClient({ pubCode, participant }) {
   useEffect(() => { userIdRef.current     = userId; },     [userId]);
   // startGameRef.current viene sincronizzato subito dopo la dichiarazione di startGame
 
+  // ── Clock sync al mount ───────────────────────────────────────────────────
+  // Misura una volta l'offset tra clock locale e server (algoritmo NTP).
+  // Tutti i confronti con startAt usano (Date.now() + clockOffsetRef.current).
+  useEffect(() => {
+    getServerTime()
+      .then(offset => { clockOffsetRef.current = offset; })
+      .catch(() => { clockOffsetRef.current = 0; }); // fallback: usa clock locale
+  }, []);
+
   const getElapsed = useCallback(() => {
     if (!startTimeRef.current) return -999;
-    return (Date.now() - startTimeRef.current) / 1000;
+    return ((Date.now() + clockOffsetRef.current) - startTimeRef.current) / 1000;
   }, []);
 
   // ── Realtime + polling fallback ─────────────────────────────────────────────
@@ -105,6 +115,10 @@ export default function BandModeClient({ pubCode, participant }) {
       }
 
       // Band attiva con startAt — nuova sessione?
+      // Usa il clock corretto (locale + offset server) per verificare se startAt è già passato
+      const correctedNow = Date.now() + clockOffsetRef.current;
+      const startAtMs    = new Date(activeBand.startAt).getTime();
+      if (correctedNow > startAtMs + 30000) return; // sessione più vecchia di 30s — ignora
       if (activeStartAtRef.current === activeBand.startAt || isLoadingRef.current) return;
       activeStartAtRef.current = activeBand.startAt;
 
@@ -299,7 +313,7 @@ export default function BandModeClient({ pubCode, participant }) {
     // startTimeRef = punto zero del tempo di gioco
     // elapsed = (Date.now() - startTimeRef) / 1000
     // OFFSET_LATENZA compensa la propagazione audio TV→orecchie del giocatore
-    startTimeRef.current = new Date(startAt).getTime() - OFFSET_LATENZA;
+    startTimeRef.current = new Date(startAt).getTime(); // startAt è UTC server — nessun offset necessario
     notesRef.current = chartData.map((n, i) => ({ ...n, id: i, hit: false, missed: false }));
     scoreRef.current = 0; comboRef.current = 0;
     setScore(0); setCombo(0);
