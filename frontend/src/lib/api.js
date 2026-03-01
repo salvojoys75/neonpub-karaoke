@@ -1260,22 +1260,36 @@ export const startBandSession = async (songId, songTitle, assignments) => {
   // 'ended' non è nella query di getDisplayData → active_millionaire diventa null → isMillionaire=false
   await supabase.from('millionaire_games').update({ status: 'ended' }).eq('event_id', event.id);
 
-  // ── DESIGN: Il DB è l'unica fonte di verità per l'avvio del gioco.
-  // Non usiamo broadcast WebSocket per band_start perché "send() falling back to REST"
-  // significa che il messaggio NON viene consegnato ai subscriber WebSocket — la causa
-  // del comportamento intermittente (funziona solo quando il WS è già joined).
+  // ── startAt calcolato DAL SERVER POSTGRES, non dal browser admin ─────────
+  // Problema: Date.now() del browser admin può differire dal clock del telefono
+  // anche di secondi → il telefono calcola countdown sbagliato.
+  // Soluzione: chiediamo a Postgres "now() + 7 secondi" — unica fonte di verità.
+  // Il telefono stima il Postgres time via NTP midpoint → confronto corretto.
   //
-  // Soluzione: scriviamo startAt (timestamp futuro) nel DB. I telefoni fanno polling
-  // ogni 2s e calcolano il ritardo rispetto a startAt. Nessuna race condition.
-  // 7s: polling 500ms + download chart ~1s + 5.5s buffer. Countdown realistico.
-  const startAt = new Date(Date.now() + 7000).toISOString();
+  // SQL da eseguire una volta su Supabase Dashboard > SQL Editor:
+  //   CREATE OR REPLACE FUNCTION get_server_time()
+  //   RETURNS bigint LANGUAGE sql SECURITY DEFINER AS $$
+  //     SELECT (extract(epoch from now()) * 1000)::bigint;
+  //   $$;
+  let startAt;
+  try {
+    const t0 = Date.now();
+    const { data: serverMs } = await supabase.rpc('get_server_time');
+    const t1 = Date.now();
+    // NTP midpoint: il server ha risposto a metà del round trip
+    const serverNow = serverMs + (t1 - t0) / 2;
+    startAt = new Date(serverNow + 7000).toISOString();
+  } catch {
+    // Fallback se la funzione SQL non esiste ancora: usa clock locale
+    startAt = new Date(Date.now() + 7000).toISOString();
+  }
 
   const activeBand = {
     status:      'active',
     song:        songId,
     songTitle:   songTitle,
     assignments: assignments,
-    startAt:     startAt, // i telefoni si sincronizzano su questo timestamp
+    startAt:     startAt, // timestamp Postgres — stesso orologio usato dal telefono
   };
 
   await supabase.from('events').update({ 
