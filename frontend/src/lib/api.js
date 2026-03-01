@@ -28,20 +28,6 @@ async function getAdminEvent() {
   return data
 }
 
-// Helper per sincronizzazione orario Server (Definito una sola volta qui)
-const getServerTime = async () => {
-  try {
-    const res = await fetch(window.location.href, { method: 'HEAD' });
-    const dateStr = res.headers.get('date');
-    if (dateStr) {
-      return new Date(dateStr).getTime();
-    }
-    return Date.now(); // Fallback
-  } catch {
-    return Date.now();
-  }
-};
-
 export const getDisplayData = async (pubCode) => {
   const { data: event } = await supabase.from('events').select('*').eq('code', pubCode.toUpperCase()).single()
   
@@ -74,19 +60,16 @@ export const getDisplayData = async (pubCode) => {
     .filter(q => !liveRequestId || q.id !== liveRequestId)
     .map(q => ({...q, user_nickname: q.participants?.nickname, user_avatar: q.participants?.avatar_url}));
 
+  // ── Arcade winner: mostrato finché l'admin non preme "clear_arcade".
+  // Se band mode è attiva, arcade_result è sempre null (band ha priorità assoluta).
   const arcadeRaw = activeArcade.data;
   const bandActive = event.active_band?.status === 'active';
   let arcadeResult = null;
-  
   if (!bandActive && arcadeRaw && arcadeRaw.status === 'ended' && arcadeRaw.winner_id) {
-    const endedAt = arcadeRaw.ended_at ? new Date(arcadeRaw.ended_at) : null;
-    const withinWindow = !endedAt || (Date.now() - endedAt.getTime()) < 15000;
-    if (withinWindow) {
-      const { data: winner } = await supabase
-        .from('participants').select('id, nickname, avatar_url')
-        .eq('id', arcadeRaw.winner_id).single();
-      arcadeResult = { winner: winner || { nickname: 'Vincitore', avatar_url: null } };
-    }
+    const { data: winner } = await supabase
+      .from('participants').select('id, nickname, avatar_url')
+      .eq('id', arcadeRaw.winner_id).single();
+    arcadeResult = { winner: winner || { nickname: 'Vincitore', avatar_url: null } };
   }
 
   return {
@@ -643,9 +626,14 @@ export const getQuizResults = async (quizId) => {
   }
 }
 
+// --- FIX SCORING: Accetta il punteggio calcolato dal client ---
+// ─── QUIZ ANSWER — punteggio basato sul tempo, calcolato sul client ──────────
+// Il client calcola i punti in base al tempo di risposta (stile Kahoot).
+// Il server verifica solo la correttezza e applica un cap di sicurezza.
 export const answerQuiz = async (data) => {
   const participant = getParticipantFromToken();
 
+  // 1. Verifica correttezza della risposta
   const { data: quiz, error: quizError } = await supabase
     .from('quizzes')
     .select('correct_index, points, status')
@@ -654,20 +642,29 @@ export const answerQuiz = async (data) => {
 
   if (quizError) throw quizError;
 
+  // Blocca risposte arrivate dopo la chiusura
   if (quiz.status !== 'active') throw new Error('Quiz non più attivo');
 
   const isCorrect = quiz.correct_index === data.answer_index;
 
+  // 2. Calcolo punti finali
+  //    - Se sbagliato: 0 punti
+  //    - Se corretto: usa client_points (calcolato dal telefono in base al tempo)
+  //      con un cap di sicurezza = quiz.points (non si può guadagnare più del massimo)
+  //    - Fallback se il client non manda client_points: 30% del massimo (risposta lenta)
   const maxPoints = quiz.points || 10;
   let finalPoints = 0;
   if (isCorrect) {
     if (typeof data.client_points === 'number' && data.client_points >= 0) {
+      // Cap di sicurezza: non si possono avere più punti del massimo della domanda
       finalPoints = Math.min(data.client_points, maxPoints);
     } else {
+      // Fallback per client vecchi che non mandano client_points
       finalPoints = Math.round(maxPoints * 0.3);
     }
   }
 
+  // 3. Salva nel DB
   const { data: ans, error } = await supabase.from('quiz_answers').insert({
     quiz_id: data.quiz_id,
     participant_id: participant.participant_id,
@@ -1223,24 +1220,37 @@ export const rejectSelfie = async (selfieId) => {
 // ─── BAND MODE API ──────────────────────────────────────────────────────────
 
 export const startBandSession = async (songId, songTitle, assignments) => {
+  // assignments è un ARRAY: [{ instrument, userId, nickname }, ...]
   const event = await getAdminEvent();
   
-  await Promise.all([
-    supabase.from('performances').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended'),
-    supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended'),
-    supabase.from('arcade_games').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended'),
-    supabase.from('millionaire_games').update({ status: 'lost' }).eq('event_id', event.id).neq('status', 'lost'),
-  ]);
+  // Resetta altri moduli per sicurezza
+  await supabase.from('performances').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
+  await supabase.from('quizzes').update({ status: 'ended' }).eq('event_id', event.id).neq('status', 'ended');
+  // Azzera anche winner_id: così getDisplayData non costruisce arcade_result
+  // (il .neq precedente non toccava le partite già 'ended', lasciando il winner visibile)
+  await supabase.from('arcade_games')
+    .update({ status: 'ended', winner_id: null })
+    .eq('event_id', event.id)
+    .in('status', ['setup', 'waiting', 'active', 'paused', 'ended']);
+  // 'ended' non è nella query di getDisplayData → active_millionaire diventa null → isMillionaire=false
+  await supabase.from('millionaire_games').update({ status: 'ended' }).eq('event_id', event.id);
 
-  const serverNow = await getServerTime();
-  const startAt = new Date(serverNow + 10000).toISOString(); // 10s countdown
+  // ── DESIGN: Il DB è l'unica fonte di verità per l'avvio del gioco.
+  // Non usiamo broadcast WebSocket per band_start perché "send() falling back to REST"
+  // significa che il messaggio NON viene consegnato ai subscriber WebSocket — la causa
+  // del comportamento intermittente (funziona solo quando il WS è già joined).
+  //
+  // Soluzione: scriviamo startAt (timestamp futuro) nel DB. I telefoni fanno polling
+  // ogni 2s e calcolano il ritardo rispetto a startAt. Nessuna race condition.
+  // 7s: polling 500ms + download chart ~1s + 5.5s buffer. Countdown realistico.
+  const startAt = new Date(Date.now() + 7000).toISOString();
 
   const activeBand = {
     status:      'active',
     song:        songId,
     songTitle:   songTitle,
     assignments: assignments,
-    startAt:     startAt, 
+    startAt:     startAt, // i telefoni si sincronizzano su questo timestamp
   };
 
   await supabase.from('events').update({ 
@@ -1253,11 +1263,20 @@ export const startBandSession = async (songId, songTitle, assignments) => {
 
 export const stopBandSession = async () => {
   const event = await getAdminEvent();
+  
+  // Rimuoviamo la sessione band dai settings e torniamo al karaoke (o idle)
+  const currentSettings = event.settings || {};
+  const newSettings = { ...currentSettings };
+  delete newSettings.band_session;
+
   await supabase.from('events').update({ 
-    active_module: 'karaoke',
-    active_band: null
+    active_module: 'karaoke', // O 'idle' se preferisci
+    active_band: null,
+    settings: newSettings
   }).eq('id', event.id);
   
+  // ── Stop: il DB viene azzerato. I telefoni vedono active_band = null
+  // al prossimo poll (max 2s) e si resettano automaticamente.
   return { success: true };
 };
 
